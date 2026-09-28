@@ -1,0 +1,27 @@
+# A single-key inline table collapses to a dotted key, and the comment after its
+# value has to come with it. Written in all three places toml_edit can store one.
+before_comma.b = 1 # after the value
+after_comma.b = 1 # after the comma
+outside_braces.b = 1 # outside the braces
+nested.b = {
+	# inner
+} # after the inner table
+blocked = {
+	b = 1 # first
+	# second, so the collapse would drop one
+}
+between_key_and_eq = {
+	a = 1,
+	# why
+	b = 2
+}
+after_eq = {
+	a = 1,
+	# why
+	b = 2
+}
+both = {
+	# one
+	# two
+	a = 1
+}

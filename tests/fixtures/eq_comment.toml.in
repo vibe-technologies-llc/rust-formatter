@@ -1,0 +1,14 @@
+a = { b = # after the equals
+1 }
+nested = [{ p = # inside an array
+2 }]
+later = { m = 1, n = # on a later entry
+2 }
+both = {
+    # above the key
+    k = # after the equals too
+    3,
+}
+wide = { alpha = # one
+1, beta = 2, gamma = [ 1, 2, # trailing
+3 ] }

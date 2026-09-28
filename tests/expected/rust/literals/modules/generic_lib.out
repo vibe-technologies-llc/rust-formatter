@@ -1,0 +1,78 @@
+// A small generic library: a trait with a GAT, a blanket impl, a fat
+// where-clause and doc comments with a code fence that the comments preset
+// will format.
+use std::{fmt::Debug, marker::PhantomData};
+
+use serde::Serialize;
+
+use crate::store::{Entry, Key};
+
+/// A keyed store. Implementors name the item they yield for a given
+/// lifetime; flattening the GAT would drop that lifetime.
+///
+/// ```
+/// fn demo<S: Store>(store: &S) {
+/// let   _ = store.get(&Key(0));
+/// }
+/// ```
+pub trait Store {
+    type Item<'a>
+    where
+        Self: 'a;
+    fn get(&self, key: &Key) -> Option<Self::Item<'_>>;
+    fn insert(&mut self, key: Key, entry: Entry);
+}
+
+pub struct Memory<T> {
+    pub inner: Vec<(Key, T)>,
+    pub marker: PhantomData<T>,
+}
+
+impl<T> Store for Memory<T>
+where
+    T: Clone + Debug + Serialize + 'static,
+{
+    type Item<'a>
+        = &'a T
+    where
+        Self: 'a;
+
+    fn get(&self, key: &Key) -> Option<Self::Item<'_>> {
+        self.inner
+            .iter()
+            .find(|(candidate, _)| candidate == key)
+            .map(|(_, value)| value)
+    }
+
+    fn insert(&mut self, key: Key, entry: Entry) {
+        let _ = entry;
+        self.inner.push((key, self.inner[0].1.clone()));
+    }
+}
+
+impl<T> Memory<T> {
+    #[rustfmt::skip]
+    pub fn empty() -> Self { Self { inner:  vec![  ], marker: PhantomData } }
+
+    pub fn keys(&self) -> impl Iterator<Item = Key> + '_ {
+        self.inner.iter().map(|(key, _)| *key)
+    }
+}
+
+pub fn dump<S>(store: &S, key: &Key) -> Option<String>
+where
+    S: Store,
+    for<'a> S::Item<'a>: Debug,
+{
+    store.get(key).map(|item| format!("{item:?}"))
+}
+
+pub mod store {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct Key(pub u64);
+    #[derive(Clone, Debug)]
+    pub struct Entry {
+        pub key: Key,
+        pub bytes: Vec<u8>,
+    }
+}

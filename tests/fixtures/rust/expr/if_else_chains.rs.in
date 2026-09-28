@@ -1,0 +1,13 @@
+// Nested if / else-if with comments on the conditions. A comment on an
+// `else if` must not slide onto the previous branch.
+pub fn band(value: i32) -> &'static str {
+    if value < 0 {
+        "neg" // below zero
+    } else if value == 0 {
+        "zero" // exactly
+    } else if value < 10 {
+        "small" // single digit
+    } else {
+        "big"
+    }
+}

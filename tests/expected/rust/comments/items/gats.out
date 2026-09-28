@@ -1,0 +1,12 @@
+// A generic associated type has to keep its lifetime parameter. Flattening
+// `type Item<'a>` into `type Item` would be a silent GAT drop.
+pub trait Store {
+    type Item<'a>
+    where
+        Self: 'a;
+    fn get(&self) -> Self::Item<'_>;
+}
+
+pub fn first<'a, S: Store>(store: &'a S) -> S::Item<'a> {
+    store.get()
+}

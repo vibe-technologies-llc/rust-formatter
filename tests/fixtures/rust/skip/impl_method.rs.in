@@ -1,0 +1,10 @@
+// Skip applies to one method of an impl; its sibling still formats. The
+// triple spaces in `messy` are the pin.
+pub struct Calc;
+
+impl Calc {
+    #[rustfmt::skip]
+    pub fn messy(  &self,x:i32  )->i32{  x+   1 }
+
+    pub fn tidy(&self,x:i32)->i32{x+1}
+}

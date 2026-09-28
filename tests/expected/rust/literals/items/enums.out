@@ -1,0 +1,16 @@
+// Data-carrying variants, discriminants and repr have to keep their form.
+// Trailing comments stay on the variant they document.
+#[repr(u8)]
+pub enum Event {
+    Start = 1, // handshake
+    Data { bytes: u32 },
+    Stop(u16) = 9, // application close
+}
+
+pub fn tag(event: Event) -> u8 {
+    match event {
+        Event::Start => 1,
+        Event::Data { .. } => 2,
+        Event::Stop(_) => 9,
+    }
+}

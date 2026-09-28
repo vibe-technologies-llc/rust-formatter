@@ -1,0 +1,11 @@
+// Nested use trees merge at crate granularity without flattening the inner
+// groups into a single unsorted list. `b::{c, d}` has to stay a nested tree
+// or an equivalent merge, not `use crate::a::c`.
+use std::collections::{HashMap, hash_map::Entry};
+
+use crate::a::{
+    b::{c::Leaf, d::Other},
+    e::Wide,
+};
+
+pub fn f(_: HashMap<Leaf, Other>, _: Entry<'_, Leaf, Other>, _: Wide) {}

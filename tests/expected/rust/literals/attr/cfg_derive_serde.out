@@ -1,0 +1,12 @@
+// cfg, cfg_attr, derive and a serde helper. The rename_all value is a
+// string rustfmt must not rewrite, and skip_serializing_if has to stay
+// attached to `token`.
+#[cfg(feature = "std")]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug)]
+#[serde(rename_all = "snake_case")]
+pub struct Session {
+    pub id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}

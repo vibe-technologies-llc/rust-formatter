@@ -1,0 +1,8 @@
+/* an old-style block comment that is long enough to need wrapping when wrap_comments is on and normalize_comments rewrites the markers */
+pub struct A;
+
+/// ```
+/// let    x=1;
+/// assert_eq!(x,1);
+/// ```
+pub fn documented() {}

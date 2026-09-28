@@ -1,0 +1,19 @@
+[dependencies]
+    serde          = {features = [ "derive" ], version = "1", optional = true}
+    tokio.features = [
+        "rt",
+        "macros"
+    ]
+    tokio.version          = "1"
+    tokio.default-features = false
+
+    [dependencies.hyper]
+        # a note the field order must not strand
+        features = [ "client" ]
+
+        optional = true
+        version  = "1"
+        git      = "https://example.invalid/hyper"
+
+[build-dependencies]
+    cc = {workspace = true, package = "cc-real"}

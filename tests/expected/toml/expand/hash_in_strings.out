@@ -1,0 +1,6 @@
+a = "# not"
+b = '# not'
+c = """# not
+# also not"""
+d = '''# not'''
+e = 1 # yes

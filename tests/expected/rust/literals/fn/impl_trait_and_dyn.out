@@ -1,0 +1,9 @@
+// impl Trait in return position and dyn Trait + Send in argument position.
+// Dropping `+ Send` or rewriting `impl Iterator` as a named type is a bug.
+pub fn names(input: &(dyn Iterator<Item = String> + Send)) -> impl Iterator<Item = usize> {
+    input.map(|name| name.len())
+}
+
+pub fn boxed(values: Vec<u8>) -> Box<dyn Iterator<Item = u8> + Send> {
+    Box::new(values.into_iter())
+}

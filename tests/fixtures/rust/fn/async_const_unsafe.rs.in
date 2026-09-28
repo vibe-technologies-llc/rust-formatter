@@ -1,0 +1,17 @@
+// async, const, unsafe and extern fn sit next to each other. rustfmt must
+// not drop a qualifier or swap `extern "C"` into an unsafety position.
+pub async fn fetch(url: &str) -> usize {
+    url.len()
+}
+
+pub const fn size_of_id() -> usize {
+    8
+}
+
+pub unsafe fn write_raw(ptr: *mut u8, value: u8) {
+    unsafe { ptr.write(value) }
+}
+
+pub extern "C" fn c_len(n: u32) -> u32 {
+    n
+}

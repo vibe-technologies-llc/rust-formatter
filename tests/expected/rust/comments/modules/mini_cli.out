@@ -1,0 +1,83 @@
+// A clap-shaped CLI: mixed std / external / crate imports, a derive parser,
+// a match on subcommands, and a skipped help blob that must keep its padding.
+use std::{fs, path::PathBuf};
+
+use clap::{Parser, Subcommand};
+
+use crate::config::{Mode, Settings};
+
+/// Top-level arguments. The about string is user-facing and must survive.
+#[derive(Parser, Debug)]
+#[command(name = "tool", about = "format a tree of files")]
+pub struct Args {
+    /// Paths to format, defaulting to the current directory.
+    pub paths: Vec<PathBuf>,
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Rewrite in place.
+    Write {
+        #[arg(long)]
+        check: bool,
+    },
+    /// Print a diff and exit 1 when dirty.
+    Check,
+}
+
+pub fn run(args: Args, settings: Settings) -> Result<(), std::io::Error> {
+    match args.command.unwrap_or(Command::Check) {
+        Command::Write { check } => {
+            for path in &args.paths {
+                let _ = fs::read(path)?;
+                let _ = check;
+            }
+            Ok(())
+        }
+        Command::Check => {
+            let _ = settings;
+            Ok(())
+        }
+    }
+}
+
+impl Args {
+    #[rustfmt::skip]
+    pub fn banner() -> &'static str {
+        "  tool   --  format\n    files   in   place\n"
+    }
+}
+
+pub fn names(args: &Args) -> Vec<String> {
+    args.paths
+        .iter()
+        .filter_map(|path| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.starts_with('.'))
+        .take(32)
+        .collect()
+}
+
+macro_rules! flag {
+    ($name:expr) => {
+        concat!("--", $name)
+    };
+}
+
+pub fn check_flag() -> &'static str {
+    flag!("check")
+}
+
+pub mod config {
+    #[derive(Clone, Copy, Debug)]
+    pub enum Mode {
+        Write,
+        Check,
+    }
+    #[derive(Clone, Debug)]
+    pub struct Settings {
+        pub mode: Mode,
+    }
+}

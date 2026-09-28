@@ -1,0 +1,6 @@
+#!/usr/bin/env rust-script
+#![allow(dead_code)]
+// rustfmt keeps a shebang on line 1 and crate-level attributes under it.
+// Losing the shebang would break rust-script files.
+
+pub fn ready() {}

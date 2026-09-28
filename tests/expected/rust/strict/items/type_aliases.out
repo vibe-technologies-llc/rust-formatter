@@ -1,0 +1,11 @@
+// Type aliases, including impl Trait in an alias position. The `+ Send`
+// bound is load-bearing; dropping it is a bug.
+pub type Id = u64;
+pub type Shared<T> = std::sync::Arc<T>;
+pub type BoxFuture = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
+
+pub fn ready() -> BoxFuture {
+    Box::pin(async {})
+}
+
+use std::future::Future;

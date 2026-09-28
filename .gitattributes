@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+LICENSE text eol=lf
+
+# Committed byte for byte: these pin the BOM/CRLF codec, and the eol=lf rule
+# above would rewrite the very thing they exist to test.
+tests/fixtures/encoding/** -text
+tests/expected/encoding/** -text

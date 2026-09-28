@@ -1,0 +1,2 @@
+[target.'cfg(unix)'.dependencies]
+nix = { package = "nix-real", version = "0.2" }

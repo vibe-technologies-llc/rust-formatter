@@ -1,0 +1,25 @@
+# Hook definitions for the pre-commit framework (https://pre-commit.com).
+#
+# The flags live in `entry` rather than `args` on purpose: `args` here are
+# defaults that a repository's own .pre-commit-config.yaml replaces wholesale,
+# so a `--staged` that could be dropped would silently reformat a whole tree.
+# Flags in `entry` cannot be dropped, and a user's `args` append to them.
+- id: rust-formatter
+  name: rust-formatter
+  description: Format the staged Rust and TOML files and re-add them to the index.
+  entry: rust-formatter --staged --restage
+  language: rust
+  files: \.(rs|toml)$
+  # The tool asks git for its own scope, so it needs no file list -- and one
+  # invocation is what keeps --restage to a single `git add`.
+  pass_filenames: false
+  # Nothing else may write the index while this does.
+  require_serial: true
+
+- id: rust-formatter-check
+  name: rust-formatter (check)
+  description: Fail if the staged Rust or TOML files are not formatted, and print a diff.
+  entry: rust-formatter --staged --check
+  language: rust
+  files: \.(rs|toml)$
+  pass_filenames: false

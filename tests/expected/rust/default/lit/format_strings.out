@@ -1,0 +1,5 @@
+// format_strings (strict) wraps a long string with `\`. The other presets
+// leave it on one line. Either way the words have to remain.
+pub fn wide() -> &'static str {
+    "a string long enough that format_strings has something to do with it once the width budget is exceeded"
+}

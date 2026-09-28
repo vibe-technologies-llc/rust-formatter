@@ -1,0 +1,13 @@
+// Array-valued --config has to take the rustfmt.toml file route. `html!`
+// keeps its odd spacing; `vec!` still formats. If html! is rewritten, the
+// array never reached rustfmt.
+fn render() -> i32 {
+    html! { <div   class="x" > { 1+   2 } </div> }
+    vec![1, 2, 3]
+}
+
+macro_rules! html {
+    ($($t:tt)*) => {
+        0
+    };
+}

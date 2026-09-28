@@ -1,0 +1,11 @@
+/// A doctest whose inner Rust is deliberately ragged. Under the `comments`
+/// and `strict` presets `format_code_in_doc_comments` has to tidy the fence
+/// without touching the surrounding prose.
+///
+/// ```
+/// let    x=1;
+/// assert_eq!(x,1);
+/// ```
+///
+/// End of the docs.
+pub fn documented() {}

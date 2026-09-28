@@ -1,0 +1,9 @@
+// Preserve must not insert StdExternalCrate blank lines between crate, std
+// and external. reorder_imports may still sort the names.
+use crate::a::First;
+use serde::Serialize;
+use std::fmt;
+
+pub fn f(_: &dyn fmt::Debug, _: First) -> impl Serialize {
+    0u8
+}

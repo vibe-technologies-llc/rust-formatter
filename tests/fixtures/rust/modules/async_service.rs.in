@@ -1,0 +1,88 @@
+// An async handler sketch: Result, `?`, a select-shaped match and an error
+// enum with comments. The skipped timeout constant keeps its padding.
+use crate::error::Error;
+use std::time::Duration;
+use serde::Deserialize;
+use crate::error::Kind;
+use std::collections::HashMap;
+
+#[derive(Debug, Deserialize)]
+pub struct Request {
+    pub path: String,              // request target
+    pub headers: HashMap<String, String>, // incoming
+}
+
+pub async fn handle(request: Request) -> Result<Response, Error> {
+    let method = request
+        .headers
+        .get("x-method")
+        .cloned()
+        .ok_or(Error { kind: Kind::BadRequest, message: "missing method".into() })?;
+    match method.as_str() {
+        "GET" => get(&request.path).await,
+        "POST" => post(&request.path).await,
+        other => Err(Error {
+            kind: Kind::BadRequest,
+            message: format!("unsupported {other}"),
+        }),
+    }
+}
+
+async fn get(path: &str) -> Result<Response, Error> {
+    Ok(Response {
+        status: 200,
+        body: path.to_owned(),
+    })
+}
+
+async fn post(path: &str) -> Result<Response, Error> {
+    if path.is_empty() {
+        return Err(Error {
+            kind: Kind::BadRequest,
+            message: "empty path".into(),
+        });
+    }
+    Ok(Response {
+        status: 201,
+        body: path.to_owned(),
+    })
+}
+
+pub struct Response {
+    pub status: u16,
+    pub body: String,
+}
+
+impl Response {
+    #[rustfmt::skip]
+    pub const TIMEOUT: Duration = Duration::from_millis(  1_500  );
+}
+
+pub fn statuses(responses: &[Response]) -> Vec<u16> {
+    responses
+        .iter()
+        .map(|response| response.status)
+        .filter(|status| *status >= 400)
+        .collect()
+}
+
+pub mod error {
+    pub struct Error {
+        pub kind: Kind,
+        pub message: String,
+    }
+    pub enum Kind {
+        BadRequest, // 400
+        Internal,   // 500
+    }
+}
+
+macro_rules! status {
+    ($code:expr) => {
+        $code
+    };
+}
+
+pub fn ok() -> u16 {
+    status!(200)
+}

@@ -1,0 +1,7 @@
+// `?` in a chain. Each `?` has to survive; collapsing the chain into a
+// single `and_then` is a different program.
+pub fn load(raw: &str) -> Result<u32, Parse> {
+    Ok(raw.trim().parse::<u64>().map_err(|_| Parse)?.try_into().map_err(|_| Parse)?)
+}
+
+pub struct Parse;

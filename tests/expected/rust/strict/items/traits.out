@@ -1,0 +1,13 @@
+// Associated types, a default method and a supertrait. The default body
+// has to stay on `ok`; rustfmt must not drop the supertrait bound.
+pub trait Ready: Clone {
+    type Output;
+    fn poll(&mut self) -> Option<Self::Output>;
+    fn ok(&self) -> bool {
+        true
+    }
+}
+
+pub fn wait<T: Ready>(mut ready: T) -> Option<T::Output> {
+    ready.poll()
+}

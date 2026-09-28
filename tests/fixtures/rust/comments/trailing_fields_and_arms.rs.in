@@ -1,0 +1,20 @@
+// Trailing comments on struct fields, enum variants and match arms have to
+// stay on those elements after wrapping and reordering.
+pub struct Account {
+    pub id: u64,      // stable identifier
+    pub name: String, // display name
+}
+
+pub enum Kind {
+    User,  // interactive
+    Guest, // anonymous
+    Bot,   // machine
+}
+
+pub fn label(kind: Kind) -> &'static str {
+    match kind {
+        Kind::User => "user",   // shown in the banner
+        Kind::Guest => "guest", // shown in the banner
+        Kind::Bot => "bot",     // hidden from the banner
+    }
+}

@@ -1,0 +1,9 @@
+// A comment between imports takes two rustfmt passes to settle (rustfmt#6195),
+// which is why the runner retries. The note has to survive grouping and still
+// sit with the std import it was written against.
+use crate::b::Second;
+// a note between imports
+use std::fmt;
+use crate::a::First;
+
+pub fn f(_: &dyn fmt::Debug, _: First, _: Second) {}

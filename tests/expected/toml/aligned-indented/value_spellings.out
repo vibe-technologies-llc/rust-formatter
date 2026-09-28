@@ -1,0 +1,48 @@
+# Guarantee 5: every spelling below has to survive verbatim.
+hex         = 0x1F
+hex_lower   = 0xdeadbeef
+octal       = 0o755
+binary      = 0b1010_0101
+underscored = 1_000_000
+plus        = +42
+minus       = -0
+big         = 9_223_372_036_854_775_807
+
+trailing_zero  = 1.50
+exponent       = 1e0
+exponent_upper = 2E+3
+neg_exponent   = 6.02e-23
+infinite       = inf
+neg_infinite   = -inf
+not_a_number   = nan
+
+basic    = "a\tbé"
+literal  = 'win\path'
+ml_basic = """
+first
+second
+"""
+ml_literal = '''
+raw \not \an \escape
+'''
+empty = ""
+
+offset            = 1979-05-27T07:32:00Z
+offset_fractional = 1979-05-27T00:32:00.999999-07:00
+local_datetime    = 1979-05-27T07:32:00
+local_date        = 1979-05-27
+local_time        = 07:32:00
+
+[nested]
+    inside = [
+        0x1F,
+        1.50,
+        'win\path'
+    ]
+    table = {hex = 0xFF, float = 2.00}
+
+[[array_of_tables]]
+    value = 0o17
+
+[[array_of_tables]]
+    value = 1_2_3

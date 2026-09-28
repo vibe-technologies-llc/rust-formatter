@@ -1,0 +1,5 @@
+// The same `dyn` / `async` source formatted at 2018. `dyn` has to stay
+// explicit; edition 2015 would treat `dyn` as an identifier and fail.
+pub async fn fetch(url: &str) -> Box<dyn Iterator<Item = u8>> {
+    Box::new(url.bytes())
+}

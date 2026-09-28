@@ -1,0 +1,30 @@
+a = {
+    # after the equals
+    b = 1,
+}
+nested = [
+    {
+        # inside an array
+        p = 2,
+    },
+]
+later = {
+    m = 1,
+    # on a later entry
+    n = 2,
+}
+both = {
+    # above the key
+    # after the equals too
+    k = 3,
+}
+wide = {
+    # one
+    alpha = 1,
+    beta = 2,
+    gamma = [
+        1,
+        2, # trailing
+        3,
+    ],
+}

@@ -1,0 +1,12 @@
+// A builder-style iterator chain long enough to wrap. rustfmt must keep
+// the adapter order; swapping `filter` and `map` would change results.
+pub fn total(values: &[i32]) -> i32 {
+    values
+        .iter()
+        .copied()
+        .filter(|value| *value > 0)
+        .map(|value| value * 2)
+        .filter(|value| *value < 100)
+        .take(8)
+        .sum()
+}

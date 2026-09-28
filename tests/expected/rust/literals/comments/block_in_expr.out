@@ -1,0 +1,14 @@
+// Block comments inside expressions, arrays and struct literals have to
+// stay in those positions, not be lifted above the statement.
+pub struct Point {
+    pub x: i32,
+    pub y: i32,
+}
+
+pub fn origin() -> Point {
+    let xs = [1, /* mid */ 2, 3];
+    Point {
+        x: xs[0] /* first */,
+        y: /* origin */ 0,
+    }
+}

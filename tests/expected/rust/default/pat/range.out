@@ -1,0 +1,9 @@
+// Inclusive and exclusive range patterns. `1..=4` must not become `1..4`.
+pub fn bucket(value: u8) -> &'static str {
+    match value {
+        0 => "none",
+        1..=4 => "few",
+        5..10 => "some",
+        10..=u8::MAX => "many",
+    }
+}

@@ -1,0 +1,26 @@
+root-key = 1
+
+[patch.crates-io]
+    zzz.git  = "https://example.invalid/zzz"
+    aaa.path = "vendor/aaa"
+
+[replace]
+    "zzz:1.0.0".path = "vendor/zzz"
+    "aaa:1.0.0".path = "vendor/aaa"
+
+[profile.release]
+    lto           = true
+    codegen-units = 1
+
+[dependencies]
+    serde = "1"
+
+# the features block moves as a whole
+[features]
+    default = []
+
+[package]
+    version     = "0.1.0"
+    description = "a description that has to land last under the style guide"
+    name        = "ordered"
+    edition     = "2024"

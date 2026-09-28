@@ -1,0 +1,13 @@
+// cfg-gated uses still participate in grouping. The attribute has to stay
+// on the use it was written on; merging a cfg'd import with an unguarded
+// sibling would change meaning.
+use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(feature = "serde")]
+use serde::Serialize;
+use crate::local::Helper;
+
+pub fn f(_: Helper) {
+    let _ = fs::metadata(".");
+}

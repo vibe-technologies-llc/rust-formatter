@@ -1,0 +1,6 @@
+// @presets: default
+// @range: 3
+// Only `second` (line 3) is in range; `first` and `third` keep odd spacing.
+fn  first( ){ }
+fn  second( ){ }
+fn  third( ){ }

@@ -1,0 +1,21 @@
+[[bin]]
+name = "zzz"
+path = "src/bin/zzz.rs"
+
+# this comment introduces the middle target
+[[bin]]
+name = "aaa"
+
+[[example]]
+name = "x8"
+
+[[example]]
+name = "x16"
+[[example]]
+name = "x2"
+
+[[bench]]
+path = "benches/unnamed.rs"
+
+[[bench]]
+name = "named"

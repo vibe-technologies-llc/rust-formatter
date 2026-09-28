@@ -1,0 +1,9 @@
+// The never type and a higher-ranked function pointer. `!` must not become
+// `()`; the `for<'a>` binder has to stay on the fn pointer.
+pub fn abort() -> ! {
+    loop {}
+}
+
+pub fn apply(f: for<'a> fn(&'a str) -> usize, input: &str) -> usize {
+    f(input)
+}

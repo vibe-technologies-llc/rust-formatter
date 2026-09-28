@@ -1,0 +1,9 @@
+// @config: imports_granularity=Module
+// The default this tool exists to deliver is Crate merge. Naming Module on
+// the command line has to win: these sibling crate imports must stay on
+// two lines, not become `use crate::{a, b}`.
+use crate::a::First;
+use crate::b::Second;
+use std::fmt::Debug;
+
+pub fn f(_: &dyn Debug, _: First, _: Second) {}

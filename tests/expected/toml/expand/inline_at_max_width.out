@@ -1,0 +1,38 @@
+# Inline tables and arrays sitting on the width budget, key included.
+
+[dependencies]
+at_the_limit = {
+    version = "1.0.0",
+    features = ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
+}
+one_past_the_limit = {
+    version = "1.0.0",
+    features = ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
+}
+
+[features]
+array_at_the_limit = ["item00", "item01", "item02", "item03", "item04", "item05", "zzzzzzzzzzzzzzz"]
+array_one_past = [
+    "item00",
+    "item01",
+    "item02",
+    "item03",
+    "item04",
+    "item05",
+    "zzzzzzzzzzzzzzzzzzzz"
+]
+
+# A nested container that only fits because the outer one does not wrap.
+nested = {
+    a = [1, 2, 3],
+    b = {
+        c = [4, 5],
+        d = "e"
+    }
+}
+deeply = [[1, 2], [3, 4], [{ x = 1 }, { y = 2 }]]
+
+# A value whose own text spans lines has no column count.
+spanning.note = """
+multi
+line"""

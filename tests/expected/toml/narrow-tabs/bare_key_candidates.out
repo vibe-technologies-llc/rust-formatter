@@ -1,0 +1,22 @@
+# Keys the spec allows bare, keys it does not, and keys that only look bare.
+"plain" = 1
+'literal' = 2
+"1234" = 3
+"with-dash" = 4
+"with_underscore" = 5
+"" = 6
+"has space" = 7
+"has.dot" = 8
+'needs "quotes"' = 9
+"ünïcödé" = 10
+already_bare = 11
+
+["quoted-header"]
+"inner" = 1
+
+[["quoted-array-header"]]
+"inner" = 2
+
+[nested]
+"a"."b" = 1
+table = { "x" = 1, "y z" = 2 }

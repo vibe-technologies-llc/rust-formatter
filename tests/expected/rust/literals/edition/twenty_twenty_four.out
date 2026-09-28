@@ -1,0 +1,12 @@
+// Edition 2024 let-chains and an async closure. Formatting without
+// `--edition 2024` would fail to parse the chain; this pins the flag.
+pub fn both(values: Option<&[u8]>) -> impl std::future::Future<Output = usize> {
+    async move || {
+        if let Some(rest) = values
+            && let Some(first) = rest.first()
+        {
+            return *first as usize;
+        }
+        0
+    }
+}

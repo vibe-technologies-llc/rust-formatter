@@ -1,0 +1,17 @@
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "out of order on purpose"
+license = "MIT"
+categories = ["development-tools"]
+custom-field = 1
+another-custom = 2
+
+[package.metadata.docs.rs]
+all-features = true
+
+[workspace.package]
+name = "ws"
+edition = "2024"

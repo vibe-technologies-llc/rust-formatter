@@ -1,0 +1,9 @@
+// Raw identifiers. rustfmt must not strip the `r#` prefix, which would
+// turn `r#type` into the keyword `type`.
+pub fn r#match(r#type: u8) -> u8 {
+    r#type
+}
+
+pub struct r#struct {
+    pub r#fn: u8,
+}

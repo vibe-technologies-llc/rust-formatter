@@ -1,0 +1,15 @@
+// @edition: 2024
+// let-else and an if-let chain. The `else` branch of let-else must remain
+// diverging; flattening it into `unwrap` would be a different program.
+pub fn head(values: &[u8]) -> u8 {
+    let Some((first, rest)) = values.split_first() else {
+        return 0;
+    };
+    if let Some(second) = rest.first()
+        && let extra = first.wrapping_add(*second)
+        && extra > 4
+    {
+        return extra;
+    }
+    *first
+}

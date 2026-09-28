@@ -1,0 +1,9 @@
+// An allow attribute plus the comment that explains it have to stay on the
+// item. rustfmt must not slide the comment onto the next function.
+#[allow(dead_code)] // used from generated tests
+pub fn reserved() {}
+
+#[expect(unused_variables)] // the binding is a documented placeholder
+pub fn placeholder(x: u32) {
+    let _ = x;
+}

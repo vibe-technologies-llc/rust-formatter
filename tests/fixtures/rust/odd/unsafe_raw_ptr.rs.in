@@ -1,0 +1,14 @@
+// @edition: 2024
+// Unsafe blocks and raw pointers. `*const` / `*mut` must keep their
+// mutability; `&raw const` is the 2024 raw-borrow form.
+pub fn read(ptr: *const u8) -> u8 {
+    unsafe { *ptr }
+}
+
+pub fn write(ptr: *mut u8, value: u8) {
+    unsafe { *ptr = value }
+}
+
+pub fn addr(value: &u8) -> *const u8 {
+    &raw const *value
+}

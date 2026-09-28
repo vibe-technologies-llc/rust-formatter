@@ -1,0 +1,13 @@
+// Inline modules, inner attributes and nested visibility. The inner allow
+// has to stay inside `nested`, not float to the crate root.
+pub mod nested {
+    #![allow(dead_code)]
+    pub(crate) fn hidden() {}
+    pub mod deep {
+        pub fn leaf() {}
+    }
+}
+
+pub fn touch() {
+    nested::deep::leaf();
+}

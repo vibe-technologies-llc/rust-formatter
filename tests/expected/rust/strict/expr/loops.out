@@ -1,0 +1,22 @@
+// for, while-let, a labeled loop and a break value. The label `'search`
+// has to stay on both the loop and the break.
+pub fn find(values: &[u8], needle: u8) -> Option<usize> {
+    let mut i = 0;
+    let found = 'search: loop {
+        if i >= values.len() {
+            break 'search None;
+        }
+        if values[i] == needle {
+            break 'search Some(i);
+        }
+        i += 1;
+    };
+    let mut rest = values.iter();
+    while let Some(_) = rest.next() {}
+    for (index, value) in values.iter().enumerate() {
+        if *value == needle {
+            return Some(index);
+        }
+    }
+    found
+}

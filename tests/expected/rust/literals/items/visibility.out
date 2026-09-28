@@ -1,0 +1,11 @@
+// pub(crate), pub(super) and pub(in path) have to keep their path. Rewriting
+// `pub(in crate::inner)` as `pub(crate)` would widen visibility.
+mod inner {
+    pub(crate) fn crate_wide() {}
+    pub(super) fn parent_only() {}
+    pub(in crate::inner) fn this_module() {}
+}
+
+pub fn touch() {
+    inner::crate_wide();
+}

@@ -1,0 +1,4 @@
+"quoted"     = 1
+'lit'        = 2
+"with space" = 3
+""           = 4

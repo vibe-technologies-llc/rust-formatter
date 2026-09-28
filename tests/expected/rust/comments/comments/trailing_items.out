@@ -1,0 +1,6 @@
+// Trailing comments on items stay on the same line as the item they document.
+// Moving `re-exported` onto a line of its own, or swapping it onto `Helper`,
+// is a bug.
+pub struct Helper; // local stand-in
+pub use crate::Helper as Reexport; // re-exported
+pub fn ready() {} // called from main

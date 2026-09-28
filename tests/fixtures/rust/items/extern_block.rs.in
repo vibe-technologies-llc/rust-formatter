@@ -1,0 +1,12 @@
+// An extern block keeps its ABI string and link attribute. rustfmt must not
+// rewrite `"C"` into `"cdecl"` or drop `link_name`.
+#[link(name = "c")]
+extern "C" {
+    fn strlen(s: *const u8) -> usize;
+    #[link_name = "memcmp"]
+    fn compare(a: *const u8, b: *const u8, n: usize) -> i32;
+}
+
+pub unsafe fn len(s: *const u8) -> usize {
+    unsafe { strlen(s) }
+}

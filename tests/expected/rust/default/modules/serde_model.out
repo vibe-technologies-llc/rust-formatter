@@ -1,0 +1,63 @@
+// A serde data model: tagged enums, field attributes, a Display impl and
+// comments on every public field. The skip region is a hand-aligned table.
+use std::{collections::BTreeMap, fmt};
+
+use serde::{Deserialize, Serialize};
+
+use crate::ids::{TeamId, UserId};
+
+/// A persisted user. `email` is optional on purpose; do not drop the
+/// `skip_serializing_if` or the field becomes required in the wire format.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct User {
+    pub id: UserId,   // stable
+    pub name: String, // display
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>, // optional
+    #[serde(default)]
+    pub teams: BTreeMap<TeamId, Role>, // membership
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    Owner,  // full
+    Editor, // write
+    Viewer, // read
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Role::Owner => write!(f, "owner"),
+            Role::Editor => write!(f, "editor"),
+            Role::Viewer => write!(f, "viewer"),
+        }
+    }
+}
+
+impl User {
+    pub fn primary_team(&self) -> Option<TeamId> {
+        self.teams
+            .iter()
+            .filter(|(_, role)| matches!(role, Role::Owner))
+            .map(|(id, _)| *id)
+            .next()
+    }
+
+    #[rustfmt::skip]
+    pub fn table() -> &'static str {
+        "id     name    role\n------ ------ ----\n"
+    }
+}
+
+pub mod ids {
+    #[derive(
+        Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+    )]
+    pub struct UserId(pub u64);
+    #[derive(
+        Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+    )]
+    pub struct TeamId(pub u64);
+}

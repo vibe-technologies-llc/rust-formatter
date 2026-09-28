@@ -1,0 +1,10 @@
+# a leading note
+first = 1
+
+# fmt: off
+[frozen]
+k    =    1
+
+
+l=2
+# a trailing note

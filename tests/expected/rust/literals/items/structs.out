@@ -1,0 +1,16 @@
+// Named, tuple and unit structs, with field comments, vis and a derive.
+// The comment on `label` has to stay on that field; the tuple's unnamed
+// fields must not grow names.
+#[derive(Clone, Debug)]
+pub struct Named {
+    pub id: u64,
+    pub(crate) label: String, // shown in the UI
+}
+
+pub struct Tuple(pub u64, String);
+
+pub struct Unit;
+
+pub fn pack(id: u64, label: String) -> (Named, Tuple, Unit) {
+    (Named { id, label }, Tuple(id, String::new()), Unit)
+}

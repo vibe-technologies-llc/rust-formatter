@@ -1,0 +1,10 @@
+# Inner comment on the last value and a comment on the closing brace must both
+# survive a collapse. Guarantee 4.
+both = { a = 1 # inner
+}# outer
+empty_hash = { a = 1 # inner
+}#
+only_outer = { a = 1 }# keep
+wrapped = {
+	a = 1, #~4UU	U 2
+}#

@@ -1,0 +1,10 @@
+// Comments inside a use tree — before the first name, between names, after
+// the last — have to come out still inside the braces, not promoted onto
+// the `use` line or stranded above the item.
+use crate::names::{
+    /* keep before */ Alpha,
+    Beta,  // between
+    Gamma, /* after last */
+};
+
+pub fn f(_: Alpha, _: Beta, _: Gamma) {}

@@ -1,0 +1,15 @@
+// vec!, println! and format_args! plus a custom invocation. Delimited
+// arguments overflow onto the next line under the literals preset; they
+// must not lose an argument.
+pub fn report(name: &str, values: &[i32]) {
+    println!("name={name} n={}", values.len());
+    let _ = format_args!("ready {name}");
+    let _ = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    ready!(name);
+}
+
+macro_rules! ready {
+    ($name:expr) => {
+        let _ = $name;
+    };
+}

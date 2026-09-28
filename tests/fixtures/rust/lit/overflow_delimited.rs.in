@@ -1,0 +1,10 @@
+// overflow_delimited_expr (literals/strict) lets the vec sit in the call
+// argument list instead of wrapping the whole call. Losing an element is
+// a bug under every preset.
+pub fn collect() -> Vec<i32> {
+    do_thing(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+}
+
+fn do_thing<T>(value: T) -> T {
+    value
+}

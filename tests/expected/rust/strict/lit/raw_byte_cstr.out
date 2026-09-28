@@ -1,0 +1,11 @@
+// Raw, byte, C and hashed raw strings. rustfmt must not eat a `#` off the
+// delimiter or turn a raw string into a cooked one (which would interpret
+// the backslash).
+pub fn samples() -> usize {
+    let raw = r#"path\to\file"#;
+    let hashed = r##"contains "# inside"##;
+    let bytes = b"raw\x00bytes";
+    let raw_bytes = br#"no \x escapes"#;
+    let c_str = c"null-terminated";
+    raw.len() + hashed.len() + bytes.len() + raw_bytes.len() + c_str.to_bytes().len()
+}

@@ -1,0 +1,13 @@
+// Three-tier grouping: std, then external, then crate, with a blank line
+// between each. Crate-level merge collapses crate::a and crate::b into one
+// use tree; losing a group or flattening all three into one block is a bug.
+use crate::b::Second;
+use std::fmt;
+use serde::Serialize;
+use crate::a::First;
+use std::collections::HashMap;
+use crate::b::Third;
+
+pub fn f(_: &dyn fmt::Debug, _: HashMap<String, First>, _: Second, _: Third) -> impl Serialize {
+    0u8
+}

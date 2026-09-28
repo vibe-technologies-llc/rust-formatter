@@ -1,0 +1,11 @@
+// Guards, or-patterns, `@` bindings and arm comments. The guard `n > 4`
+// has to stay a guard, not become a nested if.
+pub fn classify(value: Option<&[u8]>) -> &'static str {
+    match value {
+        Some(rest @ [0, ..]) => "nul",           // leading zero
+        Some([a, b] | [a, b, ..]) if *a > *b => "desc", // first two
+        Some([n, ..]) if *n > 4 => "big",        // guarded
+        None | Some([]) => "empty",              // nothing
+        Some(_) => "other",
+    }
+}

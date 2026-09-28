@@ -1,0 +1,19 @@
+//! Crate-level inner docs have to stay at the top of the file, not become
+//! an outer `///` on the first item.
+//!
+//! A second inner paragraph checks that blank lines inside `//!` survive.
+
+/// Outer docs on the struct. A blank line in here is a paragraph break
+/// and must not be collapsed into a single sentence.
+///
+/// Still about `Record`.
+pub struct Record {
+    /// The primary key.
+    pub id: u64,
+}
+
+/** Block outer docs on a function. normalize_comments may rewrite the
+ *  markers to `///`; the words have to remain. */
+pub fn load(id: u64) -> Record {
+    Record { id }
+}

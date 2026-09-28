@@ -1,0 +1,19 @@
+[package]
+name = "arrays"
+authors = ["Last One", "First One"]
+keywords = ["zeta", "alpha", "Beta", "_leading"]
+categories = ["z", "a"]
+
+[features]
+aaa = [
+    "z",
+    # a comment pins this array in place
+    "a",
+]
+default = ["zzz"]
+mixed = ["b", "a"]
+zzz = ["dep:serde", "aaa"]
+
+[workspace]
+exclude = ["target"]
+members = ["crates/zeta", "crates/alpha"]

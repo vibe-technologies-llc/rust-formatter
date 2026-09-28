@@ -1,0 +1,16 @@
+// Named lifetimes, `'static` and an HRTB on a trait bound. Eliding `'a`
+// on `input` would be a different signature.
+pub fn first<'a>(input: &'a [u8]) -> &'a u8 {
+    &input[0]
+}
+
+pub fn as_static(input: &'static str) -> &'static str {
+    input
+}
+
+pub fn each<F>(f: F)
+where
+    F: for<'a> Fn(&'a str),
+{
+    f("ready");
+}

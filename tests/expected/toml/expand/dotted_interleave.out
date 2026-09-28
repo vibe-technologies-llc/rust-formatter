@@ -1,0 +1,4 @@
+fn.a.skipped = true
+fn.c.skipped = true
+# about b
+class.b.skipped = true

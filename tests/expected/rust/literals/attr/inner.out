@@ -1,0 +1,8 @@
+#![allow(dead_code)]
+#![forbid(unsafe_code)]
+// Inner attributes have to remain at the crate root, above the first item.
+// Sliding `forbid` onto `ready` would change the lint set for the file.
+
+pub fn ready() -> u8 {
+    1
+}

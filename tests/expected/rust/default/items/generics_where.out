@@ -1,0 +1,10 @@
+// A long where-clause and an HRTB have to wrap rather than disappear. The
+// `'a` on `input` is the lifetime the HRTB names.
+pub fn transform<'a, T, F>(input: &'a T, mapper: F) -> &'a T
+where
+    T: Clone + 'a,
+    F: for<'b> Fn(&'b T) -> &'b T,
+{
+    mapper(input);
+    input
+}

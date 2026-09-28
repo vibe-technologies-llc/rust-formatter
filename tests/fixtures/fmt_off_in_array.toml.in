@@ -1,0 +1,15 @@
+a = [
+  1,
+  # fmt: off
+  2,    3,
+  # fmt: on
+  4,
+]
+b = { x = 1 }
+
+[t]
+c = """
+# fmt: off
+not a marker
+"""
+d   =   2

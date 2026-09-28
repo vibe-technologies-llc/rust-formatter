@@ -1,0 +1,37 @@
+[package]
+name = "sortable"
+version = "0.1.0"
+
+[dependencies]
+
+# a note about mmm, which has to travel with it
+mmm = { version = "2", features = ["derive"] }
+zzz = "1"
+
+aaa.workspace = true
+# a second block, after a blank line
+bbb = "3"
+quoted-dep = "4"
+
+[dev-dependencies]
+alpha = "2"
+zeta = "1"
+
+[dependencies.ggg]
+version = "5"
+
+# between two header blocks
+[dependencies.ccc]
+version = "6"
+features = ["x"]
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+nix = "0.2"
+
+[build-dependencies]
+only-one = "1"
+
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }

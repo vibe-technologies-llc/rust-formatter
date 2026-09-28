@@ -1,0 +1,9 @@
+// Const generic parameters and a default. `N` has to remain part of the
+// type; rustfmt must not fold `Buf<8>` into a type alias it invented.
+pub struct Buf<const N: usize = 8> {
+    pub bytes: [u8; N],
+}
+
+pub fn empty<const N: usize>() -> Buf<N> {
+    Buf { bytes: [0; N] }
+}

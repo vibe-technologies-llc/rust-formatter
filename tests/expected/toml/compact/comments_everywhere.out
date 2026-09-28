@@ -1,0 +1,10 @@
+# top
+
+# above a
+a = 1 # trailing a
+
+# above table
+[t] # trailing table
+# above b
+b = 2 # trailing b
+# eof

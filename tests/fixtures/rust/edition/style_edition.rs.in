@@ -1,0 +1,12 @@
+// @style-edition: 2024
+// style_edition is forwarded to rustfmt as its own flag, not as --edition.
+// A wrapping difference against the default style edition is acceptable;
+// dropping the imports' three-tier grouping is not.
+use crate::b::Second;
+use serde::Serialize;
+use std::fmt;
+use crate::a::First;
+
+pub fn f(_: &dyn fmt::Debug, _: First, _: Second) -> impl Serialize {
+    0u8
+}

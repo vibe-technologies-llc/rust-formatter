@@ -1,0 +1,14 @@
+// A macro_rules matcher with repetition. rustfmt pretty-prints the body
+// without dropping `$($item:tt)*` or the trailing semicolon matcher.
+macro_rules! count {
+    () => {
+        0
+    };
+    ($head:tt $(, $tail:tt)*) => {
+        1 + count!($($tail),*)
+    };
+}
+
+pub fn items() -> usize {
+    count!(a, b, c)
+}

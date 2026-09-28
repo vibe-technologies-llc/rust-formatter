@@ -1,0 +1,16 @@
+// move, async-move and a higher-ranked closure. The `move` has to stay;
+// dropping it would borrow instead of capture.
+pub fn adapters(base: String) -> impl Fn(&str) -> String {
+    move |suffix| format!("{base}{suffix}")
+}
+
+pub fn later(base: String) -> impl std::future::Future<Output = usize> {
+    async move { base.len() }
+}
+
+pub fn for_all<F>(f: F) -> usize
+where
+    F: for<'a> Fn(&'a str) -> usize,
+{
+    f("ready")
+}

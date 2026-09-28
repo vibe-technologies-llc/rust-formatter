@@ -1,0 +1,13 @@
+// Comments in a parameter list and on a return type stay with the argument
+// they were written on, including after the signature wraps.
+pub fn connect(
+    host: &str, // hostname or ip
+    port: u16,  /* tcp port */
+    tls: bool,  // wrap with rustls
+) -> Result<Handle, Error> /* never panics */ {
+    let _ = (host, port, tls);
+    Err(Error)
+}
+
+pub struct Handle;
+pub struct Error;

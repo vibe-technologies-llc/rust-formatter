@@ -1,0 +1,7 @@
+// @config: max_width=60
+// This paragraph is long enough that wrap_comments under the comments and
+// strict presets must break it near column 60, while the default and
+// literals presets leave it on one line. Losing a sentence is a bug.
+
+/* an old-style block comment that is long enough to need wrapping when wrap_comments is on and the width budget is only sixty columns */
+pub fn ready() {}

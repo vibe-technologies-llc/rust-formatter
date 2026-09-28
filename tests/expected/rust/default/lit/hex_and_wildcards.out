@@ -1,0 +1,13 @@
+// hex_literal_case (literals/strict) uppercases 0xdeadbeef; condense_wildcard_suffixes
+// rewrites `(1, 2, 3, 4)`'s trailing `_` bind. The default preset leaves both.
+pub fn f() {
+    let a = 0xdeadbeefu32;
+    let (x, _, _, _) = (1, 2, 3, 4);
+    let _ = (a, x);
+}
+
+pub fn g() {
+    do_thing(vec![1, 2, 3]);
+}
+
+fn do_thing<T>(_: T) {}

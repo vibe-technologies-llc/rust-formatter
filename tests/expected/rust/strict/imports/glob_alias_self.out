@@ -1,0 +1,8 @@
+// Glob, rename, self, super and crate have to keep their form under Crate
+// granularity. Collapsing `self as me` into a plain `self` or dropping the
+// glob is a bug.
+use std::io::{self, Read as IoRead};
+
+use crate::module::{self as me, super::Neighbour, *};
+
+pub fn f(_: impl IoRead, _: me::Item, _: Neighbour) {}

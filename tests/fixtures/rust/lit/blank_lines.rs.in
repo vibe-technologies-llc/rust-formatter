@@ -1,0 +1,8 @@
+// blank_lines_upper_bound=1 (strict) collapses the run between the two
+// functions. The default preset may keep both blank lines. Neither may
+// delete a function.
+pub fn first() {}
+
+
+
+pub fn second() {}

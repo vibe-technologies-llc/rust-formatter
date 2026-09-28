@@ -1,0 +1,9 @@
+// The skipped matrix keeps its column padding; the function below still
+// formats. If the spaces in `[1,   2,   3]` collapse, skip is broken.
+#[rustfmt::skip]
+pub const MATRIX: [[u8; 3]; 2] = [
+    [1,   2,   3],
+    [40,  50,  60],
+];
+
+pub fn  reformatted( ) {let x=1; let _ = x;}

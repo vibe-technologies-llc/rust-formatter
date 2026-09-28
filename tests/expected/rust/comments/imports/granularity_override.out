@@ -1,0 +1,9 @@
+// The default this tool exists to deliver is Crate merge. Naming Module on
+// the command line has to win: these sibling crate imports must stay on
+// two lines, not become `use crate::{a, b}`.
+use std::fmt::Debug;
+
+use crate::a::First;
+use crate::b::Second;
+
+pub fn f(_: &dyn Debug, _: First, _: Second) {}

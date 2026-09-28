@@ -1,0 +1,31 @@
+[package]
+name = "demo"
+
+# fmt: off
+matrix = [
+  1,   2,   3,
+  40,  50,  60,
+]
+#   a   hand   aligned   note
+# fmt: on
+
+version = "1"
+
+[dependencies]
+zzz = "1"
+# taplo: fmt-off
+aaa    =    {   version   =   "2"   }
+# taplo: fmt-on
+mmm = "3" # fmt: off is only a comment here, not a marker
+
+# rust-formatter: fmt-off
+[  spaced  .  header  ]
+k   =   1
+# rust-formatter: fmt-on
+
+[normal]
+k = 1
+
+wide = [ 1,   2,   3 ] # fmt: off
+after = 1
+# fmt: on

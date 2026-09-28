@@ -1,0 +1,27 @@
+[package]
+name = "rust-formatter-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Its own workspace on purpose: the root is a single package, and drawing the
+# fuzz crate into it would put libfuzzer-sys and a nightly-only build flag in
+# every ordinary `cargo build`.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4.10"
+toml_edit = { version = "0.25.13", features = ["serde"] }
+
+[dependencies.rust-formatter]
+path = ".."
+
+[[bin]]
+name = "format_toml"
+path = "fuzz_targets/format_toml.rs"
+test = false
+doc = false
+bench = false

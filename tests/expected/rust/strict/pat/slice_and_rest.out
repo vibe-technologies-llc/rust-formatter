@@ -1,0 +1,18 @@
+// Slice patterns, rest, or-patterns and ref mut. The `..` has to stay a
+// rest pattern, not become a range `0..`.
+pub fn peek(values: &mut [u8]) -> Option<u8> {
+    match values {
+        [first, rest @ ..] => {
+            let _ = rest;
+            Some(*first)
+        }
+        [] => None,
+    }
+}
+
+pub fn either(pair: &(u8, u8)) -> u8 {
+    match pair {
+        (ref mut _x, 0) | (0, ref mut _x) => 0,
+        (a, b) => a.wrapping_add(*b),
+    }
+}

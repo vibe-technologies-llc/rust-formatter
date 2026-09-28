@@ -1,0 +1,11 @@
+// Trailing comments on individual use items have to stay attached after
+// Crate-level merge. `b` is the one with the note; merging it into
+// `crate::{a, b}` must not drop or move that comment onto `a`.
+use crate::b::Keep; // stays with b
+use serde::Serialize;
+use std::fmt;
+use crate::a::First;
+
+pub fn f(_: &dyn fmt::Debug, _: First, _: Keep) -> impl Serialize {
+    0u8
+}

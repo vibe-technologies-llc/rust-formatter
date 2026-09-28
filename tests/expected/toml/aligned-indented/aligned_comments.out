@@ -1,0 +1,11 @@
+short           = 1  # one
+much_longer_key = 22 # two
+no_comment      = 3
+after           = 4 # three
+
+# lone
+spaced    = 5                 # four
+with_hash = "# not a comment" # five
+ml        = """
+# still not
+""" # six

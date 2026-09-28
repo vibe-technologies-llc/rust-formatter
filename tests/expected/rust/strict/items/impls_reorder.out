@@ -1,0 +1,16 @@
+// Under `strict`, reorder_impl_items sorts type / const / fn. Under the
+// other presets the written order (fn, then const, then type) stays.
+pub struct S;
+
+impl S {
+    type T = u8;
+
+    const C: u8 = 0;
+
+    pub fn late(&self) {}
+}
+
+pub fn wide() -> &'static str {
+    "a string long enough that format_strings has something to do with it once the width budget is \
+     exceeded"
+}

@@ -1,0 +1,11 @@
+// Union fields share storage; rustfmt still pretty-prints the block. The
+// comment on `word` must not migrate onto `bytes`.
+#[repr(C)]
+pub union Word {
+    pub bytes: [u8; 4], // little-endian view
+    pub word: u32,      // native view
+}
+
+pub fn native(word: Word) -> u32 {
+    unsafe { word.word }
+}

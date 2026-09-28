@@ -1,0 +1,10 @@
+// `extern crate` sits above `use` and is not merged into a use tree. The
+// alias has to survive; rustfmt must not rewrite it as `use serde as de`.
+extern crate serde as de;
+use crate::model::Record;
+use de::Deserialize;
+use std::io::Read;
+
+pub fn f<R: Read>(_: R, _: Record) -> impl Deserialize<'static> {
+    None::<()>
+}

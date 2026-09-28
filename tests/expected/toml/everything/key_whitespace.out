@@ -1,0 +1,19 @@
+# Whitespace TOML allows inside a key path and a header's brackets.
+a.b.c = 1
+q.l.bare = 2
+tabbed.path = 3
+
+[x.y]
+k = 1
+
+[deep.'cfg(unix)'.nested]
+k = 2
+
+[[z]]
+name = "first"
+
+[[z]]
+name = "second"
+
+[padded]
+one.two.three.four = 1
