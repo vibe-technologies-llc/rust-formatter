@@ -15,7 +15,7 @@ use crate::{
     detector::{self, TargetKind, decode_path, is_rust_path, is_toml_path, simplify_path},
     error::{Error, Result},
     git::{self, GitPlan, GitSelection},
-    runner::named_scope,
+    runner::{MetadataCache, named_scope},
 };
 
 pub const DEFAULT_TOML_SKIPS: [&str; 4] =
@@ -264,6 +264,7 @@ pub struct Plan {
     pub git: Option<GitPlan>,
     /// The user narrowed the selection, so an empty result is a no-op.
     pub explicit: bool,
+    pub(crate) workspaces: MetadataCache,
 }
 
 /// Turn the paths and file-list sources the user gave into concrete targets.
@@ -353,6 +354,7 @@ pub fn resolve(
         errors,
         git: git_plan,
         explicit,
+        ..Plan::default()
     })
 }
 

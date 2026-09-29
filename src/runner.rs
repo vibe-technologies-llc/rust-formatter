@@ -18,9 +18,8 @@ use crate::{
     cache::{self, Cache, Fingerprint},
     config::RustfmtConfig,
     detector::{
-        Boundary, TargetKind, bounded_ancestors, collect, file_in_workspace_scope,
-        find_cargo_manifest, is_rust_path, is_toml_path, simplify_path, workspace_member_dirs,
-        workspace_root,
+        Boundary, TargetKind, WorkspaceScope, bounded_ancestors, collect, find_cargo_manifest,
+        is_rust_path, is_toml_path, simplify_path, workspace_member_dirs, workspace_root,
     },
     error::{Error, Result},
     output::{ColorChoice, Emit, ListMode, MessageFormat, Streams},
@@ -712,7 +711,7 @@ pub fn run_format_to(
               passing all of them to it."
 )]
 pub fn run_format_plan(
-    plan: Plan,
+    mut plan: Plan,
     options: &FormatterOptions,
     selector: &Selector,
     streams: &Streams<'_>,
@@ -781,7 +780,14 @@ pub fn run_format_plan(
     let mut walk_warnings: Vec<String> = Vec::new();
     let mut targets = Vec::with_capacity(plan.targets.len());
 
-    for (target, metadata) in scoped_targets(plan.targets, options, rustfmt.as_ref(), streams)? {
+    let scoped = scoped_targets(
+        plan.targets,
+        &mut plan.workspaces,
+        options,
+        rustfmt.as_ref(),
+        streams,
+    )?;
+    for (target, metadata) in scoped {
         let outcome = match run_one_target(
             &target,
             metadata.as_deref(),
@@ -956,24 +962,17 @@ fn issue_warning((path, issue): &(PathBuf, TomlIssue)) -> String {
     )
 }
 
-/// `--emit stdout` is a buffer, not a run over a tree: it writes one file's
-/// formatted bytes and nothing else. Resolving it here rather than inside the
-/// batching is what keeps two languages and eight workers from concatenating a
-/// whole directory into one nameless stream.
 fn preview_one_file(
-    plan: Plan,
+    mut plan: Plan,
     options: &FormatterOptions,
     selector: &Selector,
     rustfmt: Option<&Rustfmt>,
     lookup: Option<&RegistryLookup>,
     streams: &Streams<'_>,
 ) -> Result<FormatResult> {
-    // Naming one file means that file. Everywhere else naming `Cargo.toml`
-    // means the cargo project it belongs to, which is what a write run wants
-    // and what a preview of a single buffer cannot be.
     let selected = match options.targets.as_slice() {
         [only] if only.is_file() => vec![(canonicalize_path(only), preview_language(only)?)],
-        _ => collect_files(&plan, options, selector, streams)?,
+        _ => collect_files(&mut plan, options, selector, streams)?,
     };
     let [(path, language)] = selected.as_slice() else {
         return Err(Error::PreviewNotSingleFile {
@@ -982,7 +981,10 @@ fn preview_one_file(
     };
 
     let metadata = match plan.targets.first() {
-        Some(target) => MetadataCache::default().get(target, options, rustfmt, streams)?,
+        Some(target) => {
+            plan.workspaces.begin_stage();
+            plan.workspaces.get(target, options, rustfmt, streams)?
+        }
         None => None,
     };
     let metadata = metadata.as_deref();
@@ -1204,14 +1206,14 @@ struct TargetOutcome {
     target: TargetKind,
 }
 
-/// Two named members of the same workspace are one run under `--all`.
 fn scoped_targets(
     targets: Vec<TargetKind>,
+    cache: &mut MetadataCache,
     options: &FormatterOptions,
     rustfmt: Option<&Rustfmt>,
     streams: &Streams<'_>,
 ) -> Result<Vec<(TargetKind, Option<Arc<CargoMetadata>>)>> {
-    let mut cache = MetadataCache::default();
+    cache.begin_stage();
     let mut resolved = Vec::with_capacity(targets.len());
     let mut covered: Vec<PathBuf> = Vec::new();
 
@@ -2189,6 +2191,7 @@ struct EditionResolver<'a> {
     /// `package.edition`, which `cargo metadata` reports directly.
     by_package_dir: HashMap<PathBuf, String>,
     manifests: HashMap<PathBuf, Option<String>>,
+    by_file_dir: HashMap<PathBuf, Option<String>>,
     discovery: crate::rustfmt_config::Discovery,
 }
 
@@ -2215,6 +2218,7 @@ impl<'a> EditionResolver<'a> {
             by_src_path,
             by_package_dir,
             manifests: HashMap::new(),
+            by_file_dir: HashMap::new(),
             discovery: crate::rustfmt_config::Discovery::new(),
         }
     }
@@ -2233,22 +2237,36 @@ impl<'a> EditionResolver<'a> {
         if let Some(edition) = self.by_src_path.get(file) {
             return Some(edition.clone());
         }
-        if let Some(manifest) = find_cargo_manifest(file) {
-            if let Some(dir) = manifest.parent()
-                && let Some(edition) = self.by_package_dir.get(&canonicalize_path(dir))
-            {
-                return Some(edition.clone());
-            }
-            if let Some(edition) = self
-                .manifests
-                .entry(manifest.clone())
-                .or_insert_with(|| edition_from_manifest(&manifest))
-                .clone()
-            {
-                return Some(edition);
-            }
+        self.owning_manifest_edition(file)
+            .or_else(|| Some(self.fallback.unwrap_or(DEFAULT_EDITION).to_string()))
+    }
+
+    fn owning_manifest_edition(&mut self, file: &Path) -> Option<String> {
+        let shared_by_siblings = file.parent().filter(|_| file.is_file());
+        if let Some(dir) = shared_by_siblings
+            && let Some(known) = self.by_file_dir.get(dir)
+        {
+            return known.clone();
         }
-        Some(self.fallback.unwrap_or(DEFAULT_EDITION).to_string())
+
+        let found = self.find_owning_manifest_edition(file);
+        if let Some(dir) = shared_by_siblings {
+            self.by_file_dir.insert(dir.to_path_buf(), found.clone());
+        }
+        found
+    }
+
+    fn find_owning_manifest_edition(&mut self, file: &Path) -> Option<String> {
+        let manifest = find_cargo_manifest(file)?;
+        if let Some(dir) = manifest.parent()
+            && let Some(edition) = self.by_package_dir.get(&canonicalize_path(dir))
+        {
+            return Some(edition.clone());
+        }
+        self.manifests
+            .entry(manifest.clone())
+            .or_insert_with(|| edition_from_manifest(&manifest))
+            .clone()
     }
 
     fn project_config(&mut self, file: &Path) -> Option<PathBuf> {
@@ -3257,12 +3275,9 @@ fn collect_cargo_files(
     };
     let prune = [canonicalize_path(&meta.target_directory)];
     let mut collected = take_walk(&root, selector, wanted, &prune, errors, warnings)?;
-    collected
-        .rust
-        .retain(|path| file_in_workspace_scope(path, &root, &members));
-    collected
-        .toml
-        .retain(|path| file_in_workspace_scope(path, &root, &members));
+    let mut scope = WorkspaceScope::new(&root, &members);
+    collected.rust.retain(|path| scope.contains(path));
+    collected.toml.retain(|path| scope.contains(path));
     Ok(collected)
 }
 
@@ -3487,12 +3502,9 @@ fn collect_workspace_fallback(
     let root = workspace_root(manifest_path);
     let members = workspace_member_dirs(&root);
     let mut collected = take_walk(&root, selector, wanted, &[], errors, warnings)?;
-    collected
-        .rust
-        .retain(|path| file_in_workspace_scope(path, &root, &members));
-    collected
-        .toml
-        .retain(|path| file_in_workspace_scope(path, &root, &members));
+    let mut scope = WorkspaceScope::new(&root, &members);
+    collected.rust.retain(|path| scope.contains(path));
+    collected.toml.retain(|path| scope.contains(path));
     Ok(collected)
 }
 
@@ -4075,7 +4087,7 @@ fn report_resolution(options: &FormatterOptions, rustfmt: Option<&Rustfmt>, stre
 }
 
 pub fn collect_files(
-    plan: &Plan,
+    plan: &mut Plan,
     options: &FormatterOptions,
     selector: &Selector,
     streams: &Streams<'_>,
@@ -4083,10 +4095,10 @@ pub fn collect_files(
     let mut found: Vec<(PathBuf, Kind)> = Vec::new();
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
-    let mut cache = MetadataCache::default();
+    plan.workspaces.begin_stage();
 
     for target in &plan.targets {
-        let metadata = cache.get(target, options, None, streams)?;
+        let metadata = plan.workspaces.get(target, options, None, streams)?;
         let collected = collect_for_run(
             target,
             options,
@@ -4109,16 +4121,13 @@ pub fn collect_files(
     Ok(found)
 }
 
-/// The one place workspace scope is resolved. `--list-files` and a real run must
-/// answer this question identically, or the listing describes a run that will not
-/// happen; and the answer must not depend on whether Rust is being formatted, or
-/// `--toml-only` reaches packages a full run deliberately skips.
-///
-/// Results are keyed by canonical manifest, then reused for any other member of
-/// a workspace cargo already described. The cache lives for one plan so a
-/// watcher still re-asks after the tree changes.
-#[derive(Default)]
-struct MetadataCache {
+enum MetadataAnswer {
+    Known(Option<Arc<CargoMetadata>>),
+    Unasked,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct MetadataCache {
     by_manifest: HashMap<PathBuf, Option<Arc<CargoMetadata>>>,
     loaded: Vec<Arc<CargoMetadata>>,
     cargo: Option<PathBuf>,
@@ -4136,6 +4145,9 @@ impl MetadataCache {
         let TargetKind::CargoProject { manifest_path, .. } = target else {
             return Ok(None);
         };
+        if let MetadataAnswer::Known(known) = self.known(manifest_path) {
+            return Ok(known);
+        }
         let Some(cargo) = self.cargo_bin(rustfmt, options, streams) else {
             return Ok(None);
         };
@@ -4168,15 +4180,38 @@ impl MetadataCache {
         }
         self.cargo.as_deref()
     }
+
+    fn known(&mut self, manifest: &Path) -> MetadataAnswer {
+        let key = canonicalize_path(manifest);
+        if let Some(cached) = self.by_manifest.get(&key) {
+            return MetadataAnswer::Known(cached.clone());
+        }
+        let Some(hit) = self
+            .loaded
+            .iter()
+            .find(|meta| metadata_covers(meta, &key))
+            .cloned()
+        else {
+            return MetadataAnswer::Unasked;
+        };
+        self.by_manifest.insert(key, Some(Arc::clone(&hit)));
+        MetadataAnswer::Known(Some(hit))
+    }
+
+    fn begin_stage(&mut self) {
+        self.by_manifest.retain(|_, found| found.is_some());
+        self.cargo = None;
+        self.cargo_resolved = false;
+    }
 }
 
 /// Overlay cargo's workspace root onto every cargo target and collapse again.
 /// A metadata failure keeps the parser root so `--watch` can still start.
 pub(crate) fn bind_workspaces(plan: &mut Plan, options: &FormatterOptions) {
     let streams = Streams::discard();
-    let mut cache = MetadataCache::default();
+    plan.workspaces.begin_stage();
     for target in &mut plan.targets {
-        let Ok(metadata) = cache.get(target, options, None, &streams) else {
+        let Ok(metadata) = plan.workspaces.get(target, options, None, &streams) else {
             continue;
         };
         let Some(meta) = metadata else {
@@ -4196,24 +4231,16 @@ fn load_metadata(
     manifest: &Path,
     load: impl FnOnce(&Path) -> Result<Option<CargoMetadata>>,
 ) -> Result<Option<Arc<CargoMetadata>>> {
-    let key = canonicalize_path(manifest);
-    if let Some(cached) = cache.by_manifest.get(&key) {
-        return Ok(cached.clone());
-    }
-    if let Some(hit) = cache
-        .loaded
-        .iter()
-        .find(|meta| metadata_covers(meta, &key))
-        .cloned()
-    {
-        cache.by_manifest.insert(key, Some(hit.clone()));
-        return Ok(Some(hit));
+    if let MetadataAnswer::Known(known) = cache.known(manifest) {
+        return Ok(known);
     }
     let result = load(manifest)?.map(Arc::new);
     if let Some(meta) = &result {
         cache.loaded.push(Arc::clone(meta));
     }
-    cache.by_manifest.insert(key, result.clone());
+    cache
+        .by_manifest
+        .insert(canonicalize_path(manifest), result.clone());
     Ok(result)
 }
 
@@ -4634,6 +4661,75 @@ version = "0.1.0"
         .unwrap();
         assert!(again.is_none());
         assert_eq!(loads, 2);
+    }
+
+    #[test]
+    fn a_later_stage_keeps_what_cargo_described_and_asks_again_about_the_rest() {
+        let mut cache = MetadataCache::default();
+        let mut loads = 0usize;
+
+        let bound = load_metadata(&mut cache, Path::new("/tmp/foo/Cargo.toml"), |_| {
+            loads += 1;
+            Ok(Some(fixture_metadata()))
+        })
+        .unwrap()
+        .unwrap();
+        let standalone = load_metadata(&mut cache, Path::new("/tmp/other/Cargo.toml"), |_| {
+            loads += 1;
+            Ok(None)
+        })
+        .unwrap();
+
+        assert!(standalone.is_none());
+        assert_eq!(loads, 2);
+
+        cache.begin_stage();
+        let member = load_metadata(&mut cache, Path::new("/tmp/bar/Cargo.toml"), |_| {
+            panic!("a workspace cargo already described must not be asked again")
+        })
+        .unwrap()
+        .unwrap();
+        let asked_again = load_metadata(&mut cache, Path::new("/tmp/other/Cargo.toml"), |_| {
+            loads += 1;
+            Ok(None)
+        })
+        .unwrap();
+
+        assert!(Arc::ptr_eq(&bound, &member));
+        assert!(asked_again.is_none());
+        assert_eq!(loads, 3);
+    }
+
+    #[test]
+    fn a_run_starts_from_the_metadata_its_plan_bound() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("src")).unwrap();
+        fs::write(
+            temp.path().join("Cargo.toml"),
+            "[package]\nname = \"bound\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .unwrap();
+        fs::write(temp.path().join("src").join("lib.rs"), "pub fn f() {}\n").unwrap();
+        let options = FormatterOptions::for_path(temp.path());
+        let selector = options.selector().unwrap();
+
+        let mut plan = crate::plan(&options, &selector).unwrap();
+
+        assert_eq!(plan.workspaces.loaded.len(), 1);
+
+        let bound = Arc::clone(&plan.workspaces.loaded[0]);
+        let scoped = scoped_targets(
+            std::mem::take(&mut plan.targets),
+            &mut plan.workspaces,
+            &options,
+            None,
+            &Streams::discard(),
+        )
+        .unwrap();
+
+        assert_eq!(scoped.len(), 1);
+        assert!(Arc::ptr_eq(scoped[0].1.as_ref().unwrap(), &bound));
+        assert_eq!(plan.workspaces.loaded.len(), 1);
     }
 
     #[test]

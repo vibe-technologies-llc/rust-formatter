@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    collections::HashMap,
     ffi::OsStr,
     fs, io,
     path::{Path, PathBuf},
@@ -549,18 +550,54 @@ pub fn file_in_workspace_scope(
     workspace_root: &Path,
     member_dirs: &[PathBuf],
 ) -> bool {
-    let Some(parent) = path.parent() else {
-        return true;
-    };
-    for dir in parent.ancestors() {
-        if dir == workspace_root {
-            return true;
-        }
-        if dir.join("Cargo.toml").is_file() {
-            return member_dirs.iter().any(|member| member == dir);
+    WorkspaceScope::new(workspace_root, member_dirs).contains(path)
+}
+
+pub struct WorkspaceScope<'a> {
+    workspace_root: &'a Path,
+    member_dirs: &'a [PathBuf],
+    by_dir: HashMap<PathBuf, bool>,
+}
+
+impl<'a> WorkspaceScope<'a> {
+    pub fn new(workspace_root: &'a Path, member_dirs: &'a [PathBuf]) -> Self {
+        Self {
+            workspace_root,
+            member_dirs,
+            by_dir: HashMap::new(),
         }
     }
-    true
+
+    pub fn contains(&mut self, path: &Path) -> bool {
+        let Some(parent) = path.parent() else {
+            return true;
+        };
+        if let Some(&known) = self.by_dir.get(parent) {
+            return known;
+        }
+
+        let mut walked = Vec::new();
+        let mut in_scope = true;
+        for dir in parent.ancestors() {
+            if let Some(&known) = self.by_dir.get(dir) {
+                in_scope = known;
+                break;
+            }
+            walked.push(dir);
+            if dir == self.workspace_root {
+                break;
+            }
+            if dir.join("Cargo.toml").is_file() {
+                in_scope = self.member_dirs.iter().any(|member| member == dir);
+                break;
+            }
+        }
+
+        for dir in walked {
+            self.by_dir.insert(dir.to_path_buf(), in_scope);
+        }
+        in_scope
+    }
 }
 
 pub fn is_rust_path(path: &Path) -> bool {

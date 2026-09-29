@@ -156,10 +156,10 @@ fn execute(
     }
 
     let selector = options.selector()?;
-    let plan = plan(options, &selector)?;
+    let mut plan = plan(options, &selector)?;
 
     if options.list == ListMode::Files {
-        let files = runner::collect_files(&plan, options, &selector, streams)?;
+        let files = runner::collect_files(&mut plan, options, &selector, streams)?;
         if json {
             return report(
                 streams,

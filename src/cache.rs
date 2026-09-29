@@ -112,20 +112,19 @@ impl Cache {
         }
         let now = now();
         let cutoff = now.saturating_sub(RETENTION.min(u64::from(u32::MAX)));
+        let seen = u32::try_from(now).unwrap_or(u32::MAX);
+
         self.entries.retain(|entry| u64::from(entry.seen) >= cutoff);
-        for print in fresh {
-            let entry = Entry {
-                print,
-                seen: u32::try_from(now).unwrap_or(u32::MAX),
-            };
-            match self
-                .entries
-                .binary_search_by_key(&print.path, |held| held.print.path)
-            {
-                Ok(at) => self.entries[at] = entry,
-                Err(at) => self.entries.insert(at, entry),
+        self.entries
+            .extend(fresh.into_iter().map(|print| Entry { print, seen }));
+        self.entries.sort_by_key(|entry| entry.print.path);
+        self.entries.dedup_by(|later, kept| {
+            let same_path = later.print.path == kept.print.path;
+            if same_path {
+                *kept = *later;
             }
-        }
+            same_path
+        });
         write(&file, &self.entries);
     }
 }
@@ -462,6 +461,42 @@ mod tests {
         assert!(cache.contains(print("/a.toml", b"a = 2\n", 7)));
         assert!(!cache.contains(print("/a.toml", b"a = 1\n", 7)));
         assert_eq!(cache.entries.len(), 1);
+    }
+
+    #[test]
+    fn a_store_keeps_one_sorted_entry_per_path_and_the_newest_answer_wins() {
+        let temp = tempfile::tempdir().unwrap();
+        let env = env_of(&[(CACHE_DIR_ENV, temp.path().to_str().unwrap())]);
+        let held: Vec<Fingerprint> = (0..64)
+            .map(|index| print(&format!("/held/{index}.rs"), b"old", 7))
+            .collect();
+        Cache::load(Path::new("/root"), true, &env).store(held.clone());
+
+        let replaced = print("/held/3.rs", b"new", 7);
+        let first = print("/fresh.rs", b"first", 7);
+        let second = print("/fresh.rs", b"second", 7);
+        let added: Vec<Fingerprint> = (0..64)
+            .map(|index| print(&format!("/added/{index}.rs"), b"new", 7))
+            .collect();
+        let mut fresh = vec![replaced, first];
+        fresh.extend(added.iter().copied());
+        fresh.push(second);
+        Cache::load(Path::new("/root"), true, &env).store(fresh);
+
+        let cache = Cache::load(Path::new("/root"), true, &env);
+        let paths: Vec<u128> = cache.entries.iter().map(|entry| entry.print.path).collect();
+        let mut sorted = paths.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+
+        assert_eq!(paths, sorted);
+        assert_eq!(cache.entries.len(), 64 + 64 + 1);
+        assert!(cache.contains(replaced));
+        assert!(!cache.contains(held[3]));
+        assert!(cache.contains(held[4]));
+        assert!(cache.contains(second));
+        assert!(!cache.contains(first));
+        assert!(added.iter().all(|print| cache.contains(*print)));
     }
 
     #[test]
