@@ -336,8 +336,8 @@ rust-formatter --color never
 ```
 
 Silence the commentary. `-q` suppresses the summary, warnings and verbose
-output on stderr and forwards `--quiet` to rustfmt; it does not suppress the
-product on stdout, so `--check` still prints its diff:
+output on stderr; it never changes what is formatted or checked, and it does not
+suppress the product on stdout, so `--check` still prints its diff:
 
 ```bash
 rust-formatter -q

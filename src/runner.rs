@@ -1113,11 +1113,13 @@ fn first_pass(
     args: BatchArgs<'_>,
 ) -> Result<String> {
     if !rustfmt.unstable_cli() {
-        let (texts, errors, _) = rustfmt_stdout_pass(&[path], options, rustfmt, args)?;
-        if let Some(err) = errors.into_iter().next() {
+        let pass = rustfmt_stdout_pass(&[path], options, rustfmt, args)?;
+        if let Some(err) = pass.errors.into_iter().next() {
             return Err(err);
         }
-        let text = texts
+        let text = pass
+            .split
+            .into_texts()
             .into_iter()
             .find(|(found, _)| found == path)
             .map_or_else(|| source.to_string(), |(_, text)| text);
@@ -1567,6 +1569,7 @@ struct RustOutcome {
     /// Deduplicated by the caller, because one invocation per chunk means one
     /// copy per chunk of the same sentence.
     warnings: Vec<String>,
+    unconfirmed: Vec<PathBuf>,
 }
 
 /// Everything the Rust half decides before a worker starts: which files, at
@@ -1856,6 +1859,12 @@ fn record_clean(
                 .errors
                 .iter()
                 .filter_map(|err| err.diagnostic().path.map(Path::to_path_buf)),
+        )
+        .chain(
+            outcome
+                .unconfirmed
+                .iter()
+                .map(|path| simplify_path(path.clone())),
         )
         .collect();
     let known_names: HashSet<PathBuf> = known
@@ -2268,11 +2277,40 @@ fn run_rustfmt_chunks(
     streams: &Streams<'_>,
     args: BatchArgs<'_>,
 ) -> Result<RustOutcome> {
-    match RustfmtMode::of(options) {
-        RustfmtMode::Check if rustfmt.unstable_cli() => check_chunks(files, options, rustfmt, args),
-        RustfmtMode::Check => check_chunks_by_text(files, options, rustfmt, args),
-        RustfmtMode::Write => write_chunks(files, options, rustfmt, streams, args),
+    let mode = RustfmtMode::of(options);
+    if mode == RustfmtMode::Check && rustfmt.unstable_cli() {
+        return check_chunks(files, options, rustfmt, args);
     }
+
+    let files = with_child_modules(files, options, rustfmt, args)?;
+    let args = BatchArgs {
+        skip_children: true,
+        ..args
+    };
+    match mode {
+        RustfmtMode::Check => check_chunks_by_text(&files, options, rustfmt, args),
+        RustfmtMode::Write => write_chunks(&files, options, rustfmt, streams, args),
+    }
+}
+
+fn with_child_modules(
+    files: &[PathBuf],
+    options: &FormatterOptions,
+    rustfmt: &Rustfmt,
+    args: BatchArgs<'_>,
+) -> Result<Vec<PathBuf>> {
+    let mut all = files.to_vec();
+    if args.skip_children || !options.ranges.is_empty() {
+        return Ok(all);
+    }
+
+    let mut seen: HashSet<PathBuf> = files.iter().map(|path| canonicalize_path(path)).collect();
+    for module in rustfmt_would_touch(files, options, rustfmt, args)? {
+        if seen.insert(canonicalize_path(&module)) {
+            all.push(module);
+        }
+    }
+    Ok(all)
 }
 
 fn check_chunks(
@@ -2315,14 +2353,6 @@ fn check_chunks(
     Ok(outcome)
 }
 
-/// The same answer as `check_chunks`, for a rustfmt with no `--emit json`.
-///
-/// `--emit json` is gated behind `--unstable-features`, which stable rustfmt
-/// does not have at all -- but `--emit stdout` is on both channels and reports
-/// strictly more: the whole formatted text, rather than hunks that have to be
-/// reapplied to reconstruct it. So the stable path skips `apply_mismatches`
-/// and compares bytes, then restores the source's BOM and line endings the
-/// same way a write run would.
 fn check_chunks_by_text(
     files: &[PathBuf],
     options: &FormatterOptions,
@@ -2331,34 +2361,17 @@ fn check_chunks_by_text(
 ) -> Result<RustOutcome> {
     let mut outcome = RustOutcome::default();
     for chunk in files.chunks(RUSTFMT_CHUNK_SIZE) {
-        let sources: Vec<Option<(Vec<u8>, SourceText)>> = chunk
-            .iter()
-            .map(|path| {
-                let bytes = fs::read(path).ok()?;
-                decode_source(&bytes, path)
-                    .ok()
-                    .map(|source| (bytes, source))
-            })
-            .collect();
-        let texts: Vec<Option<&str>> = sources
-            .iter()
-            .map(|item| item.as_ref().map(|(_, source)| source.text.as_str()))
-            .collect();
-        let (together, alone) = partition_for_emit_stdout(chunk, &texts);
-
-        let mut formatted: HashMap<PathBuf, String> = HashMap::new();
-        for group in std::iter::once(together.as_slice()).chain(alone.iter().map(Vec::as_slice)) {
-            if group.is_empty() {
-                continue;
-            }
-            let (texts, errors, warnings) = rustfmt_stdout_pass(group, options, rustfmt, args)?;
-            outcome.errors.extend(errors);
-            outcome.warnings.extend(warnings);
-            formatted.extend(texts);
-        }
+        let sources = read_sources(chunk);
+        let emitted = emit_stdout_texts(chunk, &source_texts(&sources), options, rustfmt, args)?;
+        outcome.errors.extend(emitted.errors);
+        outcome.warnings.extend(emitted.warnings);
 
         for (path, origin) in chunk.iter().zip(&sources) {
-            let (Some((bytes, source)), Some(after)) = (origin, formatted.get(path)) else {
+            let Some((bytes, source)) = origin else {
+                continue;
+            };
+            let Some(after) = emitted.texts.get(path) else {
+                outcome.unconfirmed.push(path.clone());
                 continue;
             };
             let after = normalize_formatted_rust(after);
@@ -2377,15 +2390,27 @@ fn check_chunks_by_text(
     Ok(outcome)
 }
 
-/// `--emit stdout` writes `{path}:` then a blank line then the file, with no
-/// separator and no length -- so a file whose own text carries a line that
-/// looks like the next file's header could be split in the wrong place.
-///
-/// The header always ends in `.rs:`, and rustfmt only ever reflows text it was
-/// given, so a source containing no `.rs:` at all cannot produce a false
-/// header. Those files go in one invocation; the rare file that does contain
-/// the sequence is formatted on its own, where there is no following header to
-/// confuse it with.
+type SourceFile = Option<(Vec<u8>, SourceText)>;
+
+fn read_sources(files: &[PathBuf]) -> Vec<SourceFile> {
+    files
+        .iter()
+        .map(|path| {
+            let bytes = fs::read(path).ok()?;
+            decode_source(&bytes, path)
+                .ok()
+                .map(|source| (bytes, source))
+        })
+        .collect()
+}
+
+fn source_texts(sources: &[SourceFile]) -> Vec<Option<&str>> {
+    sources
+        .iter()
+        .map(|item| item.as_ref().map(|(_, source)| source.text.as_str()))
+        .collect()
+}
+
 fn partition_for_emit_stdout<'a>(
     chunk: &'a [PathBuf],
     sources: &[Option<&str>],
@@ -2393,7 +2418,7 @@ fn partition_for_emit_stdout<'a>(
     let mut together = Vec::with_capacity(chunk.len());
     let mut alone = Vec::new();
     for (path, source) in chunk.iter().zip(sources) {
-        if source.is_some_and(|text| text.contains(".rs:")) {
+        if source.is_none_or(|text| text.contains(".rs:")) {
             alone.push(vec![path.as_path()]);
         } else {
             together.push(path.as_path());
@@ -2402,18 +2427,77 @@ fn partition_for_emit_stdout<'a>(
     (together, alone)
 }
 
-type TextReport = (Vec<(PathBuf, String)>, Vec<Error>, Vec<String>);
+struct EmittedTexts {
+    texts: HashMap<PathBuf, String>,
+    errors: Vec<Error>,
+    warnings: Vec<String>,
+}
+
+impl EmittedTexts {
+    fn absorb(&mut self, pass: TextPass) {
+        self.errors.extend(pass.errors);
+        self.warnings.extend(pass.warnings);
+        self.texts.extend(pass.split.into_texts());
+    }
+}
+
+fn emit_stdout_texts(
+    files: &[PathBuf],
+    sources: &[Option<&str>],
+    options: &FormatterOptions,
+    rustfmt: &Rustfmt,
+    args: BatchArgs<'_>,
+) -> Result<EmittedTexts> {
+    let (together, alone) = partition_for_emit_stdout(files, sources);
+
+    let mut emitted = EmittedTexts {
+        texts: HashMap::new(),
+        errors: Vec::new(),
+        warnings: Vec::new(),
+    };
+    for group in std::iter::once(together).chain(alone) {
+        if group.is_empty() {
+            continue;
+        }
+        let pass = rustfmt_stdout_pass(&group, options, rustfmt, args)?;
+        if !matches!(pass.split, Split::Ambiguous) {
+            emitted.absorb(pass);
+            continue;
+        }
+        for path in group {
+            emitted.absorb(rustfmt_stdout_pass(&[path], options, rustfmt, args)?);
+        }
+    }
+    Ok(emitted)
+}
+
+struct TextPass {
+    split: Split,
+    errors: Vec<Error>,
+    warnings: Vec<String>,
+}
+
+enum Split {
+    Texts(Vec<(PathBuf, String)>),
+    Ambiguous,
+}
+
+impl Split {
+    fn into_texts(self) -> Vec<(PathBuf, String)> {
+        match self {
+            Self::Texts(texts) => texts,
+            Self::Ambiguous => Vec::new(),
+        }
+    }
+}
 
 fn rustfmt_stdout_pass(
     files: &[&Path],
     options: &FormatterOptions,
     rustfmt: &Rustfmt,
     args: BatchArgs<'_>,
-) -> Result<TextReport> {
+) -> Result<TextPass> {
     let mut cmd = Command::new(rustfmt.path());
-    if options.quiet {
-        cmd.arg("--quiet");
-    }
     cmd.args(["--emit", "stdout"]);
     push_rustfmt_args(&mut cmd, options, rustfmt, args);
     let owned: Vec<PathBuf> = files.iter().map(|path| path.to_path_buf()).collect();
@@ -2424,7 +2508,11 @@ fn rustfmt_stdout_pass(
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let (errors, warnings) = sort_diagnostics(&stderr, output.code);
-    Ok((split_emit_stdout(&stdout, files), errors, warnings))
+    Ok(TextPass {
+        split: split_emit_stdout(&stdout, files),
+        errors,
+        warnings,
+    })
 }
 
 /// Split what rustfmt said into what failed the run and what merely happened.
@@ -2457,47 +2545,75 @@ fn sort_diagnostics(stderr: &str, code: i32) -> (Vec<Error>, Vec<String>) {
     (errors, warnings)
 }
 
-/// Find each file's text in one `--emit stdout` payload.
-///
-/// rustfmt emits in argv order and omits a file it could not parse, so the
-/// split is driven by the headers actually present rather than by position: a
-/// line that is exactly one of the paths asked for, followed by `:` and a blank
-/// line, opens that file's text, which runs to the next such line.
-fn split_emit_stdout(stdout: &str, files: &[&Path]) -> Vec<(PathBuf, String)> {
+fn split_emit_stdout(stdout: &str, files: &[&Path]) -> Split {
     let stdout = normalize_source_newlines(stdout);
-    let named: HashMap<String, PathBuf> = files
+    if let [only] = files {
+        return Split::Texts(sole_text(&stdout, only).into_iter().collect());
+    }
+
+    let order: HashMap<String, usize> = files
         .iter()
-        .map(|path| (path.display().to_string(), path.to_path_buf()))
+        .enumerate()
+        .flat_map(|(index, path)| {
+            header_spellings(path)
+                .into_iter()
+                .map(move |spelling| (spelling, index))
+        })
         .collect();
 
-    let mut headers: Vec<(PathBuf, usize, usize)> = Vec::new();
+    let mut headers: Vec<(usize, usize, usize)> = Vec::new();
     let mut search = 0;
     while let Some(found) = stdout[search..].find(":\n\n") {
         let colon = search + found;
         let line_start = stdout[..colon].rfind('\n').map_or(0, |at| at + 1);
-        let line = &stdout[line_start..colon];
-        if let Some(path) = named.get(line) {
-            headers.push((path.clone(), line_start, colon + 3));
-        } else if Path::new(line)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("rs"))
-        {
-            let extra = PathBuf::from(line);
-            if extra.is_file() {
-                headers.push((extra, line_start, colon + 3));
+        if let Some(&index) = order.get(&stdout[line_start..colon]) {
+            if headers
+                .last()
+                .is_some_and(|&(previous, _, _)| previous >= index)
+            {
+                return Split::Ambiguous;
             }
+            headers.push((index, line_start, colon + 3));
         }
         search = colon + 3;
     }
 
-    let mut out = Vec::with_capacity(headers.len());
-    for (index, (path, _, body)) in headers.iter().enumerate() {
-        let end = headers
-            .get(index + 1)
-            .map_or(stdout.len(), |(_, next, _)| *next);
-        out.push((path.clone(), stdout[*body..end].to_string()));
+    let opens_on_a_header = headers
+        .first()
+        .map_or(stdout.is_empty(), |&(_, start, _)| start == 0);
+    if !opens_on_a_header {
+        return Split::Ambiguous;
     }
-    out
+
+    let texts = headers
+        .iter()
+        .enumerate()
+        .map(|(position, &(index, _, body))| {
+            let end = headers
+                .get(position + 1)
+                .map_or(stdout.len(), |&(_, next, _)| next);
+            (files[index].to_path_buf(), stdout[body..end].to_string())
+        })
+        .collect();
+    Split::Texts(texts)
+}
+
+fn sole_text(stdout: &str, path: &Path) -> Option<(PathBuf, String)> {
+    header_spellings(path).iter().find_map(|spelling| {
+        stdout
+            .strip_prefix(spelling.as_str())?
+            .strip_prefix(":\n\n")
+            .map(|body| (path.to_path_buf(), body.to_string()))
+    })
+}
+
+fn header_spellings(path: &Path) -> Vec<String> {
+    let mut spellings = vec![path.display().to_string()];
+    if let Ok(canonical) = fs::canonicalize(path) {
+        spellings.push(canonical.display().to_string());
+        spellings.push(simplify_path(canonical).display().to_string());
+    }
+    spellings
 }
 
 /// Rebuild what a write run would leave on disk, from the hunks `--emit json`
@@ -2553,6 +2669,7 @@ fn write_chunks(
         }
         outcome.errors.extend(part.errors);
         outcome.warnings.extend(part.warnings);
+        outcome.unconfirmed.extend(part.unconfirmed);
         unsettled.extend(part.pending);
         outcome.changed.extend(part.changed);
     }
@@ -2573,6 +2690,7 @@ struct WriteChunk {
     errors: Vec<Error>,
     warnings: Vec<String>,
     pending: Vec<PathBuf>,
+    unconfirmed: Vec<PathBuf>,
 }
 
 fn write_chunk(
@@ -2581,52 +2699,26 @@ fn write_chunk(
     rustfmt: &Rustfmt,
     args: BatchArgs<'_>,
 ) -> Result<WriteChunk> {
+    let origins = read_sources(files);
+    let emitted = emit_stdout_texts(files, &source_texts(&origins), options, rustfmt, args)?;
+
     let mut outcome = WriteChunk {
-        code: 0,
+        code: i32::from(!emitted.errors.is_empty()),
         changed: Vec::new(),
-        errors: Vec::new(),
-        warnings: Vec::new(),
+        errors: emitted.errors,
+        warnings: emitted.warnings,
         pending: Vec::new(),
+        unconfirmed: Vec::new(),
     };
-    let origins: Vec<Option<(Vec<u8>, SourceText)>> = files
-        .iter()
-        .map(|path| {
-            let bytes = fs::read(path).ok()?;
-            decode_source(&bytes, path)
-                .ok()
-                .map(|source| (bytes, source))
-        })
-        .collect();
-    let texts: Vec<Option<&str>> = origins
-        .iter()
-        .map(|item| item.as_ref().map(|(_, source)| source.text.as_str()))
-        .collect();
-    let (together, alone) = partition_for_emit_stdout(files, &texts);
-
-    let mut formatted: HashMap<PathBuf, String> = HashMap::new();
-    for group in std::iter::once(together.as_slice()).chain(alone.iter().map(Vec::as_slice)) {
-        if group.is_empty() {
-            continue;
-        }
-        let (texts, errors, warnings) = rustfmt_stdout_pass(group, options, rustfmt, args)?;
-        if !errors.is_empty() {
-            outcome.code = 1;
-        }
-        outcome.errors.extend(errors);
-        outcome.warnings.extend(warnings);
-        formatted.extend(texts);
-    }
-
-    let mut seen: HashSet<PathBuf> = HashSet::new();
     for (path, origin) in files.iter().zip(&origins) {
-        seen.insert(path.clone());
         let Some((bytes, source)) = origin else {
             continue;
         };
-        let Some(after) = formatted.get(path) else {
+        let Some(after) = emitted.texts.get(path) else {
+            outcome.unconfirmed.push(path.clone());
             continue;
         };
-        write_formatted_rust(
+        let written = write_formatted_rust(
             path,
             bytes,
             source,
@@ -2635,28 +2727,11 @@ fn write_chunk(
             rustfmt,
             args,
             &mut outcome,
-        )?;
-    }
-    for (path, after) in formatted {
-        if !seen.insert(path.clone()) {
-            continue;
+        );
+        if let Err(err) = written {
+            outcome.code = 1;
+            outcome.errors.push(err);
         }
-        let Ok(bytes) = fs::read(&path) else {
-            continue;
-        };
-        let Ok(source) = decode_source(&bytes, &path) else {
-            continue;
-        };
-        write_formatted_rust(
-            &path,
-            &bytes,
-            &source,
-            &after,
-            options,
-            rustfmt,
-            args,
-            &mut outcome,
-        )?;
     }
     Ok(outcome)
 }
@@ -2691,13 +2766,20 @@ fn write_formatted_rust(
     if encoded == original {
         return Ok(());
     }
-    atomic_write(path, &encoded)?;
+    atomic_write(path, &encoded).map_err(|err| attributed_to(path, err))?;
     outcome.changed.push(rust_outcome(
         &simplify_path(path.to_path_buf()),
         FileStatus::Formatted,
         None,
     ));
     Ok(())
+}
+
+fn attributed_to(path: &Path, err: Error) -> Error {
+    match err {
+        Error::Io { source, .. } => Error::io(path, source),
+        other => other,
+    }
 }
 
 /// Every file one rustfmt invocation would rewrite, named by rustfmt itself.
@@ -4781,6 +4863,117 @@ error[E0670]: `async fn` is not permitted in Rust 2015
         assert!(decode_rustfmt_json("[]", 0).unwrap().is_empty());
         assert!(decode_rustfmt_json("not json", 0).is_err());
         assert!(decode_rustfmt_json("[{\"name\":\"a.rs\"", 0).is_err());
+    }
+
+    fn texts_of(split: Split) -> Vec<(PathBuf, String)> {
+        match split {
+            Split::Texts(texts) => texts,
+            Split::Ambiguous => panic!("the split was ambiguous"),
+        }
+    }
+
+    #[test]
+    fn a_header_for_a_path_not_asked_for_stays_in_the_text() {
+        let a = Path::new("/nonexistent/a.rs");
+        let b = Path::new("/nonexistent/b.rs");
+        let stdout = "/nonexistent/a.rs:\n\nfn a() {}\n/nonexistent/victim.rs:\n\nfn x() {}\n\
+                      /nonexistent/b.rs:\n\nfn b() {}\n";
+
+        let texts = texts_of(split_emit_stdout(stdout, &[a, b]));
+
+        assert_eq!(
+            texts,
+            vec![
+                (
+                    a.to_path_buf(),
+                    "fn a() {}\n/nonexistent/victim.rs:\n\nfn x() {}\n".to_string()
+                ),
+                (b.to_path_buf(), "fn b() {}\n".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_forged_header_naming_a_sibling_makes_the_split_ambiguous() {
+        let a = Path::new("/nonexistent/a.rs");
+        let b = Path::new("/nonexistent/b.rs");
+        let repeated = "/nonexistent/a.rs:\n\nfn a() {}\n/nonexistent/b.rs:\n\nfn stolen() {}\n\
+                        /nonexistent/b.rs:\n\nfn b() {}\n";
+        let reordered = "/nonexistent/a.rs:\n\nfn a() {}\n/nonexistent/b.rs:\n\nfn stolen() {}\n\
+                         /nonexistent/a.rs:\n\nfn b() {}\n";
+        let unanchored = "fn stray() {}\n/nonexistent/a.rs:\n\nfn a() {}\n";
+
+        assert!(matches!(
+            split_emit_stdout(repeated, &[a, b]),
+            Split::Ambiguous
+        ));
+        assert!(matches!(
+            split_emit_stdout(reordered, &[a, b]),
+            Split::Ambiguous
+        ));
+        assert!(matches!(
+            split_emit_stdout(unanchored, &[a, b]),
+            Split::Ambiguous
+        ));
+    }
+
+    #[test]
+    fn a_file_formatted_alone_owns_everything_after_its_header() {
+        let a = Path::new("/nonexistent/a.rs");
+        let stdout = "/nonexistent/a.rs:\n\nfn a() {}\n/nonexistent/b.rs:\n\nfn b() {}\n";
+
+        let texts = texts_of(split_emit_stdout(stdout, &[a]));
+        let unheaded = texts_of(split_emit_stdout("fn a() {}\n", &[a]));
+
+        assert_eq!(
+            texts,
+            vec![(
+                a.to_path_buf(),
+                "fn a() {}\n/nonexistent/b.rs:\n\nfn b() {}\n".to_string()
+            )]
+        );
+        assert!(unheaded.is_empty());
+    }
+
+    #[test]
+    fn a_file_rustfmt_returned_no_text_for_is_not_remembered_as_clean() {
+        let silent = PathBuf::from("/nonexistent/silent.rs");
+        let clean = PathBuf::from("/nonexistent/clean.rs");
+        let known = Known {
+            pending: vec![silent.clone(), clean.clone()],
+            candidates: vec![
+                (silent.clone(), cache::fingerprint(&silent, b"a", 7)),
+                (clean.clone(), cache::fingerprint(&clean, b"b", 7)),
+            ],
+            saw_path_attr: false,
+        };
+        let outcome = RustOutcome {
+            unconfirmed: vec![silent],
+            ..RustOutcome::default()
+        };
+        let mut fresh = Vec::new();
+
+        record_clean(&known, &outcome, Some(7), &mut fresh);
+
+        assert_eq!(fresh, vec![cache::fingerprint(&clean, b"b", 7)]);
+    }
+
+    #[test]
+    fn a_source_that_could_forge_a_header_is_formatted_alone() {
+        let chunk = [
+            PathBuf::from("/nonexistent/a.rs"),
+            PathBuf::from("/nonexistent/b.rs"),
+            PathBuf::from("/nonexistent/c.rs"),
+        ];
+        let sources = [Some("fn a() {}\n"), Some("// /x/y.rs:\n"), None];
+
+        let (together, alone) = partition_for_emit_stdout(&chunk, &sources);
+
+        assert_eq!(together, vec![chunk[0].as_path()]);
+        assert_eq!(
+            alone,
+            vec![vec![chunk[1].as_path()], vec![chunk[2].as_path()]]
+        );
     }
 
     #[test]

@@ -1,7 +1,10 @@
 #[path = "support/toolchain.rs"]
 mod toolchain;
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -1823,4 +1826,279 @@ fn test_a_project_rustfmt_toml_reports_what_stable_dropped() {
         .stderr(predicates::str::contains(
             "warning: rustfmt: Warning: can't set `empty_item_single_line",
         ));
+}
+
+fn available_toolchains() -> Vec<&'static str> {
+    [
+        ("nightly", nightly_available()),
+        ("stable", stable_available()),
+    ]
+    .into_iter()
+    .filter_map(|(toolchain, available)| available.then_some(toolchain))
+    .collect()
+}
+
+fn forged_comment(target: &Path, body: &str) -> String {
+    format!("fn a() {{}}\n\n/{}:\n\n{body}\n", target.display())
+}
+
+#[cfg(unix)]
+#[test]
+fn a_comment_shaped_like_a_header_writes_no_other_file() {
+    for toolchain in available_toolchains() {
+        let temp = tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let tree = root.join("tree");
+        let victim = root.join("victim").join("v.rs");
+        fs::create_dir_all(&tree).unwrap();
+        fs::create_dir_all(victim.parent().unwrap()).unwrap();
+
+        let carrier = tree.join("c.rs");
+        let sibling = tree.join("d.rs");
+        fs::write(&victim, "fn keep() {}\n").unwrap();
+        fs::write(&carrier, forged_comment(&victim, "fn  injected() {}")).unwrap();
+        fs::write(&sibling, "fn  d(){}\n").unwrap();
+
+        formatter()
+            .args(["--toolchain", toolchain])
+            .arg(&tree)
+            .assert()
+            .success();
+
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "fn keep() {}\n");
+        assert_eq!(
+            fs::read_to_string(&carrier).unwrap(),
+            forged_comment(&victim, "fn injected() {}"),
+            "{toolchain}"
+        );
+        assert_eq!(fs::read_to_string(&sibling).unwrap(), "fn d() {}\n");
+    }
+}
+
+fn forged_string(target: &Path, item: &str) -> String {
+    format!(
+        "{item}\nconst S: &str = r\"\n{}:\n\nfn stolen() {{}}\n\";\n",
+        target.display()
+    )
+}
+
+#[test]
+fn a_string_naming_a_sibling_keeps_both_files_their_own_text() {
+    for toolchain in available_toolchains() {
+        let temp = tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+
+        let carrier = root.join("a.rs");
+        let sibling = root.join("b.rs");
+        fs::write(&carrier, forged_string(&sibling, "fn  a(){}")).unwrap();
+        fs::write(&sibling, "fn  b(){}\n").unwrap();
+
+        formatter()
+            .args(["--toolchain", toolchain])
+            .arg(&root)
+            .assert()
+            .success();
+
+        assert_eq!(
+            fs::read_to_string(&carrier).unwrap(),
+            forged_string(&sibling, "fn a() {}"),
+            "{toolchain}"
+        );
+        assert_eq!(fs::read_to_string(&sibling).unwrap(), "fn b() {}\n");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_single_file_still_formats_its_child_modules_without_following_forged_headers() {
+    for toolchain in available_toolchains() {
+        let temp = tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let src = root.join("src");
+        let shared = root.join("shared");
+        let victim = root.join("victim.rs");
+        fs::create_dir_all(&src).unwrap();
+        fs::create_dir_all(&shared).unwrap();
+
+        let main = src.join("main.rs");
+        let carrier = src.join("c.rs");
+        let child = src.join("d.rs");
+        let outside = shared.join("e.rs");
+        fs::write(&victim, "fn keep() {}\n").unwrap();
+        fs::write(
+            &main,
+            "mod c;\nmod d;\n#[path = \"../shared/e.rs\"]\nmod e;\nfn main(){}\n",
+        )
+        .unwrap();
+        fs::write(&carrier, forged_comment(&victim, "fn  injected() {}")).unwrap();
+        fs::write(&child, "fn  d(){}\n").unwrap();
+        fs::write(&outside, "fn  e(){}\n").unwrap();
+
+        formatter()
+            .args(["--toolchain", toolchain])
+            .arg(&main)
+            .assert()
+            .success();
+
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "fn keep() {}\n");
+        assert_eq!(
+            fs::read_to_string(&main).unwrap(),
+            "mod c;\nmod d;\n#[path = \"../shared/e.rs\"]\nmod e;\nfn main() {}\n",
+            "{toolchain}"
+        );
+        assert_eq!(
+            fs::read_to_string(&carrier).unwrap(),
+            forged_comment(&victim, "fn injected() {}")
+        );
+        assert_eq!(fs::read_to_string(&child).unwrap(), "fn d() {}\n");
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "fn e() {}\n");
+    }
+}
+
+#[test]
+fn quiet_still_rewrites_a_dirty_file() {
+    for toolchain in available_toolchains() {
+        let temp = tempdir().unwrap();
+        let file = temp.path().join("a.rs");
+        let tree = temp.path().join("tree");
+        let walked = tree.join("b.rs");
+        fs::create_dir_all(&tree).unwrap();
+        fs::write(&file, "fn  main(){}\n").unwrap();
+        fs::write(&walked, "fn  b(){}\n").unwrap();
+
+        formatter()
+            .args(["-q", "--toolchain", toolchain])
+            .arg(&file)
+            .assert()
+            .success();
+        formatter()
+            .args(["-q", "--toolchain", toolchain])
+            .arg(&tree)
+            .assert()
+            .success();
+
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "fn main() {}\n",
+            "{toolchain}"
+        );
+        assert_eq!(fs::read_to_string(&walked).unwrap(), "fn b() {}\n");
+    }
+}
+
+#[test]
+fn quiet_stable_check_still_fails_a_dirty_file() {
+    needs_stable!();
+
+    let temp = tempdir().unwrap();
+    let file = temp.path().join("b.rs");
+    fs::write(&file, "fn  main(){}\n").unwrap();
+
+    formatter()
+        .args(["-q", "--check", "--toolchain", "stable"])
+        .arg(&file)
+        .assert()
+        .failure()
+        .code(1);
+    formatter()
+        .args(["-q", "--check", "--toolchain", "stable"])
+        .arg(temp.path())
+        .assert()
+        .failure()
+        .code(1);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "fn  main(){}\n");
+}
+
+#[test]
+fn stable_check_of_a_single_file_reports_its_dirty_child_module() {
+    needs_stable!();
+
+    let temp = tempdir().unwrap();
+    let src = temp.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+
+    let main = src.join("main.rs");
+    let child = src.join("foo.rs");
+    fs::write(&main, "mod foo;\nfn main() {}\n").unwrap();
+    fs::write(&child, "fn  x(){}\n").unwrap();
+
+    formatter()
+        .args(["--check", "--toolchain", "stable"])
+        .arg(&main)
+        .assert()
+        .failure()
+        .code(1)
+        .stdout(predicates::str::contains("foo.rs"));
+
+    assert_eq!(fs::read_to_string(&child).unwrap(), "fn  x(){}\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_write_still_formats_and_reports_the_rest_of_the_chunk() {
+    use std::os::unix::fs::PermissionsExt;
+
+    struct Restore(PathBuf);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    for toolchain in available_toolchains() {
+        let temp = tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let locked_dir = root.join("b_locked");
+        fs::create_dir(&locked_dir).unwrap();
+
+        let before = root.join("a.rs");
+        let locked = locked_dir.join("b.rs");
+        let after = root.join("c.rs");
+        for path in [&before, &locked, &after] {
+            fs::write(path, "fn  x(){}\n").unwrap();
+        }
+        fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o555)).unwrap();
+        let _guard = Restore(locked_dir.clone());
+
+        if fs::write(locked_dir.join("probe"), "").is_ok() {
+            eprintln!("SKIP: directory permissions are not enforced for this user");
+            return;
+        }
+
+        let out = formatter()
+            .args([
+                "-j",
+                "1",
+                "--message-format",
+                "json",
+                "--toolchain",
+                toolchain,
+            ])
+            .arg(&root)
+            .assert()
+            .failure()
+            .code(2)
+            .get_output()
+            .clone();
+
+        assert_eq!(fs::read_to_string(&before).unwrap(), "fn x() {}\n");
+        assert_eq!(fs::read_to_string(&after).unwrap(), "fn x() {}\n");
+        assert_eq!(fs::read_to_string(&locked).unwrap(), "fn  x(){}\n");
+
+        let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        let status_of = |path: &Path| {
+            report["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|file| file["path"] == path.display().to_string())
+                .map(|file| file["status"].clone())
+        };
+        assert_eq!(report["exit_code"], 2, "{toolchain}: {report}");
+        assert_eq!(report["summary"]["errors"], 1, "{report}");
+        assert_eq!(report["errors"][0]["path"], locked.display().to_string());
+        assert_eq!(status_of(&before), Some("formatted".into()), "{report}");
+        assert_eq!(status_of(&after), Some("formatted".into()), "{report}");
+    }
 }
