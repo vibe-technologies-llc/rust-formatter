@@ -439,6 +439,31 @@ fn a_configured_exclude_does_not_make_an_empty_run_a_no_op() {
         .success();
 }
 
+#[test]
+fn widening_the_toml_skips_does_not_make_an_empty_run_a_no_op() {
+    let temp = tempdir().unwrap();
+    let empty = temp.path().join("empty");
+    fs::create_dir_all(&empty).unwrap();
+
+    formatter()
+        .current_dir(temp.path())
+        .arg("empty")
+        .assert()
+        .code(2);
+
+    formatter()
+        .current_dir(temp.path())
+        .args(["--no-default-toml-skips", "empty"])
+        .assert()
+        .code(2);
+
+    formatter()
+        .current_dir(temp.path())
+        .args(["--skip-toml", "nothing.toml", "empty"])
+        .assert()
+        .success();
+}
+
 /// The rustfmt options a repository names reach rustfmt, and the ones it
 /// misspells are dropped with a warning rather than failing everyone's run.
 #[test]

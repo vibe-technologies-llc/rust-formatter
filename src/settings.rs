@@ -250,15 +250,25 @@ macro_rules! settings {
             fn merge_replacing(
                 &mut self,
                 higher: Settings,
-                source: &Source,
+                source_of: &dyn Fn(&'static str) -> Source,
                 provenance: &mut Provenance,
             ) {
                 $(
                     if higher.$field.is_some() {
                         self.$field = higher.$field;
-                        provenance.set(stringify!($field), source.clone());
+                        provenance.set(stringify!($field), source_of(stringify!($field)));
                     }
                 )*
+            }
+
+            fn set_fields(&self) -> Vec<&'static str> {
+                let mut fields = Vec::new();
+                $(
+                    if self.$field.is_some() {
+                        fields.push(stringify!($field));
+                    }
+                )*
+                fields
             }
 
             fn from_env(env: EnvLookup<'_>) -> Result<Self> {
@@ -279,20 +289,6 @@ macro_rules! settings {
                     });
                 }
                 Ok(out)
-            }
-
-            /// Every setting the environment supplied keeps its own variable as
-            /// its provenance, rather than one shared "environment" label.
-            fn merge_env(&mut self, higher: Settings, provenance: &mut Provenance) {
-                $(
-                    if higher.$field.is_some() {
-                        self.$field = higher.$field;
-                        provenance.set(
-                            stringify!($field),
-                            Source::Environment(env_var(stringify!($field))),
-                        );
-                    }
-                )*
             }
         }
     };
@@ -357,34 +353,45 @@ settings! {
 }
 
 impl Settings {
-    /// Layer `higher` over `self`.
-    ///
-    /// A table merges key by key, so a package can add one rustfmt option to the
-    /// workspace's list. The filter lists accumulate, because an exclude is a
-    /// rule about the tree rather than an answer that can be superseded --
-    /// which is already how `into_options` folds rustfmt's `ignore` into
-    /// `--exclude`. Everything else replaces.
-    pub fn merge_from(
+    pub fn merge_from(&mut self, higher: Settings, source: &Source, provenance: &mut Provenance) {
+        self.merge_layer(higher, &|_| source.clone(), provenance);
+    }
+
+    fn merge_env(&mut self, higher: Settings, provenance: &mut Provenance) {
+        self.merge_layer(
+            higher,
+            &|field| Source::Environment(env_var(field)),
+            provenance,
+        );
+    }
+
+    fn env_sources(&self) -> impl Iterator<Item = Source> {
+        self.set_fields()
+            .into_iter()
+            .map(|field| Source::Environment(env_var(field)))
+    }
+
+    fn merge_layer(
         &mut self,
         mut higher: Settings,
-        source: &Source,
+        source_of: &dyn Fn(&'static str) -> Source,
         provenance: &mut Provenance,
     ) {
         if let Some(config) = higher.config.take() {
             let merged = self.config.get_or_insert_with(BTreeMap::new);
             merged.extend(config);
-            provenance.set("config", source.clone());
+            provenance.set("config", source_of("config"));
         }
         if let Some(presets) = higher.presets.take() {
             let merged = self.presets.get_or_insert_with(BTreeMap::new);
             merged.extend(presets);
-            provenance.set("presets", source.clone());
+            provenance.set("presets", source_of("presets"));
         }
         macro_rules! append {
             ($field:ident) => {
                 if let Some(values) = higher.$field.take() {
                     self.$field.get_or_insert_with(Vec::new).extend(values);
-                    provenance.set(stringify!($field), source.clone());
+                    provenance.set(stringify!($field), source_of(stringify!($field)));
                 }
             };
         }
@@ -395,7 +402,7 @@ impl Settings {
         append!(ignore_path);
         append!(skip_toml);
 
-        self.merge_replacing(higher, source, provenance);
+        self.merge_replacing(higher, source_of, provenance);
     }
 
     /// The TOML style these settings resolve to. Everything they leave unset
@@ -507,6 +514,12 @@ fn is(value: Option<Toggle>, fallback: bool) -> bool {
 /// An environment variable's value, read as TOML and then as the bare string it
 /// looks like. `RUST_FORMATTER_EXCLUDE='["vendor"]'` is an array,
 /// `RUST_FORMATTER_EDITION=2024` is the string `2024` rather than the integer.
+pub fn env_message_format(env: EnvLookup<'_>) -> Option<MessageFormat> {
+    let name = env_var("message_format");
+    let raw = env(&name)?;
+    parse_env_value(&name, &raw.to_string_lossy()).ok()
+}
+
 fn parse_env_value<T: serde::de::DeserializeOwned>(name: &str, raw: &str) -> Result<T> {
     #[derive(Deserialize)]
     struct Wrap<T> {
@@ -790,7 +803,9 @@ pub fn resolve(start: &Path, env: EnvLookup<'_>, cli: &SettingsCli) -> Result<Re
                 sources.push(layer.source);
             }
             Step::Environment(from_env) => {
-                settings.merge_env(strip(from_env), &mut provenance);
+                let from_env = strip(from_env);
+                sources.extend(from_env.env_sources());
+                settings.merge_env(from_env, &mut provenance);
             }
         }
     }
@@ -1240,6 +1255,77 @@ mod tests {
             resolved.provenance.source_of("toml_max_width"),
             Source::PackageMetadata(_)
         ));
+    }
+
+    #[test]
+    fn the_environment_accumulates_a_list_and_merges_a_table() {
+        let temp = tempdir().unwrap();
+        fs::write(
+            temp.path().join("rust-formatter.toml"),
+            "exclude = [\"vendor/**\"]\n[config]\nmax_width = 120\nhard_tabs = true\n",
+        )
+        .unwrap();
+        let map = env_from(&[
+            ("RUST_FORMATTER_EXCLUDE", r#"["gen/**"]"#),
+            ("RUST_FORMATTER_CONFIG", "{ max_width = 100 }"),
+        ]);
+
+        let resolved = resolve_in(temp.path(), &map, &SettingsCli::default());
+        let config = resolved.settings.config.unwrap();
+
+        assert_eq!(
+            resolved.settings.exclude,
+            Some(vec!["vendor/**".to_string(), "gen/**".to_string()])
+        );
+        assert_eq!(config["max_width"], ConfigValue::Integer(100));
+        assert_eq!(config["hard_tabs"], ConfigValue::Bool(true));
+        assert_eq!(
+            resolved.provenance.source_of("exclude"),
+            Source::Environment("RUST_FORMATTER_EXCLUDE".to_string())
+        );
+        assert_eq!(
+            resolved.provenance.source_of("config"),
+            Source::Environment("RUST_FORMATTER_CONFIG".to_string())
+        );
+    }
+
+    #[test]
+    fn the_sources_name_each_environment_variable_in_precedence_order() {
+        let temp = tempdir().unwrap();
+        let file = temp.path().join("rust-formatter.toml");
+        fs::write(&file, "toml-max-width = 80\n").unwrap();
+        let map = env_from(&[
+            ("RUST_FORMATTER_TOML_MAX_WIDTH", "90"),
+            ("RUST_FORMATTER_SORT_DEPS", "1"),
+        ]);
+
+        let resolved = resolve_in(temp.path(), &map, &SettingsCli::default());
+
+        assert_eq!(
+            resolved.sources,
+            vec![
+                Source::File(detector::canonical_dir(temp.path()).join("rust-formatter.toml")),
+                Source::Environment("RUST_FORMATTER_TOML_MAX_WIDTH".to_string()),
+                Source::Environment("RUST_FORMATTER_SORT_DEPS".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_environment_source_is_named_when_no_variable_is_set() {
+        let temp = tempdir().unwrap();
+        let map = env_from(&[]);
+
+        let resolved = resolve_in(temp.path(), &map, &SettingsCli::default());
+
+        assert!(
+            !resolved
+                .sources
+                .iter()
+                .any(|source| matches!(source, Source::Environment(_))),
+            "{:?}",
+            resolved.sources
+        );
     }
 
     #[test]

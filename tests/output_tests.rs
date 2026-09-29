@@ -1469,3 +1469,105 @@ fn a_refused_preview_is_reported_as_json_too() {
     assert_eq!(value["exit_code"], 2);
     assert_eq!(value["errors"][0]["code"], "preview-not-single-file");
 }
+
+#[track_caller]
+fn json_failure(command: &mut Command) -> serde_json::Value {
+    let assert = command.assert().code(2).stderr(predicates::str::is_empty());
+    let text = String::from_utf8(assert.get_output().stdout.clone()).expect("stdout is UTF-8");
+    serde_json::from_str(&text).unwrap_or_else(|err| panic!("{err}: {text}"))
+}
+
+#[test]
+fn a_configuration_failure_is_reported_as_json_too() {
+    let temp = tempdir().unwrap();
+    write(
+        &temp.path().join("rust-formatter.toml"),
+        "sort_deps = true\n",
+    );
+    write(&temp.path().join("a.toml"), CLEAN_TOML);
+
+    let value = json_failure(formatter().current_dir(temp.path()).args([
+        "--check",
+        "--message-format",
+        "json",
+    ]));
+
+    assert_eq!(value["mode"], "check");
+    assert_eq!(value["exit_code"], 2);
+    assert_eq!(value["errors"][0]["code"], "config");
+    assert!(
+        value["errors"][0]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("rust-formatter.toml")
+    );
+}
+
+#[test]
+fn a_configuration_failure_honours_json_from_the_environment() {
+    let temp = tempdir().unwrap();
+    write(
+        &temp.path().join("rust-formatter.toml"),
+        "sort_deps = true\n",
+    );
+
+    let value = json_failure(
+        formatter()
+            .current_dir(temp.path())
+            .env("RUST_FORMATTER_MESSAGE_FORMAT", "json")
+            .arg("--list-files"),
+    );
+
+    assert_eq!(value["mode"], "list-files");
+    assert_eq!(value["errors"][0]["code"], "config");
+}
+
+#[test]
+fn a_refused_combination_is_reported_as_json_too() {
+    let temp = tempdir().unwrap();
+    write(&temp.path().join("a.toml"), CLEAN_TOML);
+
+    for (args, message) in [
+        (
+            &["--sort-grouped", "--toml-max-blank-lines", "0"][..],
+            "--sort-grouped cannot be combined with --toml-max-blank-lines 0",
+        ),
+        (
+            &["--config", "max_width"][..],
+            "expected KEY=VALUE in --config, found `max_width`",
+        ),
+        (
+            &["--edition", "2021", "--config", "edition=2018"][..],
+            "--edition 2021 conflicts with --config edition=2018",
+        ),
+    ] {
+        let value = json_failure(
+            formatter()
+                .current_dir(temp.path())
+                .args(["--message-format", "json"])
+                .args(args),
+        );
+
+        assert_eq!(value["mode"], "write", "{args:?}");
+        assert_eq!(value["exit_code"], 2, "{args:?}");
+        assert_eq!(value["errors"][0]["code"], "usage", "{args:?}");
+        assert_eq!(value["errors"][0]["message"], message, "{args:?}");
+    }
+}
+
+#[test]
+fn a_configuration_failure_stays_plain_without_json() {
+    let temp = tempdir().unwrap();
+    write(
+        &temp.path().join("rust-formatter.toml"),
+        "sort_deps = true\n",
+    );
+
+    formatter()
+        .current_dir(temp.path())
+        .arg("--check")
+        .assert()
+        .code(2)
+        .stdout(predicates::str::is_empty())
+        .stderr(predicates::str::starts_with("error: "));
+}

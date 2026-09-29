@@ -15,6 +15,7 @@ use crate::{
     detector::{self, TargetKind, decode_path, is_rust_path, is_toml_path, simplify_path},
     error::{Error, Result},
     git::{self, GitPlan, GitSelection},
+    runner::named_scope,
 };
 
 pub const DEFAULT_TOML_SKIPS: [&str; 4] =
@@ -400,25 +401,32 @@ fn resolve_paths(
     Ok(collapse_targets(resolved, all))
 }
 
-pub(crate) fn collapse_targets(targets: Vec<TargetKind>, all: bool) -> Vec<TargetKind> {
-    let mut resolved: Vec<(PathBuf, TargetKind)> = targets
-        .into_iter()
-        .map(|target| (target_key(&target, all), target))
-        .collect();
-    resolved.sort_by(|left, right| left.0.cmp(&right.0));
+struct Keyed {
+    key: PathBuf,
+    scope: Option<PathBuf>,
+    target: TargetKind,
+}
 
-    let mut kept: Vec<(PathBuf, TargetKind)> = Vec::with_capacity(resolved.len());
-    for (key, target) in resolved {
-        if kept
-            .iter()
-            .any(|(seen_key, seen)| subsumes(seen, seen_key, &key, all))
-        {
+pub(crate) fn collapse_targets(targets: Vec<TargetKind>, all: bool) -> Vec<TargetKind> {
+    let mut resolved: Vec<Keyed> = targets
+        .into_iter()
+        .map(|target| Keyed {
+            key: target_key(&target, all),
+            scope: named_scope(&target).map(Path::to_path_buf),
+            target,
+        })
+        .collect();
+    resolved.sort_by(|left, right| (&left.key, &left.scope).cmp(&(&right.key, &right.scope)));
+
+    let mut kept: Vec<Keyed> = Vec::with_capacity(resolved.len());
+    for candidate in resolved {
+        if kept.iter().any(|seen| subsumes(seen, &candidate, all)) {
             continue;
         }
-        kept.push((key, target));
+        kept.push(candidate);
     }
 
-    kept.into_iter().map(|(_, target)| target).collect()
+    kept.into_iter().map(|keyed| keyed.target).collect()
 }
 
 fn target_key(target: &TargetKind, all: bool) -> PathBuf {
@@ -440,21 +448,21 @@ fn target_key(target: &TargetKind, all: bool) -> PathBuf {
     }
 }
 
-/// A candidate is already covered when it sits inside a kept directory target,
-/// or inside a kept Cargo target that would resolve to the same workspace. The
-/// second condition is what keeps a non-member package under a workspace root
-/// from being silently swallowed.
-fn subsumes(kept: &TargetKind, kept_key: &Path, candidate: &Path, all: bool) -> bool {
-    if kept_key == candidate {
-        return true;
+fn subsumes(kept: &Keyed, candidate: &Keyed, all: bool) -> bool {
+    if kept.key == candidate.key {
+        return match (&kept.scope, &candidate.scope) {
+            (None, _) => true,
+            (Some(kept_scope), Some(candidate_scope)) => candidate_scope.starts_with(kept_scope),
+            (Some(_), None) => false,
+        };
     }
-    if !candidate.starts_with(kept_key) {
+    if !candidate.key.starts_with(&kept.key) {
         return false;
     }
-    match kept {
+    match &kept.target {
         TargetKind::LooseDirectory { .. } => true,
-        TargetKind::CargoProject { workspace_root, .. } if all => {
-            detector::find_cargo_manifest(candidate)
+        TargetKind::CargoProject { workspace_root, .. } if all && kept.scope.is_none() => {
+            detector::find_cargo_manifest(&candidate.key)
                 .is_some_and(|manifest| detector::workspace_root(&manifest) == *workspace_root)
         }
         _ => false,

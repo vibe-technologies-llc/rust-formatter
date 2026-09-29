@@ -108,21 +108,23 @@ pub fn run_reporting(options: &FormatterOptions, streams: &Streams<'_>) -> (i32,
 /// code. `--watch` shares it, because a watcher that fails to start has to say
 /// so in whichever format the caller asked for.
 pub fn report_fatal(err: Error, options: &FormatterOptions, streams: &Streams<'_>) -> i32 {
-    // A caller that asked for JSON gets JSON for the failure too, or the one
-    // case it most needs to read is the one it cannot parse.
     if options.message_format == MessageFormat::Json {
-        let errors = [err];
-        let _ = report(
-            streams,
-            &Report {
-                errors: &errors,
-                exit_code: 2,
-                ..Report::new(run_mode(options))
-            },
-        );
-        return 2;
+        return report_failure(err, run_mode(options), streams);
     }
     let _ = streams.paint_note(|out| paint_error(&err, out));
+    2
+}
+
+pub fn report_failure(err: Error, mode: ReportMode, streams: &Streams<'_>) -> i32 {
+    let errors = [err];
+    let _ = report(
+        streams,
+        &Report {
+            errors: &errors,
+            exit_code: 2,
+            ..Report::new(mode)
+        },
+    );
     2
 }
 

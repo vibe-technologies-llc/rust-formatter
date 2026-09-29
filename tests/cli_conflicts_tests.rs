@@ -71,6 +71,10 @@ fn a_flag_combination_validate_refuses_exits_two() {
         &["--range", "1:2", "Cargo.toml"],
         "--range formats Rust only",
     );
+    rejected(
+        &["--stdin", "x/Cargo.toml"],
+        "--stdin formats standard input and takes no PATH; name the input with --stdin-filepath",
+    );
     // The path is load-bearing: without one, the `--emit stdout needs one
     // PATH` rule fires first and this rule is never reached.
     rejected(

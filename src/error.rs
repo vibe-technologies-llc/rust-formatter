@@ -203,6 +203,78 @@ pub enum Error {
         #[source]
         source: io::Error,
     },
+
+    #[error(transparent)]
+    Usage(#[from] Usage),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum Usage {
+    #[error(
+        "--stdin formats standard input and takes no PATH; name the input with --stdin-filepath"
+    )]
+    StdinWithPath,
+
+    #[error("--emit stdout needs --stdin or exactly one PATH")]
+    PreviewNeedsOnePath,
+
+    #[error("--watch rewrites files as they change, so it cannot be combined with --emit stdout")]
+    WatchWithPreview,
+
+    #[error("--restage rewrites files, so it cannot be combined with --emit stdout")]
+    RestageWithPreview,
+
+    #[error("--emit stdout prints a formatted file, so it cannot be combined with a listing")]
+    PreviewWithListing,
+
+    #[error("--full-versions rewrites Cargo.toml, which --rust-only excludes")]
+    FullVersionsWithRustOnly,
+
+    #[error("--registry-url names an index to fetch from, which --offline forbids")]
+    RegistryUrlWhileOffline,
+
+    #[error("--recurse-submodules narrows --since or --staged, which is what asks git for a scope")]
+    RecurseSubmodulesWithoutGitScope,
+
+    #[error("--toml-version 1.0 cannot be combined with --toml-inline-tables expand")]
+    Toml10WithExpandedInlineTables,
+
+    #[error("--sort-grouped cannot be combined with --toml-max-blank-lines 0")]
+    SortGroupedWithoutBlankLines,
+
+    #[error("--range needs --stdin or exactly one PATH")]
+    RangeNeedsOnePath,
+
+    #[error("--range formats Rust only; TOML is formatted as a whole document")]
+    RangeOnToml,
+
+    #[error("--range needs a .rs file or --stdin")]
+    RangeNeedsRustFile,
+
+    #[error("{flag} {value} conflicts with --config {key}={configured}")]
+    EditionConflict {
+        flag: &'static str,
+        value: String,
+        key: &'static str,
+        configured: String,
+    },
+
+    #[error("invalid value `{value}` for {key}: expected one of {}", .expected.join(", "))]
+    InvalidEdition {
+        key: &'static str,
+        value: String,
+        expected: &'static [&'static str],
+    },
+
+    #[error("expected a list of patterns, found `{raw}`")]
+    PatternListExpected { raw: String },
+
+    #[error("expected KEY=VALUE in --config, found `{entry}`")]
+    ConfigEntryWithoutValue { entry: String },
+
+    #[error("--config entry `{entry}` has no key")]
+    ConfigEntryWithoutKey { entry: String },
 }
 
 impl Error {
@@ -327,6 +399,7 @@ impl Error {
                 column: None,
                 message: source.to_string(),
             },
+            Self::Usage(_) => plain("usage"),
         }
     }
 }

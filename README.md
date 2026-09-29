@@ -413,7 +413,12 @@ which shape to expect:
 | `preview` | `--emit stdout` | one file, plus `content` |
 
 A run that fails outright reports that as JSON too: the envelope carries the
-failure in `errors`, `exit_code` is `2`, and stderr stays empty.
+failure in `errors`, `exit_code` is `2`, and stderr stays empty. That includes a
+configuration file or environment variable that cannot be read (`config`) and a
+combination of flags or values the run refuses (`usage`). Only what the argument
+parser itself rejects -- an unknown flag, a missing or malformed value, two flags
+it declares as conflicting -- stays a plain `error:` on stderr, since the parser
+fails before `--message-format` has been read.
 
 `version` is `3`. `version`, `mode`, `files`, `errors`, `warnings`, `summary`
 and `exit_code` are always present. `config` and `content` appear only in the
@@ -890,7 +895,7 @@ Exit codes:
 | `1` | `--check` found files that need formatting |
 | `2` | Tool / environment / parse / I/O error (no rustfmt or git, bad TOML, unreadable path, invalid glob, a registry that failed, …) |
 
-A selection you narrowed yourself — `--since`, `--staged`, `--files-from`, `--include`, `--exclude`, `--rust-only`, `--toml-only`, `--max-depth` — that matches no file exits `0` silently. This is what makes `--staged` usable as a hook: a commit that touches no Rust is a success, not an error. A plain directory with nothing formattable in it still exits `2`.
+A selection you narrowed yourself — `--since`, `--staged`, `--files-from`, `--include`, `--exclude`, `--ignore-path`, `--skip-toml`, `--rust-only`, `--toml-only`, `--max-depth` — that matches no file exits `0` silently. This is what makes `--staged` usable as a hook: a commit that touches no Rust is a success, not an error. A plain directory with nothing formattable in it still exits `2`.
 
 A bad TOML file does not stop the rest of the tree: every file that cannot be parsed, read, or written is reported on its own line and the process exits `2` after the rest of the tree is formatted. Pass `--fail-fast` to abort on the first one.
 

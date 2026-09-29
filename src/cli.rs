@@ -18,8 +18,10 @@ use clap::{CommandFactory, FromArgMatches, Parser, ValueEnum, parser::ValueSourc
 use crate::{
     ArrayStyle, ColorChoice, DEFAULT_DIFF_CONTEXT, Emit, FileSource, FormatterOptions, GitScope,
     GitSelection, IndentSpec, InlineTableStyle, Languages, LineRange, ListMode, MessageFormat,
-    PackageOrder, RustStyle, RustfmtConfig, SelectionOptions, Spacing, Streams, TomlVersion,
-    TrailingComma, UpgradePolicy, hook,
+    PackageOrder, ReportMode, RustStyle, RustfmtConfig, SelectionOptions, Spacing, Streams,
+    TomlVersion, TrailingComma, UpgradePolicy,
+    error::{Error, Usage},
+    hook,
     settings::{self, ConfigValue, Provenance, Resolved, Settings, SettingsCli, Source, Toggle},
 };
 
@@ -1356,51 +1358,42 @@ fn status(cwd: &Path) -> i32 {
     }
 }
 
-/// The entries of a rustfmt `ignore` list, which is a TOML array of strings.
-fn parse_string_list(raw: &str) -> Result<Vec<String>, String> {
-    let value = raw
-        .parse::<toml_edit::Value>()
-        .map_err(|_| format!("expected a list of patterns, found `{raw}`"))?;
+fn parse_string_list(raw: &str) -> Result<Vec<String>, Usage> {
+    let not_a_list = || Usage::PatternListExpected {
+        raw: raw.to_owned(),
+    };
+    let value = raw.parse::<toml_edit::Value>().map_err(|_| not_a_list())?;
     match &value {
         toml_edit::Value::String(one) => Ok(vec![one.value().clone()]),
         toml_edit::Value::Array(entries) => entries
             .iter()
-            .map(|entry| {
-                entry
-                    .as_str()
-                    .map(str::to_owned)
-                    .ok_or_else(|| format!("expected a list of patterns, found `{raw}`"))
-            })
+            .map(|entry| entry.as_str().map(str::to_owned).ok_or_else(not_a_list))
             .collect(),
-        _ => Err(format!("expected a list of patterns, found `{raw}`")),
+        _ => Err(not_a_list()),
     }
 }
 
-/// A setting with both a dedicated flag and a `--config` spelling. Both reach
-/// rustfmt's command line, where `--config` silently wins -- and neither is
-/// visible to the batching that has to group files by edition before a single
-/// invocation is made. Lifting it out is what makes the two agree.
-///
-/// Only two values the user actually typed can disagree; a value that came from
-/// a configuration file loses to a typed one instead of raising a conflict the
-/// reader has no flag to fix.
 fn reconcile(
     flag: Option<String>,
     from_config: Option<String>,
     typed: bool,
-    flag_name: &str,
-    key: &str,
-) -> Result<Option<String>, String> {
+    flag_name: &'static str,
+    key: &'static str,
+) -> Result<Option<String>, Usage> {
     match (flag, from_config) {
-        (Some(flag), Some(config)) if typed && flag != config => Err(format!(
-            "{flag_name} {flag} conflicts with --config {key}={config}"
-        )),
+        (Some(flag), Some(config)) if typed && flag != config => Err(Usage::EditionConflict {
+            flag: flag_name,
+            value: flag,
+            key,
+            configured: config,
+        }),
         (Some(value), _) | (None, Some(value)) => {
             if !EDITIONS.contains(&value.as_str()) {
-                return Err(format!(
-                    "invalid value `{value}` for {key}: expected one of {}",
-                    EDITIONS.join(", ")
-                ));
+                return Err(Usage::InvalidEdition {
+                    key,
+                    value,
+                    expected: &EDITIONS,
+                });
             }
             Ok(Some(value))
         }
@@ -1422,9 +1415,7 @@ fn is(value: Option<Toggle>, fallback: bool) -> bool {
     value.map_or(fallback, bool::from)
 }
 
-/// The `--config KEY=VALUE` entries as the table a configuration file writes, so
-/// both spellings merge key by key instead of racing on rustfmt's command line.
-fn config_overlay(entries: &[String]) -> Result<BTreeMap<String, ConfigValue>, String> {
+fn config_overlay(entries: &[String]) -> Result<BTreeMap<String, ConfigValue>, Usage> {
     let mut parsed = RustfmtConfig::empty();
     parsed.extend_from_slice(entries)?;
     Ok(parsed
@@ -1434,14 +1425,12 @@ fn config_overlay(entries: &[String]) -> Result<BTreeMap<String, ConfigValue>, S
 }
 
 impl Cli {
-    /// The settings the command line itself carries. Only what was typed is
-    /// included, so every lower layer keeps the values the user did not name.
     #[expect(
         clippy::too_many_lines,
         reason = "one line per flag the command line can set, and there are that many \
                   flags. A helper per group would only move the list."
     )]
-    fn overlay(&self, matches: &clap::ArgMatches) -> Result<Settings, String> {
+    fn overlay(&self, matches: &clap::ArgMatches) -> Result<Settings, Usage> {
         let typed = |id: &str| matches.value_source(id) == Some(ValueSource::CommandLine);
         let mut out = Settings::default();
 
@@ -1585,9 +1574,6 @@ impl Cli {
         Ok(out)
     }
 
-    /// Build the run from the merged settings. Everything a configuration source
-    /// may set is read from `settings`; `self` keeps only what names this
-    /// invocation -- the paths, the mode and the git scope.
     #[expect(
         clippy::too_many_lines,
         reason = "the whole projection from the resolved settings onto FormatterOptions, \
@@ -1597,7 +1583,7 @@ impl Cli {
         self,
         settings: &Settings,
         run: &RunContext,
-    ) -> Result<FormatterOptions, String> {
+    ) -> Result<FormatterOptions, Usage> {
         let mut config = RustfmtConfig::default();
         for style in settings.rust_style.clone().unwrap_or_default() {
             config.apply_style(style);
@@ -1807,11 +1793,11 @@ fn dispatch(args: impl IntoIterator<Item = std::ffi::OsString>, bin_name: &'stat
 
     let resolved = match settings::resolve(&settings_root(&cli), &cargo_env, &request) {
         Ok(resolved) => resolved,
-        Err(err) => fail(err),
+        Err(err) => fail_run(err, &cli, settings::env_message_format(&cargo_env)),
     };
     let overlay = match cli.overlay(&matches) {
         Ok(overlay) => overlay,
-        Err(message) => fail(message),
+        Err(usage) => fail_run(usage, &cli, resolved.settings.message_format),
     };
     let typed = |id: &str| matches.value_source(id) == Some(ValueSource::CommandLine);
     let run = RunContext {
@@ -1830,15 +1816,17 @@ fn dispatch(args: impl IntoIterator<Item = std::ffi::OsString>, bin_name: &'stat
         process::exit(0);
     }
 
-    if let Err(message) = validate(&cli, &settings) {
-        fail(message);
+    if let Err(usage) = validate(&cli, &settings) {
+        fail_run(usage, &cli, settings.message_format);
     }
 
     let choice = settings.color.unwrap_or_default();
     let watch = cli.watch;
+    let message_format = settings.message_format;
+    let failure_mode = failure_mode(&cli);
     let options = match cli.into_options(&settings, &run) {
         Ok(options) => options,
-        Err(message) => fail(message),
+        Err(usage) => report_run_failure(usage.into(), failure_mode, message_format),
     };
 
     let streams = Streams::new(
@@ -1857,6 +1845,37 @@ fn dispatch(args: impl IntoIterator<Item = std::ffi::OsString>, bin_name: &'stat
     } else {
         crate::run(&options, &streams)
     });
+}
+
+fn fail_run(err: impl Into<Error>, cli: &Cli, configured: Option<MessageFormat>) -> ! {
+    let requested = cli.message_format.map(MessageFormat::from).or(configured);
+    report_run_failure(err.into(), failure_mode(cli), requested)
+}
+
+fn report_run_failure(err: Error, mode: ReportMode, format: Option<MessageFormat>) -> ! {
+    if format != Some(MessageFormat::Json) {
+        fail(err);
+    }
+    let streams = Streams::new(io::stdout(), false, io::stderr(), false, ColorChoice::Never);
+    process::exit(crate::report_failure(err, mode, &streams));
+}
+
+fn failure_mode(cli: &Cli) -> ReportMode {
+    if cli.print_config {
+        ReportMode::PrintConfig
+    } else if cli.stdin {
+        ReportMode::Stdin
+    } else if cli.list_files {
+        ReportMode::ListFiles
+    } else if cli.list_different {
+        ReportMode::ListDifferent
+    } else if cli.emit == Some(EmitArg::Stdout) {
+        ReportMode::Preview
+    } else if cli.check {
+        ReportMode::Check
+    } else {
+        ReportMode::Write
+    }
 }
 
 fn cargo_env(key: &str) -> Option<std::ffi::OsString> {
@@ -1910,7 +1929,7 @@ struct RunContext {
 /// Narrowing the selection is what makes an empty result a no-op rather than a
 /// failure, and only the caller can narrow: a repository's own excludes describe
 /// the tree, not this run.
-const NARROWING_ARGS: [&str; 8] = [
+const NARROWING_ARGS: [&str; 7] = [
     "includes",
     "excludes",
     "ignore_paths",
@@ -1918,65 +1937,44 @@ const NARROWING_ARGS: [&str; 8] = [
     "skip_toml",
     "rust_only",
     "toml_only",
-    "no_default_toml_skips",
 ];
 
-/// `--emit stdout` concatenates results, so it is only meaningful when there is
-/// exactly one thing to write.
-fn validate(cli: &Cli, settings: &Settings) -> Result<(), String> {
-    let owned = |message: &str| Err(message.to_string());
-
+fn validate(cli: &Cli, settings: &Settings) -> Result<(), Usage> {
+    if cli.stdin && !cli.paths.is_empty() {
+        return Err(Usage::StdinWithPath);
+    }
     if cli.emit == Some(EmitArg::Stdout) && !cli.stdin && cli.paths.len() != 1 {
-        return owned("--emit stdout needs --stdin or exactly one PATH");
+        return Err(Usage::PreviewNeedsOnePath);
     }
-    // `--emit stdout` prints one file and returns; there is nothing for a second
-    // pass to print, and nothing on disk for the watcher to notice.
     if cli.watch && cli.emit == Some(EmitArg::Stdout) {
-        return owned(
-            "--watch rewrites files as they change, so it cannot be combined with --emit stdout",
-        );
+        return Err(Usage::WatchWithPreview);
     }
-    // Nothing reaches disk under `--emit stdout`, so there is no formatted file
-    // to re-add.
     if cli.restage && cli.emit == Some(EmitArg::Stdout) {
-        return owned("--restage rewrites files, so it cannot be combined with --emit stdout");
+        return Err(Usage::RestageWithPreview);
     }
-    // A preview is the file's contents; a listing is its name.
     if cli.emit == Some(EmitArg::Stdout) && (cli.list_files || cli.list_different) {
-        return owned(
-            "--emit stdout prints a formatted file, so it cannot be combined with a listing",
-        );
+        return Err(Usage::PreviewWithListing);
     }
-    // The flag rewrites `Cargo.toml`, which is exactly what `--rust-only`
-    // removes from the run.
     if cli.full_versions && settings.languages == Some(Languages::Rust) {
-        return owned("--full-versions rewrites Cargo.toml, which --rust-only excludes");
+        return Err(Usage::FullVersionsWithRustOnly);
     }
     if cli.registry_url.is_some() && is(settings.offline, false) {
-        return owned("--registry-url names an index to fetch from, which --offline forbids");
+        return Err(Usage::RegistryUrlWhileOffline);
     }
     if cli.recurse_submodules && cli.since.is_none() && !cli.staged {
-        return owned(
-            "--recurse-submodules narrows --since or --staged, which is what asks git for a scope",
-        );
+        return Err(Usage::RecurseSubmodulesWithoutGitScope);
     }
-    // `auto` and `compact` are what 1.0 narrows; `expand` asks for the one
-    // construct it forbids, so honouring both is impossible.
     if settings.toml_version == Some(TomlVersion::V1_0)
         && settings.toml_inline_tables == Some(InlineTableStyle::Expand)
     {
-        return owned("--toml-version 1.0 cannot be combined with --toml-inline-tables expand");
+        return Err(Usage::Toml10WithExpandedInlineTables);
     }
-    // Groups are read off the blank lines between entries, which is exactly what
-    // a cap of zero deletes, so the pair would not even converge on itself.
     if is(settings.sort_grouped, false) && settings.toml_max_blank_lines == Some(0) {
-        return owned("--sort-grouped cannot be combined with --toml-max-blank-lines 0");
+        return Err(Usage::SortGroupedWithoutBlankLines);
     }
-    // A range names lines of one file, and only rustfmt can format part of one:
-    // the TOML formatter rewrites a whole document.
     if !cli.ranges.is_empty() {
         if !cli.stdin && cli.paths.len() != 1 {
-            return owned("--range needs --stdin or exactly one PATH");
+            return Err(Usage::RangeNeedsOnePath);
         }
         let named = if cli.stdin {
             cli.stdin_filepath.as_deref()
@@ -1984,10 +1982,10 @@ fn validate(cli: &Cli, settings: &Settings) -> Result<(), String> {
             cli.paths.first().map(PathBuf::as_path)
         };
         if named.is_some_and(crate::detector::is_toml_path) {
-            return owned("--range formats Rust only; TOML is formatted as a whole document");
+            return Err(Usage::RangeOnToml);
         }
         if !cli.stdin && named.is_some_and(|path| !crate::detector::is_rust_path(path)) {
-            return owned("--range needs a .rs file or --stdin");
+            return Err(Usage::RangeNeedsRustFile);
         }
     }
     Ok(())
@@ -2130,8 +2128,8 @@ mod tests {
             .try_get_matches_from(std::iter::once("rust-formatter").chain(args.iter().copied()))
             .map_err(|err| format!("clap rejected the arguments: {err}"))?;
         let cli = Cli::from_arg_matches(&matches).map_err(|err| err.to_string())?;
-        let settings = cli.overlay(&matches)?;
-        validate(&cli, &settings)
+        let settings = cli.overlay(&matches).map_err(|usage| usage.to_string())?;
+        validate(&cli, &settings).map_err(|usage| usage.to_string())
     }
 
     #[track_caller]
@@ -2159,6 +2157,15 @@ mod tests {
         rejected(&["--emit", "stdout", "a.rs", "b.rs"], message);
         accepted(&["--emit", "stdout", "a.rs"]);
         accepted(&["--emit", "stdout", "--stdin", "--stdin-filepath", "a.rs"]);
+    }
+
+    #[test]
+    fn stdin_takes_no_path() {
+        let message = "--stdin formats standard input and takes no PATH; name the input with --stdin-filepath";
+        rejected(&["--stdin", "x/Cargo.toml"], message);
+        rejected(&["--stdin", "--stdin-filepath", "a.rs", "b.rs"], message);
+        accepted(&["--stdin"]);
+        accepted(&["--stdin", "--stdin-filepath", "x/Cargo.toml"]);
     }
 
     /// A watch cannot preview: `--emit stdout` prints one buffer and returns.

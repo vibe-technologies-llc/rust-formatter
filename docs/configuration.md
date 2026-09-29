@@ -266,7 +266,8 @@ the environment variable that would override it. Anything absent is at its
 built-in default. It runs before the flag-combination checks, so it still
 describes a configuration that would be refused.
 
-`-v` names the configuration sources that were read, in the order they applied.
+`-v` names the configuration sources that were read, in the order they applied;
+the environment appears as each variable that supplied a setting.
 
 `--print-config` is a different question: it asks *rustfmt* for its own resolved
 configuration.

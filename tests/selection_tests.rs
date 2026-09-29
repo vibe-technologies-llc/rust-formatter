@@ -1011,6 +1011,68 @@ fn two_named_members_are_walked_once() {
         .stderr(predicates::str::contains("2 targets").not());
 }
 
+fn package(root: &Path) {
+    write(
+        &root.join("Cargo.toml"),
+        "[package]\nname = \"p\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write(&root.join("src/main.rs"), "fn main() {}\n");
+    write(&root.join("src/clean.toml"), CLEAN);
+    write(&root.join("tests/dirty.toml"), DIRTY);
+}
+
+#[test]
+fn two_named_subdirectories_of_one_package_are_both_checked() {
+    let temp = tempdir().unwrap();
+    package(temp.path());
+
+    for order in [["src", "tests"], ["tests", "src"]] {
+        formatter()
+            .current_dir(temp.path())
+            .args(["--toml-only", "--check"])
+            .args(order)
+            .assert()
+            .code(1);
+    }
+}
+
+#[test]
+fn two_named_subdirectories_of_workspace_members_are_both_formatted() {
+    let temp = tempdir().unwrap();
+    workspace(temp.path());
+
+    formatter()
+        .current_dir(temp.path())
+        .args(["--toml-only", "crates/a/src", "crates/b/src"])
+        .assert()
+        .success();
+
+    assert_eq!(read(&temp.path().join("crates/a/src/nested.toml")), CLEAN);
+    assert_eq!(read(&temp.path().join("crates/b/src/nested.toml")), CLEAN);
+    assert_eq!(read(&temp.path().join("crates/a/data.toml")), DIRTY);
+    assert_eq!(read(&temp.path().join("crates/b/data.toml")), DIRTY);
+}
+
+#[test]
+fn a_named_package_absorbs_a_named_subdirectory_in_either_order() {
+    for order in [["crates/a/src", "crates/a"], ["crates/a", "crates/a/src"]] {
+        let temp = tempdir().unwrap();
+        workspace(temp.path());
+
+        formatter()
+            .current_dir(temp.path())
+            .args(["--toml-only", "--no-all", "-v"])
+            .args(order)
+            .assert()
+            .success()
+            .stderr(predicates::str::contains("target: cargo project").count(1));
+
+        assert_eq!(read(&temp.path().join("crates/a/data.toml")), CLEAN);
+        assert_eq!(read(&temp.path().join("crates/a/src/nested.toml")), CLEAN);
+        assert_eq!(read(&temp.path().join("crates/b/data.toml")), DIRTY);
+    }
+}
+
 // ------------------------------------------------------------ include/exclude
 
 #[test]

@@ -2,6 +2,8 @@ use std::{borrow::Cow, collections::BTreeMap};
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::Usage;
+
 /// Default configuration key-value pairs required for:
 /// - std -> external -> crate import ordering (`group_imports = "StdExternalCrate"`)
 /// - merged `use crate::{x, y};` imports (`imports_granularity = "Crate"`)
@@ -142,31 +144,29 @@ impl RustfmtConfig {
         self.options.is_empty()
     }
 
-    /// Parse `key=value,key2=value2` strings and merge them.
-    ///
-    /// The split is aware of TOML quoting and nesting, because the values that
-    /// most need expressing are the array-valued ones -- `ignore`,
-    /// `skip_macro_invocations` -- and a plain `split(',')` shreds them.
-    pub fn extend_from_str(&mut self, config_str: &str) -> Result<&mut Self, String> {
+    pub fn extend_from_str(&mut self, config_str: &str) -> Result<&mut Self, Usage> {
         for entry in split_entries(config_str) {
             let entry = entry.trim();
             if entry.is_empty() {
                 continue;
             }
             let Some((key, value)) = entry.split_once('=') else {
-                return Err(format!("expected KEY=VALUE in --config, found `{entry}`"));
+                return Err(Usage::ConfigEntryWithoutValue {
+                    entry: entry.to_owned(),
+                });
             };
             let key = key.trim();
             if key.is_empty() {
-                return Err(format!("--config entry `{entry}` has no key"));
+                return Err(Usage::ConfigEntryWithoutKey {
+                    entry: entry.to_owned(),
+                });
             }
             self.set(key.to_owned(), value.trim().to_owned());
         }
         Ok(self)
     }
 
-    /// Extend from a list of `--config` CLI arguments.
-    pub fn extend_from_slice<T: AsRef<str>>(&mut self, configs: &[T]) -> Result<&mut Self, String> {
+    pub fn extend_from_slice<T: AsRef<str>>(&mut self, configs: &[T]) -> Result<&mut Self, Usage> {
         for config in configs {
             self.extend_from_str(config.as_ref())?;
         }
@@ -332,7 +332,7 @@ mod tests {
     fn a_bare_key_is_rejected_rather_than_becoming_true() {
         let mut cfg = RustfmtConfig::default();
         let err = cfg.extend_from_str("max_width").unwrap_err();
-        assert!(err.contains("max_width"), "{err}");
+        assert!(err.to_string().contains("max_width"), "{err}");
         assert_eq!(cfg.get("max_width"), None);
         assert!(cfg.extend_from_str("=120").is_err());
     }
