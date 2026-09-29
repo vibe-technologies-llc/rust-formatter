@@ -357,7 +357,10 @@ fn run_stdin(options: &FormatterOptions, streams: &Streams<'_>) -> Result<i32> {
 
     let mut warnings = Vec::new();
 
-    let source = runner::decode_source(&bytes, name)?;
+    let mut source = runner::decode_source(&bytes, name)?;
+    if language == Kind::Rust {
+        source = source.with_newline_style(runner::stdin_newline_style(&resolved));
+    }
     let output = runner::format_stdin(&source.text, language, &resolved)?;
     warnings.extend(output.warnings);
     let versions = output.versions;

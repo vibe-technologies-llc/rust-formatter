@@ -339,6 +339,52 @@ pub(crate) struct SourceText {
     pub(crate) text: String,
 }
 
+impl SourceText {
+    pub(crate) fn with_newline_style(self, style: NewlineStyle) -> Self {
+        let crlf = match style {
+            NewlineStyle::Auto => self.crlf,
+            NewlineStyle::Unix => false,
+            NewlineStyle::Windows => true,
+        };
+        Self { crlf, ..self }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NewlineStyle {
+    Auto,
+    Unix,
+    Windows,
+}
+
+impl NewlineStyle {
+    fn effective(options: &FormatterOptions, project: Option<&Path>) -> Self {
+        options
+            .config
+            .get("newline_style")
+            .map(str::to_owned)
+            .or_else(|| {
+                project.and_then(|config| crate::rustfmt_config::setting(config, "newline_style"))
+            })
+            .map_or(Self::Auto, |value| Self::named(&value))
+    }
+
+    fn named(value: &str) -> Self {
+        let value = value.trim().trim_matches('"').to_ascii_lowercase();
+        let native = if cfg!(windows) { "windows" } else { "unix" };
+        let resolved = if value == "native" {
+            native
+        } else {
+            value.as_str()
+        };
+        match resolved {
+            "unix" => Self::Unix,
+            "windows" => Self::Windows,
+            _ => Self::Auto,
+        }
+    }
+}
+
 enum TomlFileStatus {
     Clean,
     Changed(FileOutcome),
@@ -357,7 +403,6 @@ struct RustBatch {
     files: Vec<PathBuf>,
 }
 
-/// The arguments one batch adds to every rustfmt invocation it makes.
 #[derive(Debug, Clone, Copy)]
 struct BatchArgs<'a> {
     edition: Option<&'a str>,
@@ -366,6 +411,7 @@ struct BatchArgs<'a> {
     /// ride along in the `--config` argument instead. Carrying it here keeps
     /// the decision in one place rather than at each of the invocation sites.
     skip_children: bool,
+    newline_style: NewlineStyle,
 }
 
 /// What the resolved rustfmt actually offers, rather than what this tool assumes
@@ -1051,13 +1097,6 @@ fn preview_toml(
     Ok(encode_source(&formatted, &source))
 }
 
-/// rustfmt is not idempotent in one pass and `--check` compares against the
-/// fixed point a write run would reach, so a preview built from one pass could
-/// differ from the file the same command would have written. `--emit json`
-/// gives the text of the first pass; the rest of the convergence runs in memory
-/// through the same stdin path `--stdin` uses, with the project's own
-/// `rustfmt.toml` passed explicitly, because a buffer has no directory for
-/// rustfmt to discover one from.
 fn preview_rust(
     path: &Path,
     options: &FormatterOptions,
@@ -1067,6 +1106,7 @@ fn preview_rust(
     let mut resolver = EditionResolver::new(options, metadata);
     let edition = resolver.edition(path);
     let project = resolver.project_config(path);
+    let newline_style = NewlineStyle::effective(options, project.as_deref());
 
     let scratch;
     let config_path = if options.config.needs_config_file() {
@@ -1086,12 +1126,13 @@ fn preview_rust(
         edition: edition.as_deref(),
         config_path: config_path.as_deref(),
         skip_children: true,
+        newline_style,
     };
 
     let bytes = fs::read(path).map_err(|err| Error::io(path, err))?;
-    let source = decode_source(&bytes, path)?;
+    let source = decode_source(&bytes, path)?.with_newline_style(newline_style);
     let mut text = first_pass(path, &source.text, options, rustfmt, args)?;
-    for _ in 1..MAX_RUSTFMT_PASSES {
+    for _ in 1..rustfmt_passes(options) {
         let next = normalize_formatted_rust(&rustfmt_stdin(&text, options, rustfmt, args)?);
         if next == text {
             break;
@@ -1570,6 +1611,7 @@ struct RustOutcome {
     /// copy per chunk of the same sentence.
     warnings: Vec<String>,
     unconfirmed: Vec<PathBuf>,
+    unsettled: Vec<PathBuf>,
 }
 
 /// Everything the Rust half decides before a worker starts: which files, at
@@ -1593,6 +1635,7 @@ struct PreparedBatch {
     config_path: Option<PathBuf>,
     project_config: Option<PathBuf>,
     skip_children: bool,
+    newline_style: NewlineStyle,
     /// Ordered heaviest first, so the queue's tail is its smallest job.
     chunks: Vec<Vec<PathBuf>>,
 }
@@ -1704,6 +1747,7 @@ fn prepare_rust_plan<'a>(
         prepared.push(PreparedBatch {
             edition: batch.edition,
             config_path,
+            newline_style: NewlineStyle::effective(options, batch.project_config.as_deref()),
             project_config: batch.project_config,
             skip_children,
             chunks: chunk_rust_files(batch.files, options, share),
@@ -1739,6 +1783,7 @@ fn enqueue_rust<'a>(
                     edition: batch.edition.as_deref(),
                     config_path: batch.config_path.as_deref(),
                     skip_children: batch.skip_children,
+                    newline_style: batch.newline_style,
                 };
                 let known = split_cached(chunk, cache, key, probe_path_attr, &mut state.fresh);
                 state.saw_path_attr |= known.saw_path_attr;
@@ -1832,16 +1877,6 @@ fn split_cached(
     known
 }
 
-/// Remember every file the run just proved is a fixed point.
-///
-/// A file rustfmt rewrote is re-read, so a check run straight after a write run
-/// is warm; a file rustfmt complained about is remembered as nothing, because a
-/// parse failure is not a verdict about formatting.
-///
-/// Every name rustfmt reported has to match a file that was handed to it. If
-/// one does not, nothing from this chunk is remembered: the alternative is
-/// recording a file as clean because its name was spelled differently than
-/// expected, and a wrong entry is worse than no cache at all.
 fn record_clean(
     known: &Known,
     outcome: &RustOutcome,
@@ -1849,7 +1884,15 @@ fn record_clean(
     fresh: &mut Vec<Fingerprint>,
 ) {
     let Some(key) = key else { return };
+    if has_unattributed_failure(outcome) {
+        return;
+    }
 
+    let unsettled: HashSet<PathBuf> = outcome
+        .unsettled
+        .iter()
+        .map(|path| simplify_path(path.clone()))
+        .collect();
     let named: HashSet<PathBuf> = outcome
         .changed
         .iter()
@@ -1866,6 +1909,7 @@ fn record_clean(
                 .iter()
                 .map(|path| simplify_path(path.clone())),
         )
+        .chain(unsettled.iter().cloned())
         .collect();
     let known_names: HashSet<PathBuf> = known
         .pending
@@ -1876,13 +1920,12 @@ fn record_clean(
         return;
     }
 
-    // A file rustfmt rewrote has new bytes on disk, and those are the fixed
-    // point worth remembering. One it merely reported, or failed on, has none.
     let rewritten: HashSet<PathBuf> = outcome
         .changed
         .iter()
         .filter(|file| file.status == FileStatus::Formatted)
         .map(|file| file.path.clone())
+        .filter(|path| !unsettled.contains(path))
         .collect();
 
     for (path, print) in &known.candidates {
@@ -1895,6 +1938,13 @@ fn record_clean(
             fresh.push(*print);
         }
     }
+}
+
+fn has_unattributed_failure(outcome: &RustOutcome) -> bool {
+    outcome
+        .errors
+        .iter()
+        .any(|err| err.diagnostic().path.is_none())
 }
 
 /// How many invocations one edition group gets out of the worker budget.
@@ -2060,6 +2110,7 @@ fn path_attribute_modules(
             edition: batch.edition.as_deref(),
             config_path: None,
             skip_children: false,
+            newline_style: NewlineStyle::Auto,
         };
         for name in rustfmt_would_touch(&batch.files, options, rustfmt, args)? {
             // rustfmt names a `#[path]` module by the join, `..` and all, while
@@ -2322,35 +2373,57 @@ fn check_chunks(
     let mut outcome = RustOutcome::default();
     for chunk in files.chunks(RUSTFMT_CHUNK_SIZE) {
         let reported = rustfmt_json(chunk, options, rustfmt, args)?;
+        let mut examined: HashSet<PathBuf> = reported
+            .errors
+            .iter()
+            .filter_map(|err| err.diagnostic().path.map(Path::to_path_buf))
+            .collect();
         outcome.errors.extend(reported.errors);
+
         for file in reported.files {
             let path = simplify_path(PathBuf::from(&file.name));
-            let Ok(bytes) = fs::read(&path) else {
-                outcome
-                    .changed
-                    .push(rust_outcome(&path, FileStatus::NeedsFormatting, None));
-                continue;
-            };
-            let Ok(source) = decode_source(&bytes, &path) else {
-                outcome
-                    .changed
-                    .push(rust_outcome(&path, FileStatus::NeedsFormatting, None));
-                continue;
-            };
-            let formatted =
-                normalize_formatted_rust(&apply_mismatches(&source.text, &file.mismatches));
-            if encode_source(&formatted, &source) == bytes {
-                continue;
-            }
-            let diff = options.wants_diff().then(|| {
-                crate::report::unified_diff(&path, &source.text, &formatted, options.diff_context)
-            });
             outcome
                 .changed
-                .push(rust_outcome(&path, FileStatus::NeedsFormatting, diff));
+                .extend(check_one(&path, &file.mismatches, options, args));
+            examined.insert(path);
+        }
+
+        if args.newline_style == NewlineStyle::Auto {
+            continue;
+        }
+        for path in chunk {
+            let path = simplify_path(path.clone());
+            if !examined.contains(&path) && path.is_file() {
+                outcome.changed.extend(check_one(&path, &[], options, args));
+            }
         }
     }
     Ok(outcome)
+}
+
+fn check_one(
+    path: &Path,
+    mismatches: &[RustfmtJsonMismatch],
+    options: &FormatterOptions,
+    args: BatchArgs<'_>,
+) -> Option<FileOutcome> {
+    let unreadable = || rust_outcome(path, FileStatus::NeedsFormatting, None);
+    let Ok(bytes) = fs::read(path) else {
+        return Some(unreadable());
+    };
+    let Ok(source) = decode_source(&bytes, path) else {
+        return Some(unreadable());
+    };
+
+    let source = source.with_newline_style(args.newline_style);
+    let formatted = normalize_formatted_rust(&apply_mismatches(&source.text, mismatches));
+    if encode_source(&formatted, &source) == bytes {
+        return None;
+    }
+    let diff = options
+        .wants_diff()
+        .then(|| crate::report::unified_diff(path, &source.text, &formatted, options.diff_context));
+    Some(rust_outcome(path, FileStatus::NeedsFormatting, diff))
 }
 
 fn check_chunks_by_text(
@@ -2361,7 +2434,7 @@ fn check_chunks_by_text(
 ) -> Result<RustOutcome> {
     let mut outcome = RustOutcome::default();
     for chunk in files.chunks(RUSTFMT_CHUNK_SIZE) {
-        let sources = read_sources(chunk);
+        let sources = read_sources(chunk, args.newline_style);
         let emitted = emit_stdout_texts(chunk, &source_texts(&sources), options, rustfmt, args)?;
         outcome.errors.extend(emitted.errors);
         outcome.warnings.extend(emitted.warnings);
@@ -2392,14 +2465,14 @@ fn check_chunks_by_text(
 
 type SourceFile = Option<(Vec<u8>, SourceText)>;
 
-fn read_sources(files: &[PathBuf]) -> Vec<SourceFile> {
+fn read_sources(files: &[PathBuf], newline_style: NewlineStyle) -> Vec<SourceFile> {
     files
         .iter()
         .map(|path| {
             let bytes = fs::read(path).ok()?;
             decode_source(&bytes, path)
                 .ok()
-                .map(|source| (bytes, source))
+                .map(|source| (bytes, source.with_newline_style(newline_style)))
         })
         .collect()
 }
@@ -2661,7 +2734,6 @@ fn write_chunks(
     args: BatchArgs<'_>,
 ) -> Result<RustOutcome> {
     let mut outcome = RustOutcome::default();
-    let mut unsettled = Vec::new();
     for chunk in files.chunks(RUSTFMT_CHUNK_SIZE) {
         let part = write_chunk(chunk, options, rustfmt, args)?;
         if part.code != 0 {
@@ -2670,11 +2742,11 @@ fn write_chunks(
         outcome.errors.extend(part.errors);
         outcome.warnings.extend(part.warnings);
         outcome.unconfirmed.extend(part.unconfirmed);
-        unsettled.extend(part.pending);
+        outcome.unsettled.extend(part.unsettled);
         outcome.changed.extend(part.changed);
     }
     if !options.quiet {
-        for path in &unsettled {
+        for path in &outcome.unsettled {
             let _ = streams.note_line(&format!(
                 "warning: rustfmt did not settle after {MAX_RUSTFMT_PASSES} passes: {}",
                 path.display()
@@ -2689,7 +2761,7 @@ struct WriteChunk {
     changed: Vec<FileOutcome>,
     errors: Vec<Error>,
     warnings: Vec<String>,
-    pending: Vec<PathBuf>,
+    unsettled: Vec<PathBuf>,
     unconfirmed: Vec<PathBuf>,
 }
 
@@ -2699,7 +2771,7 @@ fn write_chunk(
     rustfmt: &Rustfmt,
     args: BatchArgs<'_>,
 ) -> Result<WriteChunk> {
-    let origins = read_sources(files);
+    let origins = read_sources(files, args.newline_style);
     let emitted = emit_stdout_texts(files, &source_texts(&origins), options, rustfmt, args)?;
 
     let mut outcome = WriteChunk {
@@ -2707,7 +2779,7 @@ fn write_chunk(
         changed: Vec::new(),
         errors: emitted.errors,
         warnings: emitted.warnings,
-        pending: Vec::new(),
+        unsettled: Vec::new(),
         unconfirmed: Vec::new(),
     };
     for (path, origin) in files.iter().zip(&origins) {
@@ -2748,9 +2820,9 @@ fn write_formatted_rust(
     outcome: &mut WriteChunk,
 ) -> Result<()> {
     let mut text = normalize_formatted_rust(after);
-    let mut settled = text == source.text;
+    let mut settled = text == source.text || rustfmt_passes(options) == 1;
     if !settled {
-        for _ in 1..MAX_RUSTFMT_PASSES {
+        for _ in 1..rustfmt_passes(options) {
             let next = normalize_formatted_rust(&rustfmt_stdin(&text, options, rustfmt, args)?);
             if next == text {
                 settled = true;
@@ -2760,7 +2832,7 @@ fn write_formatted_rust(
         }
     }
     if !settled {
-        outcome.pending.push(path.to_path_buf());
+        outcome.unsettled.push(path.to_path_buf());
     }
     let encoded = encode_source(&text, source);
     if encoded == original {
@@ -2775,6 +2847,14 @@ fn write_formatted_rust(
     Ok(())
 }
 
+fn rustfmt_passes(options: &FormatterOptions) -> usize {
+    if options.ranges.is_empty() {
+        MAX_RUSTFMT_PASSES
+    } else {
+        1
+    }
+}
+
 fn attributed_to(path: &Path, err: Error) -> Error {
     match err {
         Error::Io { source, .. } => Error::io(path, source),
@@ -2782,15 +2862,8 @@ fn attributed_to(path: &Path, err: Error) -> Error {
     }
 }
 
-/// Every file one rustfmt invocation would rewrite, named by rustfmt itself.
-///
-/// This is how a `#[path]` module outside the walked tree is discovered: the
-/// walk cannot see it, but rustfmt follows the attribute and reports it. Both
-/// channels answer with the same set and the same spelling -- `--emit json`
-/// lists a mismatched file, and `--check -l` lists exactly the files that
-/// would be formatted -- so the cheaper one is used where the other is not
-/// available. Errors are deliberately dropped: an unformattable root is a
-/// failure the real pass reports, and discovery must not turn it into two.
+const NEWLINE_ONLY_MISMATCH: &str = "Incorrect newline style in ";
+
 fn rustfmt_would_touch(
     files: &[PathBuf],
     options: &FormatterOptions,
@@ -2815,6 +2888,7 @@ fn rustfmt_would_touch(
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
+        .map(|line| line.strip_prefix(NEWLINE_ONLY_MISMATCH).unwrap_or(line))
         .map(PathBuf::from)
         .collect())
 }
@@ -2881,14 +2955,6 @@ fn file_lines_argument(files: impl Iterator<Item = String>, ranges: &[LineRange]
     serde_json::Value::Array(entries).to_string()
 }
 
-/// Split rustfmt's stderr into one error per file, so a library consumer sees
-/// the two languages the same way. TOML already produces an `Error::TomlParse`
-/// per file; Rust produced one `Error::ToolFailed` per *invocation*, carrying up
-/// to five hundred files' worth of captured stderr as a single string.
-///
-/// A diagnostic block starts at a column-0 `error`/`warning` line and carries
-/// its location on the following ` --> path:line:col`. Anything with no location
-/// -- a configuration failure, a panic -- is kept whole rather than dropped.
 fn rustfmt_diagnostics(stderr: &str, code: i32) -> Vec<Error> {
     let mut errors = Vec::new();
     let mut unattributed = String::new();
@@ -2930,7 +2996,8 @@ fn rustfmt_diagnostics(stderr: &str, code: i32) -> Vec<Error> {
     }
 
     let unattributed = unattributed.trim();
-    if !unattributed.is_empty() {
+    let failed_silently = code != 0 && errors.is_empty();
+    if !unattributed.is_empty() || failed_silently {
         errors.push(Error::ToolFailed {
             command: "rustfmt".to_string(),
             code,
@@ -4149,6 +4216,7 @@ pub fn print_config(options: &FormatterOptions, probe: Option<&Path>) -> Result<
             edition: options.edition.as_deref(),
             config_path: config_path.as_deref(),
             skip_children: false,
+            newline_style: NewlineStyle::Auto,
         },
     );
 
@@ -4172,8 +4240,6 @@ pub struct StdinOutput {
     pub warnings: Vec<String>,
 }
 
-/// Format one buffer without touching the filesystem. Returns the formatted
-/// text; the caller decides whether to print it or compare it.
 pub fn format_stdin(
     source: &str,
     language: Kind,
@@ -4245,15 +4311,8 @@ pub fn format_stdin(
 
     let rustfmt = resolve_for_one_off(&options.toolchain, options.cache)?;
 
-    // A buffer has no directory of its own, so rustfmt would discover the
-    // `rustfmt.toml` next to *this process's* working directory rather than the
-    // one that governs the file the buffer came from. Naming it explicitly is
-    // what makes `--stdin` agree with a run over the same path.
     let scratch;
-    let project = options
-        .stdin_filepath
-        .as_deref()
-        .and_then(|path| crate::rustfmt_config::discover(path.parent().unwrap_or(Path::new("."))));
+    let project = stdin_project(options);
     let config_path = if options.config.needs_config_file() {
         scratch = tempfile::TempDir::new().map_err(|err| Error::io("<config>", err))?;
         Some(crate::rustfmt_config::materialize(
@@ -4271,10 +4330,11 @@ pub fn format_stdin(
         edition: options.edition.as_deref(),
         config_path: config_path.as_deref(),
         skip_children: false,
+        newline_style: NewlineStyle::Auto,
     };
 
     let mut current = normalize_formatted_rust(&rustfmt_stdin(source, options, &rustfmt, args)?);
-    for _ in 1..MAX_RUSTFMT_PASSES {
+    for _ in 1..rustfmt_passes(options) {
         let next = normalize_formatted_rust(&rustfmt_stdin(&current, options, &rustfmt, args)?);
         if next == current {
             break;
@@ -4291,6 +4351,19 @@ pub fn format_stdin(
 /// `stdin` is the name rustfmt gives the buffer, and the name `--file-lines`
 /// has to use to reach it.
 const STDIN_NAME: &str = "stdin";
+
+fn stdin_project(options: &FormatterOptions) -> Option<PathBuf> {
+    match options.stdin_filepath.as_deref() {
+        Some(path) => crate::rustfmt_config::discover(path.parent().unwrap_or(Path::new("."))),
+        None => std::env::current_dir()
+            .ok()
+            .and_then(|dir| crate::rustfmt_config::discover(&dir)),
+    }
+}
+
+pub(crate) fn stdin_newline_style(options: &FormatterOptions) -> NewlineStyle {
+    NewlineStyle::effective(options, stdin_project(options).as_deref())
+}
 
 fn rustfmt_stdin(
     source: &str,
@@ -4843,6 +4916,10 @@ error[E0670]: `async fn` is not permitted in Rust 2015
 
         assert!(rustfmt_diagnostics("", 0).is_empty());
         assert!(rustfmt_diagnostics("   \n", 0).is_empty());
+        assert!(matches!(
+            rustfmt_diagnostics("", 101).as_slice(),
+            [Error::ToolFailed { code: 101, .. }]
+        ));
         // A multi-byte first character must not be sliced apart.
         assert_eq!(rustfmt_diagnostics("é\n", 1).len(), 1);
     }
@@ -4956,6 +5033,102 @@ error[E0670]: `async fn` is not permitted in Rust 2015
         record_clean(&known, &outcome, Some(7), &mut fresh);
 
         assert_eq!(fresh, vec![cache::fingerprint(&clean, b"b", 7)]);
+    }
+
+    #[test]
+    fn newline_style_is_read_the_way_rustfmt_reads_it() {
+        let native = if cfg!(windows) {
+            NewlineStyle::Windows
+        } else {
+            NewlineStyle::Unix
+        };
+
+        assert_eq!(NewlineStyle::named("Unix"), NewlineStyle::Unix);
+        assert_eq!(NewlineStyle::named("\"windows\""), NewlineStyle::Windows);
+        assert_eq!(NewlineStyle::named("Native"), native);
+        assert_eq!(NewlineStyle::named("Auto"), NewlineStyle::Auto);
+        assert_eq!(NewlineStyle::named("sideways"), NewlineStyle::Auto);
+    }
+
+    #[test]
+    fn an_explicit_newline_style_replaces_the_one_the_source_had() {
+        let path = Path::new("a.rs");
+        let crlf = decode_source(b"fn a() {}\r\n", path).unwrap();
+        let lf = decode_source(b"fn a() {}\n", path).unwrap();
+
+        assert_eq!(
+            encode_source(
+                &crlf.text,
+                &crlf.clone().with_newline_style(NewlineStyle::Auto)
+            ),
+            b"fn a() {}\r\n"
+        );
+        assert_eq!(
+            encode_source(
+                &crlf.text,
+                &crlf.clone().with_newline_style(NewlineStyle::Unix)
+            ),
+            b"fn a() {}\n"
+        );
+        assert_eq!(
+            encode_source(
+                &lf.text,
+                &lf.clone().with_newline_style(NewlineStyle::Windows)
+            ),
+            b"fn a() {}\r\n"
+        );
+    }
+
+    #[test]
+    fn a_failure_no_file_is_named_by_remembers_nothing() {
+        let clean = PathBuf::from("/nonexistent/clean.rs");
+        let known = Known {
+            pending: vec![clean.clone()],
+            candidates: vec![(clean.clone(), cache::fingerprint(&clean, b"b", 7))],
+            saw_path_attr: false,
+        };
+        let outcome = RustOutcome {
+            code: 1,
+            errors: rustfmt_diagnostics("Could not parse TOML: max_width = \n", 1),
+            ..RustOutcome::default()
+        };
+        let mut fresh = Vec::new();
+
+        record_clean(&known, &outcome, Some(7), &mut fresh);
+
+        assert!(fresh.is_empty());
+    }
+
+    #[test]
+    fn a_file_that_never_settled_is_not_remembered_as_clean() {
+        let temp = tempfile::tempdir().unwrap();
+        let rewritten = temp.path().join("rewritten.rs");
+        let oscillating = temp.path().join("oscillating.rs");
+        let clean = temp.path().join("clean.rs");
+        fs::write(&rewritten, "fn a() {}\n").unwrap();
+
+        let known = Known {
+            pending: vec![rewritten.clone(), oscillating.clone(), clean.clone()],
+            candidates: vec![
+                (rewritten.clone(), cache::fingerprint(&rewritten, b"a", 7)),
+                (
+                    oscillating.clone(),
+                    cache::fingerprint(&oscillating, b"o", 7),
+                ),
+                (clean.clone(), cache::fingerprint(&clean, b"c", 7)),
+            ],
+            saw_path_attr: false,
+        };
+        let outcome = RustOutcome {
+            changed: vec![rust_outcome(&rewritten, FileStatus::Formatted, None)],
+            unsettled: vec![rewritten, oscillating],
+            ..RustOutcome::default()
+        };
+        let mut fresh = Vec::new();
+
+        record_clean(&known, &outcome, Some(7), &mut fresh);
+
+        assert_eq!(fresh, vec![cache::fingerprint(&clean, b"c", 7)]);
     }
 
     #[test]

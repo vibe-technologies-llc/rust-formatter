@@ -869,6 +869,43 @@ fn a_range_formats_only_the_lines_it_names() {
 }
 
 #[test]
+fn a_range_never_reaches_the_lines_its_first_pass_moved() {
+    needs_nightly!();
+
+    let source = "fn main() {\n    foo(\n        a,\n        b,\n    );\n    let   x   =   1;\n}\n";
+    let expected = "fn main() {\n    foo(a, b);\n    let   x   =   1;\n}\n";
+    let temp = tempdir().unwrap();
+    let written = write(&temp.path().join("written.rs"), source);
+    let previewed = write(&temp.path().join("previewed.rs"), source);
+
+    formatter()
+        .args(["--range", "2-5"])
+        .arg(&written)
+        .assert()
+        .success();
+    let preview = formatter()
+        .args(["--emit", "stdout", "--range", "2-5"])
+        .arg(&previewed)
+        .assert()
+        .success();
+    let stdin = formatter()
+        .args(["--stdin", "--stdin-filepath", "a.rs", "--range", "2-5"])
+        .write_stdin(source)
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&written).unwrap(), expected);
+    assert_eq!(
+        String::from_utf8_lossy(&preview.get_output().stdout),
+        expected
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&stdin.get_output().stdout),
+        expected
+    );
+}
+
+#[test]
 fn a_range_reaches_the_stdin_path_too() {
     needs_nightly!();
 

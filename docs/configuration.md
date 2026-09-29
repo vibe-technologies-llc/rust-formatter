@@ -297,6 +297,13 @@ rustfmt `--config` arguments, and rustfmt ranks its command line above its own
 configuration file — so a rust-formatter setting wins over a `rustfmt.toml` key
 of the same name.
 
+The `rustfmt.toml` in question is the one rustfmt itself would read: the nearest
+`rustfmt.toml` or `.rustfmt.toml` above the file, and when there is none, the one
+in the home directory and then in the user's configuration directory
+(`$XDG_CONFIG_HOME/rustfmt`, `~/Library/Application Support/rustfmt` on macOS,
+`%APPDATA%\rustfmt` on Windows). Whichever it is, it is part of the cache key
+and is carried into the temporary file an array-valued `--config` option needs.
+
 `edition` is the documented exception, because it is inferred rather than
 chosen. An edition that came from the top-level `edition` key of a configuration
 source describes a tree rather than a run, so it ranks below the project's own

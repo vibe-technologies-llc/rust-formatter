@@ -2102,3 +2102,55 @@ fn a_failed_write_still_formats_and_reports_the_rest_of_the_chunk() {
         assert_eq!(status_of(&after), Some("formatted".into()), "{report}");
     }
 }
+
+#[test]
+fn newline_style_decides_the_line_endings_written() {
+    for toolchain in available_toolchains() {
+        let temp = tempdir().unwrap();
+        let crlf = temp.path().join("crlf.rs");
+        let lf_tree = temp.path().join("windows");
+        let lf = lf_tree.join("lf.rs");
+        fs::create_dir_all(&lf_tree).unwrap();
+        fs::write(&crlf, "fn main() {}\r\n").unwrap();
+        fs::write(&lf, "fn main() {}\n").unwrap();
+        fs::write(
+            lf_tree.join("rustfmt.toml"),
+            "newline_style = \"Windows\"\n",
+        )
+        .unwrap();
+
+        let run = |args: &[&str]| {
+            let mut cmd = formatter();
+            cmd.args(["--toolchain", toolchain]).args(args);
+            cmd
+        };
+
+        run(&["--check"]).arg(&crlf).assert().success();
+        run(&["--check", "--config", "newline_style=Unix"])
+            .arg(&crlf)
+            .assert()
+            .failure()
+            .code(1);
+        run(&["--check"]).arg(&lf_tree).assert().failure().code(1);
+        run(&[
+            "--stdin",
+            "--stdin-filepath",
+            "crlf.rs",
+            "--config",
+            "newline_style=Unix",
+        ])
+        .write_stdin("fn main() {}\r\n")
+        .assert()
+        .success()
+        .stdout("fn main() {}\n");
+
+        run(&["--config", "newline_style=Unix"])
+            .arg(&crlf)
+            .assert()
+            .success();
+        run(&[]).arg(&lf_tree).assert().success();
+
+        assert_eq!(fs::read(&crlf).unwrap(), b"fn main() {}\n", "{toolchain}");
+        assert_eq!(fs::read(&lf).unwrap(), b"fn main() {}\r\n", "{toolchain}");
+    }
+}

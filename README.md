@@ -441,7 +441,9 @@ change and prints nothing.
 A buffer is treated exactly as the file it names would be. A byte-order mark and
 CRLF line endings survive the round trip, so `--stdin --check` on a CRLF buffer
 that is already formatted exits `0` rather than reporting a difference nobody
-made; and `--full-versions` completes dependency requirements when
+made -- unless rustfmt's `newline_style` (from `--config` or a `rustfmt.toml`)
+names `Unix`, `Windows` or `Native`, which then decides the line endings of a
+Rust file as it does for rustfmt; and `--full-versions` completes dependency requirements when
 `--stdin-filepath` names a `Cargo.toml`, which is the one buffer that has any.
 `--message-format json` wraps the result, with the formatted text under
 `content` and a unified diff under `files[0].diff` when `--check` is given.
@@ -601,6 +603,8 @@ What an editor's format-selection request needs. Ranges are 1-based and
 inclusive, repeatable, and Rust only -- a TOML document is formatted whole, and
 a directory is refused: a range names lines of one file, so the PATH must be a
 `.rs` file, or the buffer must be passed with `--stdin`.
+A range gets one rustfmt pass rather than a run to a fixed point, because a
+second pass would aim the same line numbers at text the first one already moved.
 rustfmt works in whole lines, so a column is accepted and widened:
 
 ```bash
@@ -916,13 +920,16 @@ rust-formatter --check
 
 The cache lives under `$XDG_CACHE_HOME/rust-formatter` (`%LOCALAPPDATA%\rust-formatter\cache`
 on Windows, `~/Library/Caches/rust-formatter` on macOS), one file per target
-root, and `RUST_FORMATTER_CACHE_DIR` moves it. An entry is the file's bytes
+root, and `RUST_FORMATTER_CACHE_DIR` moves it (a relative path is taken from the
+current directory). An entry is the file's bytes
 hashed with xxh3 together with a hash of the whole effective configuration --
 including the resolved rustfmt's own version -- so changing any of them is a
 miss, and an entry can only ever say "this exact content was already a fixed
 point". Nothing is cached for `--stdin`, `--emit stdout`, `--range`, a manifest
 being resolved by `--full-versions`, or a single `.rs` file whose module tree
-rustfmt follows. `RUST_FORMATTER_CACHE=0` switches it off without a flag.
+rustfmt follows. `RUST_FORMATTER_CACHE=0` switches it off without a flag, and
+like every other setting's variable it yields to an explicit `--cache` or
+`--no-cache`.
 
 ### Custom Options & Pass-through
 

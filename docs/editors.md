@@ -64,7 +64,9 @@ what a format-on-save hook wants.
 `--stdin-filepath` names a `Cargo.toml`, which is the one buffer that has any.
 
 A byte-order mark and CRLF line endings survive the round trip, so a formatter
-hook cannot silently renormalize a file's framing.
+hook cannot silently renormalize a file's framing. The one exception is a
+rustfmt `newline_style` of `Unix`, `Windows` or `Native`, which a Rust buffer
+follows exactly as rustfmt would.
 
 ## VS Code
 

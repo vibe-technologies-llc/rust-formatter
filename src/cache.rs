@@ -23,7 +23,6 @@ use xxhash_rust::xxh3::xxh3_128;
 use crate::cargo_config::{EnvLookup, home_dir};
 
 const CACHE_DIR_ENV: &str = "RUST_FORMATTER_CACHE_DIR";
-const DISABLE_ENV: &str = "RUST_FORMATTER_CACHE";
 
 /// A format change is a miss rather than a misparse.
 const MAGIC: &[u8] = b"rust-formatter-clean\x01";
@@ -74,13 +73,8 @@ pub struct Cache {
 }
 
 impl Cache {
-    /// The cache in force for one target root, or an inert one when caching is
-    /// off or the cache directory is unusable.
-    ///
-    /// Nothing here is ever an error: a cache that cannot be read is a slower
-    /// run, and a cache that cannot be written is a slower next one.
     pub fn load(root: &Path, enabled: bool, env: EnvLookup<'_>) -> Self {
-        if !enabled || disabled_by_environment(env) {
+        if !enabled {
             return Self::default();
         }
         let Some(dir) = directory(env) else {
@@ -137,25 +131,29 @@ impl Cache {
 }
 
 fn directory(env: EnvLookup<'_>) -> Option<PathBuf> {
-    let dir = match env(CACHE_DIR_ENV)
-        .map(PathBuf::from)
-        .filter(|dir| dir.is_absolute())
-    {
-        Some(dir) => dir,
-        None => base_dir(env)?.join("files"),
-    };
+    let dir = location(env)?;
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir)
 }
 
-/// `RUST_FORMATTER_CACHE=0` is the spelling a script reaches for when it cannot
-/// add a flag, and it is read the same way every other boolean setting is.
-fn disabled_by_environment(env: EnvLookup<'_>) -> bool {
-    let Some(value) = env(DISABLE_ENV) else {
-        return false;
-    };
-    let value = value.to_string_lossy().to_ascii_lowercase();
-    matches!(value.as_str(), "0" | "false" | "no" | "off")
+fn location(env: EnvLookup<'_>) -> Option<PathBuf> {
+    match overridden(env) {
+        Some(dir) => dir.ok(),
+        None => base_dir(env).map(|base| base.join("files")),
+    }
+}
+
+fn toolchain_location(env: EnvLookup<'_>) -> Option<PathBuf> {
+    match overridden(env) {
+        Some(dir) => dir.ok().map(|dir| dir.join("toolchain")),
+        None => base_dir(env).map(|base| base.join("toolchain")),
+    }
+}
+
+fn overridden(env: EnvLookup<'_>) -> Option<std::io::Result<PathBuf>> {
+    env(CACHE_DIR_ENV)
+        .filter(|dir| !dir.is_empty())
+        .map(std::path::absolute)
 }
 
 /// Where this tool keeps everything it caches: the registry index, and now the
@@ -239,14 +237,8 @@ pub struct Toolchain {
 
 const TOOLCHAIN_MAGIC: &str = "rust-formatter-toolchain\t1\n";
 
-/// The cached answer for `key`, if the binary it names is still the binary it
-/// was.
-///
-/// Size and modification time are the check: rustup replaces the whole file on
-/// an update, so a toolchain that moved on is a miss rather than a wrong answer
-/// about which options it has.
 pub fn read_toolchain(key: &str, enabled: bool, env: EnvLookup<'_>) -> Option<Toolchain> {
-    if !enabled || disabled_by_environment(env) {
+    if !enabled {
         return None;
     }
     let text = std::fs::read_to_string(toolchain_file(key, env)?).ok()?;
@@ -271,9 +263,8 @@ pub fn read_toolchain(key: &str, enabled: bool, env: EnvLookup<'_>) -> Option<To
     })
 }
 
-/// A cache is never a source of errors: a failed write is a slower next run.
 pub fn write_toolchain(key: &str, found: &Toolchain, enabled: bool, env: EnvLookup<'_>) {
-    if !enabled || disabled_by_environment(env) {
+    if !enabled {
         return;
     }
     let Some(file) = toolchain_file(key, env) else {
@@ -297,7 +288,7 @@ pub fn write_toolchain(key: &str, found: &Toolchain, enabled: bool, env: EnvLook
 }
 
 fn toolchain_file(key: &str, env: EnvLookup<'_>) -> Option<PathBuf> {
-    let dir = directory(env)?.parent()?.join("toolchain");
+    let dir = toolchain_location(env)?;
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join(format!("{:032x}", xxh3_128(key.as_bytes()))))
 }
@@ -377,16 +368,55 @@ mod tests {
     }
 
     #[test]
-    fn the_environment_can_switch_it_off() {
+    fn a_moved_cache_keeps_the_toolchain_inside_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let moved = temp.path().join("moved");
+        let env = env_of(&[(CACHE_DIR_ENV, moved.to_str().unwrap())]);
+        let rustfmt = temp.path().join("rustfmt");
+        std::fs::write(&rustfmt, b"binary").unwrap();
+        let found = Toolchain {
+            rustfmt,
+            version: "rustfmt 1.0.0-nightly".to_string(),
+            unstable_cli: true,
+            options: Vec::new(),
+        };
+
+        write_toolchain("key", &found, true, &env);
+
+        assert!(moved.join("toolchain").is_dir());
+        assert!(!temp.path().join("toolchain").exists());
+        assert_eq!(read_toolchain("key", true, &env), Some(found));
+    }
+
+    #[test]
+    fn only_the_enabled_flag_switches_it_off() {
         let temp = tempfile::tempdir().unwrap();
         let env = env_of(&[
-            (CACHE_DIR_ENV, temp.path().to_str().unwrap()),
-            (DISABLE_ENV, "0"),
+            (CACHE_DIR_ENV, temp.path().join("files").to_str().unwrap()),
+            ("RUST_FORMATTER_CACHE", "0"),
         ]);
+        let rustfmt = temp.path().join("rustfmt");
+        std::fs::write(&rustfmt, b"binary").unwrap();
+        let found = Toolchain {
+            rustfmt,
+            version: "rustfmt 1.0.0-nightly".to_string(),
+            unstable_cli: true,
+            options: Vec::new(),
+        };
+
         let cache = Cache::load(Path::new("/root"), true, &env);
-        assert!(!cache.enabled());
-        cache.store(vec![print("/a.toml", b"a = 1\n", 7)]);
-        assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
+        write_toolchain("key", &found, true, &env);
+
+        assert!(cache.enabled());
+        assert_eq!(read_toolchain("key", true, &env), Some(found));
+    }
+
+    #[test]
+    fn a_relative_directory_is_taken_from_the_current_one() {
+        let env = env_of(&[(CACHE_DIR_ENV, "relative-cache-dir")]);
+        let expected = std::env::current_dir().unwrap().join("relative-cache-dir");
+
+        assert_eq!(location(&env), Some(expected));
     }
 
     #[test]

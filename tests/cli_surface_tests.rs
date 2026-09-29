@@ -921,6 +921,40 @@ fn no_cache_writes_nothing() {
     assert!(!store.exists());
 }
 
+#[test]
+fn an_explicit_cache_flag_outranks_the_environment() {
+    let temp = tempdir().unwrap();
+    let store = temp.path().join("store");
+    let file = temp.path().join("a.toml");
+    fs::write(&file, "a = 1\n").unwrap();
+
+    formatter()
+        .env("RUST_FORMATTER_CACHE", "0")
+        .env("RUST_FORMATTER_CACHE_DIR", &store)
+        .args(["--check", "--toml-only", "--cache"])
+        .arg(&file)
+        .assert()
+        .success();
+
+    assert!(store.exists());
+}
+
+#[test]
+fn a_relative_cache_dir_is_taken_from_the_working_directory() {
+    let temp = tempdir().unwrap();
+    let file = temp.path().join("a.toml");
+    fs::write(&file, "a = 1\n").unwrap();
+
+    formatter()
+        .current_dir(temp.path())
+        .env("RUST_FORMATTER_CACHE_DIR", ".rfc")
+        .args(["--check", "--toml-only", "a.toml"])
+        .assert()
+        .success();
+
+    assert!(temp.path().join(".rfc").is_dir());
+}
+
 /// A write run leaves a fixed point behind, and remembering it is what makes
 /// the `--check` a pre-commit hook runs straight afterwards cheap.
 #[test]
@@ -1000,6 +1034,83 @@ fn a_project_rustfmt_toml_is_part_of_the_cache_key() {
 
     fs::write(temp.path().join("rustfmt.toml"), "max_width = 20\n").unwrap();
     check().failure().code(1);
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn with_user_config_dir(cmd: &mut Command, home: &Path, config: &Path) {
+    let real_home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap());
+    let rustup_home = std::env::var_os("RUSTUP_HOME")
+        .map_or_else(|| real_home.join(".rustup"), std::path::PathBuf::from);
+    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map_or_else(|| real_home.join(".cargo"), std::path::PathBuf::from);
+
+    cmd.env("HOME", home)
+        .env("XDG_CONFIG_HOME", config)
+        .env("RUSTUP_HOME", rustup_home)
+        .env("CARGO_HOME", cargo_home);
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn a_user_level_rustfmt_toml_is_part_of_the_cache_key() {
+    needs_nightly!();
+
+    let temp = tempdir().unwrap();
+    let store = temp.path().join("store");
+    let home = temp.path().join("home");
+    let config = temp.path().join("config");
+    let global = config.join("rustfmt").join("rustfmt.toml");
+    let tree = temp.path().join("tree");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(global.parent().unwrap()).unwrap();
+    fs::create_dir_all(&tree).unwrap();
+    fs::write(&global, "max_width = 100\n").unwrap();
+    fs::write(
+        tree.join("a.rs"),
+        "fn main() {\n    let total = first_value + second_value + third_value;\n}\n",
+    )
+    .unwrap();
+
+    let check = |extra: &[&str]| {
+        let mut cmd = formatter();
+        with_user_config_dir(&mut cmd, &home, &config);
+        cmd.env("RUST_FORMATTER_CACHE_DIR", &store)
+            .arg("--check")
+            .args(extra)
+            .arg(&tree)
+            .assert()
+    };
+
+    check(&[]).success();
+    check(&[]).success();
+
+    fs::write(&global, "max_width = 40\n").unwrap();
+    check(&[]).failure().code(1);
+    check(&["--no-cache", "--config", "skip_macro_invocations=[\"x\"]"])
+        .failure()
+        .code(1);
+}
+
+#[test]
+fn a_rustfmt_failure_no_file_is_blamed_for_caches_nothing() {
+    needs_nightly!();
+
+    let temp = tempdir().unwrap();
+    let store = temp.path().join("store");
+    let tree = temp.path().join("tree");
+    fs::create_dir_all(&tree).unwrap();
+    fs::write(tree.join("a.rs"), "fn  main(){}\n").unwrap();
+    fs::write(tree.join("rustfmt.toml"), "max_width = \n").unwrap();
+
+    let check = || {
+        formatter()
+            .env("RUST_FORMATTER_CACHE_DIR", &store)
+            .args(["--check", tree.to_str().unwrap()])
+            .assert()
+    };
+
+    check().failure().code(2);
+    check().failure().code(2);
 }
 
 #[test]

@@ -4,22 +4,53 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::error::{Error, Result};
+use crate::{
+    cargo_config::{EnvLookup, home_dir, process_env},
+    error::{Error, Result},
+};
 
 /// The two names rustfmt looks for, in the order it looks for them.
 const CONFIG_NAMES: [&str; 2] = ["rustfmt.toml", ".rustfmt.toml"];
 
-/// The file rustfmt would resolve its configuration from when formatting
-/// something in `dir`. rustfmt walks up from the directory of the file it is
-/// given, all the way to the filesystem root, so a search that stopped at a git
-/// or `$HOME` boundary would name a different file than the one rustfmt reads.
 pub fn discover(dir: &Path) -> Option<PathBuf> {
-    dir.ancestors().find_map(|ancestor| {
-        CONFIG_NAMES
+    discover_with(dir, &process_env)
+}
+
+pub fn discover_with(dir: &Path, env: EnvLookup<'_>) -> Option<PathBuf> {
+    dir.ancestors().find_map(config_in).or_else(|| {
+        user_config_dirs(env)
             .iter()
-            .map(|name| ancestor.join(name))
-            .find(|candidate| candidate.is_file())
+            .find_map(|user_dir| config_in(user_dir))
     })
+}
+
+fn config_in(dir: &Path) -> Option<PathBuf> {
+    CONFIG_NAMES
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
+fn user_config_dirs(env: EnvLookup<'_>) -> Vec<PathBuf> {
+    home_dir(env)
+        .into_iter()
+        .chain(platform_config_dir(env).map(|dir| dir.join("rustfmt")))
+        .collect()
+}
+
+fn platform_config_dir(env: EnvLookup<'_>) -> Option<PathBuf> {
+    if cfg!(windows) {
+        return env("APPDATA")
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_absolute());
+    }
+    if cfg!(target_os = "macos") {
+        return home_dir(env).map(|home| home.join("Library").join("Application Support"));
+    }
+    env("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| home_dir(env).map(|home| home.join(".config")))
 }
 
 /// A string-valued top-level setting of a `rustfmt.toml`.
@@ -125,11 +156,97 @@ fn config_value(raw: &str) -> toml_edit::Value {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{ffi::OsString, fs};
 
     use tempfile::tempdir;
 
     use super::*;
+
+    fn env_of(pairs: &[(&str, &Path)]) -> impl Fn(&str) -> Option<OsString> + use<> {
+        let owned: Vec<(String, OsString)> = pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), value.as_os_str().to_owned()))
+            .collect();
+        move |key: &str| {
+            owned
+                .iter()
+                .find(|(held, _)| held == key)
+                .map(|(_, value)| value.clone())
+        }
+    }
+
+    fn home_key() -> &'static str {
+        if cfg!(windows) { "USERPROFILE" } else { "HOME" }
+    }
+
+    fn platform_config_key() -> &'static str {
+        if cfg!(windows) {
+            "APPDATA"
+        } else {
+            "XDG_CONFIG_HOME"
+        }
+    }
+
+    #[test]
+    fn with_no_project_file_the_home_directory_is_asked() {
+        let tree = tempdir().unwrap();
+        let home = tempdir().unwrap();
+        let config = tempdir().unwrap();
+        fs::write(home.path().join(".rustfmt.toml"), "max_width = 40\n").unwrap();
+        fs::create_dir_all(config.path().join("rustfmt")).unwrap();
+        fs::write(
+            config.path().join("rustfmt").join("rustfmt.toml"),
+            "max_width = 50\n",
+        )
+        .unwrap();
+        let env = env_of(&[
+            (home_key(), home.path()),
+            (platform_config_key(), config.path()),
+        ]);
+
+        assert_eq!(
+            discover_with(tree.path(), &env),
+            Some(home.path().join(".rustfmt.toml"))
+        );
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn with_nothing_at_home_the_platform_config_directory_is_asked() {
+        let tree = tempdir().unwrap();
+        let home = tempdir().unwrap();
+        let config = tempdir().unwrap();
+        let global = config.path().join("rustfmt").join("rustfmt.toml");
+        fs::create_dir_all(global.parent().unwrap()).unwrap();
+        fs::write(&global, "max_width = 40\n").unwrap();
+        let xdg = env_of(&[("HOME", home.path()), ("XDG_CONFIG_HOME", config.path())]);
+
+        fs::create_dir_all(home.path().join(".config").join("rustfmt")).unwrap();
+        let dotted = home
+            .path()
+            .join(".config")
+            .join("rustfmt")
+            .join(".rustfmt.toml");
+        fs::write(&dotted, "max_width = 60\n").unwrap();
+        let without_xdg = env_of(&[("HOME", home.path())]);
+
+        assert_eq!(discover_with(tree.path(), &xdg), Some(global));
+        assert_eq!(discover_with(tree.path(), &without_xdg), Some(dotted));
+    }
+
+    #[test]
+    fn a_project_file_outranks_every_user_level_one() {
+        let tree = tempdir().unwrap();
+        let home = tempdir().unwrap();
+        fs::write(tree.path().join("rustfmt.toml"), "max_width = 80\n").unwrap();
+        fs::write(home.path().join("rustfmt.toml"), "max_width = 40\n").unwrap();
+        let env = env_of(&[(home_key(), home.path())]);
+
+        assert_eq!(
+            discover_with(tree.path(), &env),
+            Some(tree.path().join("rustfmt.toml"))
+        );
+    }
 
     #[test]
     fn discovery_prefers_the_nearest_file_and_the_undotted_name() {
