@@ -662,8 +662,8 @@ struct Cli {
     )]
     no_sort_features: bool,
 
-    /// Sort the cargo arrays whose order carries no meaning: feature lists, workspace members, keywords, categories, includes and excludes.
     #[arg(help_heading = "TOML ordering",
+        help = "Sort the cargo arrays whose order carries no meaning: feature lists, workspace members and excludes, keywords and categories.",
         long = "sort-arrays",
         num_args = 0..=1,
         require_equals = true,

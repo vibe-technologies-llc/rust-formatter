@@ -28,6 +28,7 @@ use crate::{
     registry::{RegistryCli, RegistryOptions},
     selection::{self, FileSource, Kind, Languages, Plan, SelectionOptions, Selector},
     semver::PartialVersion,
+    toml_directive::Regions,
     toml_fmt::{
         ManifestContext, TomlFormatOutput, format_toml, format_toml_with_versions,
         owned_dep_requests,
@@ -337,6 +338,7 @@ pub(crate) struct SourceText {
     bom: bool,
     crlf: bool,
     pub(crate) text: String,
+    mixed_endings_original: Option<String>,
 }
 
 impl SourceText {
@@ -1094,7 +1096,7 @@ fn preview_toml(
                 .map(|issue| (path.to_path_buf(), issue)),
         );
     }
-    Ok(encode_source(&formatted, &source))
+    Ok(encode_toml_source(&formatted, &source, &options.toml_style))
 }
 
 fn preview_rust(
@@ -3535,18 +3537,22 @@ fn manifest_defines_workspace(manifest_path: &Path) -> bool {
         .is_some()
 }
 
-/// Ask the registry for every version the run will need, in one batch, before
-/// anything is written.
-///
-/// The barrier is not an optimization: a registry that fails outright has to
-/// fail the run before a single file is rewritten with versions it could not
-/// resolve. What it need not do is read every manifest twice, so the text it
-/// decodes is handed back for the formatting pass to reuse.
+struct PrewarmedManifest {
+    bytes: Vec<u8>,
+    source: SourceText,
+}
+
+impl PrewarmedManifest {
+    fn source_if_unchanged(&self, on_disk: &[u8]) -> Option<&SourceText> {
+        (self.bytes == on_disk).then_some(&self.source)
+    }
+}
+
 fn prewarm_manifest_versions(
     files: &[PathBuf],
     options: &FormatterOptions,
     lookup: &dyn VersionLookup,
-) -> AHashMap<PathBuf, SourceText> {
+) -> AHashMap<PathBuf, PrewarmedManifest> {
     let manifests: Vec<&PathBuf> = files
         .iter()
         .filter(|path| is_cargo_manifest(path))
@@ -3556,26 +3562,26 @@ fn prewarm_manifest_versions(
         return AHashMap::new();
     }
 
-    let jobs: Vec<pool::Job<'_, Vec<(PathBuf, SourceText)>>> = manifests
+    let jobs: Vec<pool::Job<'_, Vec<(PathBuf, PrewarmedManifest)>>> = manifests
         .into_iter()
         .map(|path| {
             Box::new(
-                move |state: &mut Vec<(PathBuf, SourceText)>, _: &pool::Control| {
+                move |state: &mut Vec<(PathBuf, PrewarmedManifest)>, _: &pool::Control| {
                     let Ok(bytes) = fs::read(path) else { return };
-                    let Ok(decoded) = decode_source(&bytes, path) else {
+                    let Ok(source) = decode_source(&bytes, path) else {
                         return;
                     };
-                    state.push((path.clone(), decoded));
+                    state.push((path.clone(), PrewarmedManifest { bytes, source }));
                 },
-            ) as pool::Job<'_, Vec<(PathBuf, SourceText)>>
+            ) as pool::Job<'_, Vec<(PathBuf, PrewarmedManifest)>>
         })
         .collect();
     let (states, _) = pool::run(jobs, options.worker_threads(), Vec::new);
 
-    let read: AHashMap<PathBuf, SourceText> = states.into_iter().flatten().collect();
+    let read: AHashMap<PathBuf, PrewarmedManifest> = states.into_iter().flatten().collect();
     let mut owned = Vec::new();
-    for source in read.values() {
-        if let Ok(requests) = owned_dep_requests(&source.text, &options.toml_style) {
+    for warmed in read.values() {
+        if let Ok(requests) = owned_dep_requests(&warmed.source.text, &options.toml_style) {
             owned.extend(requests);
         }
     }
@@ -3633,9 +3639,7 @@ struct TomlJob<'a> {
     options: &'a FormatterOptions,
     lookup: Option<&'a dyn VersionLookup>,
     context: &'a ManifestContext,
-    /// Manifests the registry barrier already read, so the barrier's pass and
-    /// the formatting pass do not read and parse every `Cargo.toml` twice.
-    prewarmed: &'a AHashMap<PathBuf, SourceText>,
+    prewarmed: &'a AHashMap<PathBuf, PrewarmedManifest>,
     cache: &'a Cache,
     cache_key: u128,
 }
@@ -3666,8 +3670,12 @@ fn read_and_format_toml(
     // `VersionRecord`s are output the run has to produce, and they come from
     // the network rather than from the file.
     let cacheable = job.cache.enabled() && !(job.lookup.is_some() && is_cargo_manifest(path));
-    let source = if let Some(source) = job.prewarmed.get(path) {
-        source.clone()
+    let unchanged_prewarm = job.prewarmed.get(path).and_then(|warmed| {
+        let on_disk = fs::read(path).ok()?;
+        warmed.source_if_unchanged(&on_disk).cloned()
+    });
+    let source = if let Some(source) = unchanged_prewarm {
+        source
     } else {
         bytes.clear();
         {
@@ -3747,7 +3755,7 @@ fn read_and_format_toml(
         }));
     }
 
-    let encoded = encode_source(&formatted, &source);
+    let encoded = encode_toml_source(&formatted, &source, &options.toml_style);
     atomic_write(path, &encoded)?;
     // What is on disk now is a fixed point, so a check run straight after a
     // write run is warm rather than paying for the whole tree again.
@@ -3777,11 +3785,15 @@ pub(crate) fn decode_source(bytes: &[u8], path: &Path) -> Result<SourceText> {
         )
     })?;
     let crlf = first_newline_is_crlf(text);
-    let text = normalize_source_newlines(text);
+    let normalized = normalize_source_newlines(text);
+    let mixed_endings_original = (text.contains('\r')
+        && encode_newlines(&normalized, crlf) != text)
+        .then(|| text.to_owned());
     Ok(SourceText {
         bom,
         crlf,
-        text: text.into_owned(),
+        text: normalized.into_owned(),
+        mixed_endings_original,
     })
 }
 
@@ -3816,19 +3828,59 @@ fn normalize_formatted_rust(text: &str) -> String {
     normalize_source_newlines(text.strip_prefix('\u{feff}').unwrap_or(text)).into_owned()
 }
 
-pub(crate) fn encode_source(formatted: &str, source: &SourceText) -> Vec<u8> {
-    let body = if source.crlf {
-        formatted.replace('\n', "\r\n")
+fn encode_newlines(text: &str, crlf: bool) -> std::borrow::Cow<'_, str> {
+    if crlf {
+        std::borrow::Cow::Owned(text.replace('\n', "\r\n"))
     } else {
-        formatted.to_string()
-    };
-    if !source.bom {
-        return body.into_bytes();
+        std::borrow::Cow::Borrowed(text)
+    }
+}
+
+pub(crate) fn encode_source(formatted: &str, source: &SourceText) -> Vec<u8> {
+    with_bom(&encode_newlines(formatted, source.crlf), source.bom)
+}
+
+fn with_bom(body: &str, bom: bool) -> Vec<u8> {
+    if !bom {
+        return body.as_bytes().to_vec();
     }
     let mut out = Vec::with_capacity(UTF8_BOM.len() + body.len());
     out.extend_from_slice(UTF8_BOM);
     out.extend_from_slice(body.as_bytes());
     out
+}
+
+pub(crate) fn encode_toml_source(
+    formatted: &str,
+    source: &SourceText,
+    style: &TomlStyle,
+) -> Vec<u8> {
+    let Some(original) = source
+        .mixed_endings_original
+        .as_deref()
+        .filter(|_| style.directives)
+    else {
+        return encode_source(formatted, source);
+    };
+
+    let written = Regions::scan(original);
+    let placed = Regions::scan(formatted);
+    let mut body = String::with_capacity(formatted.len() + formatted.len() / 16);
+    let mut cursor = 0;
+    for (placed, written) in placed.spans().iter().zip(written.spans()) {
+        let frozen = &original[written.clone()];
+        if normalize_source_newlines(frozen) != formatted[placed.clone()] {
+            continue;
+        }
+        body.push_str(&encode_newlines(
+            &formatted[cursor..placed.start],
+            source.crlf,
+        ));
+        body.push_str(frozen);
+        cursor = placed.end;
+    }
+    body.push_str(&encode_newlines(&formatted[cursor..], source.crlf));
+    with_bom(&body, source.bom)
 }
 
 pub(crate) fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
@@ -4768,6 +4820,78 @@ version = "0.1.0"
         assert_eq!(encoded, bytes);
     }
 
+    fn mixed_source(bytes: &[u8]) -> SourceText {
+        decode_source(bytes, Path::new("mixed.toml")).unwrap()
+    }
+
+    #[test]
+    fn a_frozen_region_keeps_its_bytes_in_an_lf_majority_file() {
+        let source = mixed_source(b"a=1\n# fmt: off\nb   =  2\r\n# fmt: on\nc=3\n");
+
+        let encoded = encode_toml_source(
+            "a = 1\n# fmt: off\nb   =  2\n# fmt: on\nc = 3\n",
+            &source,
+            &TomlStyle::default(),
+        );
+
+        assert_eq!(
+            encoded,
+            b"a = 1\n# fmt: off\nb   =  2\r\n# fmt: on\nc = 3\n"
+        );
+    }
+
+    #[test]
+    fn a_frozen_region_keeps_its_bytes_in_a_crlf_majority_file() {
+        let source = mixed_source(b"a=1\r\n# fmt: off\r\nb   =  2\n# fmt: on\r\nc=3\r\n");
+
+        let encoded = encode_toml_source(
+            "a = 1\n# fmt: off\nb   =  2\n# fmt: on\nc = 3\n",
+            &source,
+            &TomlStyle::default(),
+        );
+
+        assert_eq!(
+            encoded,
+            b"a = 1\r\n# fmt: off\r\nb   =  2\n# fmt: on\r\nc = 3\r\n"
+        );
+    }
+
+    #[test]
+    fn without_directives_the_whole_file_takes_one_line_ending() {
+        let source = mixed_source(b"a=1\n# fmt: off\nb   =  2\r\n# fmt: on\nc=3\n");
+        let style = TomlStyle {
+            directives: false,
+            ..TomlStyle::default()
+        };
+
+        let encoded = encode_toml_source(
+            "a = 1\n# fmt: off\nb = 2\n# fmt: on\nc = 3\n",
+            &source,
+            &style,
+        );
+
+        assert_eq!(encoded, b"a = 1\n# fmt: off\nb = 2\n# fmt: on\nc = 3\n");
+    }
+
+    #[test]
+    fn a_uniform_file_keeps_no_second_copy() {
+        assert!(
+            mixed_source(b"a = 1\r\nb = 2\r\n")
+                .mixed_endings_original
+                .is_none()
+        );
+        assert!(
+            mixed_source(b"a = 1\nb = 2\n")
+                .mixed_endings_original
+                .is_none()
+        );
+        assert!(
+            mixed_source(b"a = 1\nb = 2\r\n")
+                .mixed_endings_original
+                .is_some()
+        );
+    }
+
     #[test]
     fn check_ignores_crlf_only_difference() {
         assert!(!first_newline_is_crlf("a = 1\n"));
@@ -5195,6 +5319,72 @@ error[E0670]: `async fn` is not permitted in Rust 2015
             Some(("clap".into(), "boom".into()))
         );
         assert_eq!(fs::read_to_string(&manifest).unwrap(), original);
+    }
+
+    #[test]
+    fn a_manifest_edited_during_the_registry_barrier_is_formatted_from_its_new_bytes() {
+        struct EditingLookup<'a> {
+            manifest: &'a Path,
+            edited: &'a str,
+        }
+        impl VersionLookup for EditingLookup<'_> {
+            fn resolve(&self, _: DepRequest<'_>, _: Option<PartialVersion>) -> Resolution {
+                Resolution::Skipped(SkipReason::NoMatchingRelease)
+            }
+            fn prewarm(&self, _: &[DepRequest<'_>]) {
+                fs::write(self.manifest, self.edited).unwrap();
+            }
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        let manifest = temp.path().join("Cargo.toml");
+        let original = "[package]\nname   =   \"x\"\n[dependencies]\nclap = \"4.6\"\n";
+        let edited =
+            "[package]\nname   =   \"x\"\n[dependencies]\nclap = \"4.6\"\nserde   =   \"1\"\n";
+        fs::write(&manifest, original).unwrap();
+        let lookup = EditingLookup {
+            manifest: &manifest,
+            edited,
+        };
+        let options = FormatterOptions::default();
+        let prewarmed =
+            prewarm_manifest_versions(std::slice::from_ref(&manifest), &options, &lookup);
+        let cache = Cache::default();
+        let job = TomlJob {
+            options: &options,
+            lookup: Some(&lookup),
+            context: &ManifestContext::default(),
+            prewarmed: &prewarmed,
+            cache: &cache,
+            cache_key: 0,
+        };
+
+        let status = read_and_format_toml(
+            &manifest,
+            job,
+            &mut Vec::new(),
+            &mut TomlOutcome::default(),
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+        assert!(matches!(status, TomlFileStatus::Changed(_)));
+        assert_eq!(
+            fs::read_to_string(&manifest).unwrap(),
+            "[package]\nname = \"x\"\n[dependencies]\nclap = \"4.6\"\nserde = \"1\"\n"
+        );
+    }
+
+    #[test]
+    fn a_prewarmed_source_is_reused_only_for_the_bytes_it_was_read_from() {
+        let bytes = b"a = 1\n".to_vec();
+        let warmed = PrewarmedManifest {
+            source: decode_source(&bytes, Path::new("Cargo.toml")).unwrap(),
+            bytes,
+        };
+
+        assert!(warmed.source_if_unchanged(b"a = 1\n").is_some());
+        assert!(warmed.source_if_unchanged(b"a = 2\n").is_none());
     }
 
     #[cfg(unix)]

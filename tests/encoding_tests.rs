@@ -95,7 +95,12 @@ fn encoding_fixtures_survive_checkout() {
     for (stem, bytes) in fixtures() {
         seen.insert(stem.clone());
         match stem.as_str() {
-            "crlf" | "bom_crlf" | "crlf_no_final_newline" | "mixed_newlines" => assert!(
+            "crlf"
+            | "bom_crlf"
+            | "crlf_no_final_newline"
+            | "mixed_newlines"
+            | "fmt_off_mixed_lf"
+            | "fmt_off_mixed_crlf" => assert!(
                 bytes.windows(2).any(|pair| pair == b"\r\n"),
                 "{stem}: no CRLF survived checkout"
             ),
@@ -123,6 +128,8 @@ fn encoding_fixtures_survive_checkout() {
         "bom_crlf",
         "crlf",
         "crlf_no_final_newline",
+        "fmt_off_mixed_crlf",
+        "fmt_off_mixed_lf",
         "lone_cr",
         "mixed_newlines",
         "no_final_newline",

@@ -378,7 +378,10 @@ fn run_stdin(options: &FormatterOptions, streams: &Streams<'_>) -> Result<i32> {
             )
         }));
     }
-    let product = runner::encode_source(&formatted, &source);
+    let product = match language {
+        Kind::Toml => runner::encode_toml_source(&formatted, &source, &resolved.toml_style),
+        Kind::Rust => runner::encode_source(&formatted, &source),
+    };
     let original = source.text;
 
     // rustfmt exits 0 for a `--check` on stdin even when it printed a diff, so

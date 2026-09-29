@@ -657,6 +657,22 @@ fn a_marker_sharing_a_line_with_a_value_still_opens_a_region() {
 }
 
 #[test]
+fn a_frozen_region_keeps_its_own_line_endings_in_an_lf_file() {
+    assert_eq!(
+        styled("a=1\n# fmt: off\nb   =  2\r\n# fmt: on\nc=3\n", &[]),
+        "a = 1\n# fmt: off\nb   =  2\r\n# fmt: on\nc = 3\n"
+    );
+}
+
+#[test]
+fn a_frozen_region_keeps_its_own_line_endings_in_a_crlf_file() {
+    assert_eq!(
+        styled("a=1\r\n# fmt: off\r\nb   =  2\n# fmt: on\r\nc=3\r\n", &[]),
+        "a = 1\r\n# fmt: off\r\nb   =  2\n# fmt: on\r\nc = 3\r\n"
+    );
+}
+
+#[test]
 fn a_frozen_region_is_reported_as_clean() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("frozen.toml");

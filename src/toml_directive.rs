@@ -59,6 +59,10 @@ impl Regions {
         self.0.is_empty()
     }
 
+    pub(crate) fn spans(&self) -> &[Range<usize>] {
+        &self.0
+    }
+
     /// Whether `span` overlaps a region. An absent or empty span never does:
     /// there is nothing of it inside the markers to preserve.
     pub(crate) fn hits(&self, span: Option<Range<usize>>) -> bool {

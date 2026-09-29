@@ -948,11 +948,15 @@ impl<'a> Formatter<'a> {
 
     fn collapse_to_one_line(&self, table: &mut InlineTable) {
         table.set_trailing_comma(false);
-        // `inline_fits` already ruled out a comment here, so whatever the author
-        // left between the last value and the brace is dead whitespace that
-        // would otherwise survive as a second space.
         table.set_trailing("");
         table.fmt();
+        for (_, value) in table.iter_mut() {
+            if let Some(chain) = value.as_inline_table_mut()
+                && chain.is_dotted()
+            {
+                reset_dotted_chain(chain);
+            }
+        }
         if self.style.inline_table_spacing == Spacing::Compact {
             table.set_trailing("");
             trim_leading_space(table);
@@ -1039,15 +1043,49 @@ impl<'a> Formatter<'a> {
 
         for ((mut key, value), (prefix, suffix)) in table.iter_mut().zip(decors) {
             let prefix = self.wrap_prefix(prefix, indent + 1);
-            set_prefix(key.leaf_decor_mut(), source, &prefix);
-            set_suffix(key.leaf_decor_mut(), source, " ");
+            let suffix = same_line_comment_suffix(suffix);
+
             key.dotted_decor_mut().clear();
-            set_prefix(value.decor_mut(), source, " ");
-            set_suffix(value.decor_mut(), source, &same_line_comment_suffix(suffix));
+            match value.as_inline_table_mut() {
+                Some(chain) if chain.is_dotted() => {
+                    key.leaf_decor_mut().clear();
+                    self.decorate_dotted_leaf(chain, &prefix, &suffix);
+                }
+                _ => self.decorate_wrapped_entry(&mut key, value, &prefix, &suffix),
+            }
         }
 
         let trailing = self.closing_block(rest, indent);
         set_inline_trailing(table, source, &trailing);
+    }
+
+    fn decorate_wrapped_entry(
+        &self,
+        key: &mut KeyMut<'_>,
+        value: &mut Value,
+        prefix: &str,
+        suffix: &str,
+    ) {
+        let source = self.source;
+        set_prefix(key.leaf_decor_mut(), source, prefix);
+        set_suffix(key.leaf_decor_mut(), source, " ");
+        set_prefix(value.decor_mut(), source, " ");
+        set_suffix(value.decor_mut(), source, suffix);
+    }
+
+    fn decorate_dotted_leaf(&self, chain: &mut InlineTable, prefix: &str, suffix: &str) {
+        let Some((mut key, value)) = chain.iter_mut().next() else {
+            return;
+        };
+
+        key.dotted_decor_mut().clear();
+        match value.as_inline_table_mut() {
+            Some(child) if child.is_dotted() => {
+                key.leaf_decor_mut().clear();
+                self.decorate_dotted_leaf(child, prefix, suffix);
+            }
+            _ => self.decorate_wrapped_entry(&mut key, value, prefix, suffix),
+        }
     }
 
     fn array(&self, array: &mut Array, ctx: Ctx) {
@@ -1695,9 +1733,11 @@ fn renumber_positions(root: &mut Table, promoted: &[(Anchor, Vec<Step>)]) {
 fn collect_positioned(table: &Table, path: &mut Vec<Step>, out: &mut Vec<(isize, Vec<Step>)>) {
     for (name, item) in table {
         match item {
-            Item::Table(child) if !child.is_dotted() => {
+            Item::Table(child) => {
                 path.push(Step::Key(name.to_owned()));
-                if let Some(position) = child.position() {
+                if !child.is_dotted()
+                    && let Some(position) = child.position()
+                {
                     out.push((position, path.clone()));
                 }
                 collect_positioned(child, path, out);
@@ -2169,6 +2209,17 @@ impl std::fmt::Write for InlineWidth {
 
 /// Clears the space a one-line inline table opens with, following a dotted key
 /// down to the segment that actually renders it.
+fn reset_dotted_chain(chain: &mut InlineTable) {
+    chain.fmt();
+    for (_, value) in chain.iter_mut() {
+        if let Some(child) = value.as_inline_table_mut()
+            && child.is_dotted()
+        {
+            reset_dotted_chain(child);
+        }
+    }
+}
+
 fn trim_leading_space(table: &mut InlineTable) {
     let Some((mut key, value)) = table.iter_mut().next() else {
         return;
@@ -2567,6 +2618,66 @@ mod tests {
         );
     }
 
+    fn assert_formats_to(source: &str, style: &TomlStyle, expected: &str) {
+        let out = fmt_with(source, style);
+
+        assert_eq!(out, expected);
+        assert_eq!(fmt_with(&out, style), out);
+    }
+
+    #[test]
+    fn expand_puts_a_leading_dotted_entry_on_its_own_line() {
+        let style = with(|style| style.inline_tables = InlineTableStyle::Expand);
+
+        assert_formats_to(
+            "x = { a.b = 1, c = 2 }\n",
+            &style,
+            "x = {\n    a.b = 1,\n    c = 2\n}\n",
+        );
+        assert_formats_to(
+            "x = { a.b.c = 1, d = 2 }\n",
+            &style,
+            "x = {\n    a.b.c = 1,\n    d = 2\n}\n",
+        );
+    }
+
+    #[test]
+    fn expand_puts_a_trailing_dotted_entry_on_its_own_line() {
+        let style = with(|style| style.inline_tables = InlineTableStyle::Expand);
+
+        assert_formats_to(
+            "x = { c = 2, a.b = 1 }\n",
+            &style,
+            "x = {\n    c = 2,\n    a.b = 1\n}\n",
+        );
+    }
+
+    #[test]
+    fn a_multiline_trailing_comma_follows_a_dotted_entry() {
+        let style = with(|style| {
+            style.inline_tables = InlineTableStyle::Expand;
+            style.trailing_comma = TrailingComma::Multiline;
+        });
+
+        assert_formats_to(
+            "x = { a.b = 1, c = 2 }\n",
+            &style,
+            "x = {\n    a.b = 1,\n    c = 2,\n}\n",
+        );
+        assert_formats_to(
+            "x = { c = 2, a.b = 1 }\n",
+            &style,
+            "x = {\n    c = 2,\n    a.b = 1,\n}\n",
+        );
+    }
+
+    #[test]
+    fn compact_spacing_keeps_the_space_before_a_dotted_entry() {
+        let style = with(|style| style.inline_table_spacing = Spacing::Compact);
+
+        assert_formats_to("x = {c=2,   a . b = 1}\n", &style, "x = {c = 2, a.b = 1}\n");
+    }
+
     #[test]
     fn expand_keeps_the_two_key_rule() {
         let style = with(|style| style.inline_tables = InlineTableStyle::Expand);
@@ -2726,6 +2837,43 @@ mod tests {
             out,
             "[t]\n[t.outer]\ninner = { version = \"4.5.6\", path = \"extremely_long_path_name_goes_right_here_yes\" }\nb = 1\n"
         );
+        assert_eq!(fmt_with(&out, &style), out);
+    }
+
+    const WIDE_DEP: &str = "{ version = \"1.0.0\", features = [\"aaaaaaaaaaaaaaaa\", \"bbbbbbbbbbbbbbbbbbbbb\", \"cccccccccccccccccccccc\", \"dddddddddddddddddd\"] }";
+
+    fn values_of(source: &str) -> serde_json::Value {
+        toml_edit::de::from_str(source).unwrap()
+    }
+
+    #[test]
+    fn section_keeps_a_header_beneath_a_dotted_table_in_place() {
+        let style = with(|style| style.inline_tables = InlineTableStyle::Section);
+        let source = format!(
+            "[package]\nname = \"x\"\nmetadata.a = 1\n\n[package.metadata.docs.rs]\nall-features = true\n\n[dependencies]\nserde = \"1\"\nlong = {WIDE_DEP}\n"
+        );
+
+        let out = fmt_with(&source, &style);
+
+        assert_eq!(
+            out,
+            "[package]\nname = \"x\"\nmetadata.a = 1\n\n[package.metadata.docs.rs]\nall-features = true\n\n[dependencies]\nserde = \"1\"\n[dependencies.long]\nversion = \"1.0.0\"\nfeatures = [\n    \"aaaaaaaaaaaaaaaa\",\n    \"bbbbbbbbbbbbbbbbbbbbb\",\n    \"cccccccccccccccccccccc\",\n    \"dddddddddddddddddd\"\n]\n"
+        );
+        assert_eq!(fmt_with(&out, &style), out);
+    }
+
+    #[test]
+    fn section_keeps_each_sub_table_with_its_own_array_element() {
+        let style = with(|style| style.inline_tables = InlineTableStyle::Section);
+        let source = format!(
+            "[[bin]]\nname = \"a\"\nmeta.x = 1\nlong = {WIDE_DEP}\n\n[bin.meta.sub]\ny = 2\n\n[[bin]]\nname = \"b\"\nmeta.x = 1\nother = {WIDE_DEP}\n\n[bin.meta.sub]\nz = 3\n\n[dependencies]\nlong = {WIDE_DEP}\n"
+        );
+
+        let out = fmt_with(&source, &style);
+
+        assert_eq!(values_of(&out), values_of(&source));
+        assert!(out.find("y = 2").unwrap() < out.find("name = \"b\"").unwrap());
+        assert!(out.find("z = 3").unwrap() < out.find("[dependencies]").unwrap());
         assert_eq!(fmt_with(&out, &style), out);
     }
 

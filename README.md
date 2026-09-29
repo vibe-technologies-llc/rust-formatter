@@ -754,7 +754,7 @@ plain switch instead, the same as `--preset style-guide`.
 | `--package-order` | `book`, `style-guide` | `book` | Which canonical order `--sort-package` applies: the Cargo Book sequence, or the Rust Style Guide's `name`, `version`, the rest version-sorted, `description` last. |
 | `--sort-dep-fields` | flag | off | Orders the fields inside one dependency entry -- header, dotted or inline -- source first, then what is built from it. |
 | `--sort-features` | flag | off | Sorts the keys of `[features]`. |
-| `--sort-arrays` | flag | off | Sorts the arrays cargo reads as a set: feature lists, `keywords`, `categories`, `exclude`, `include`, `workspace.members`, `workspace.default-members`, `workspace.exclude`. Never one holding a comment or a non-string. |
+| `--sort-arrays` | flag | off | Sorts the arrays cargo reads as a set: feature lists, `keywords`, `categories`, `workspace.members`, `workspace.default-members`, `workspace.exclude`. Never `package.include` or `package.exclude`, whose `!` patterns make order meaningful, and never one holding a comment or a non-string. |
 | `--sort-targets` | flag | off | Sorts `[[bin]]`, `[[example]]`, `[[test]]` and `[[bench]]` sections by `name`. |
 | `--sort-tables` | flag | off | Puts the top-level tables into the Cargo Book's chapter sequence, each moving as a whole block. |
 | `--sort-keys` | flag | off | Sorts the keys of every section no more specific flag claims. |

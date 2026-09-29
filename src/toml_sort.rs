@@ -188,13 +188,11 @@ fn is_target_array(name: &str) -> bool {
     matches!(name, "bin" | "example" | "test" | "bench")
 }
 
-/// Arrays cargo reads as a set rather than a sequence. `authors` is deliberately
-/// absent: the Cargo Book gives its order meaning.
 fn sortable_array(section: Section, name: &str) -> bool {
     match section {
         Section::Features => true,
         Section::DepEntry => name == "features",
-        Section::Package => matches!(name, "keywords" | "categories" | "exclude" | "include"),
+        Section::Package => matches!(name, "keywords" | "categories"),
         Section::Workspace => matches!(name, "members" | "default-members" | "exclude"),
         _ => false,
     }
@@ -713,12 +711,26 @@ mod tests {
         assert!(!sortable_array(Section::Root, "keywords"));
     }
 
-    /// The Cargo Book gives `authors` an order, so it is a sequence and not a
-    /// set. Sorting it would rewrite what the manifest means.
     #[test]
     fn authors_is_never_sorted() {
         assert!(!sortable_array(Section::Package, "authors"));
         assert!(!sortable_array(Section::Workspace, "authors"));
+    }
+
+    #[test]
+    fn package_include_and_exclude_are_ordered_patterns() {
+        assert!(!sortable_array(Section::Package, "include"));
+        assert!(!sortable_array(Section::Package, "exclude"));
+    }
+
+    #[test]
+    fn a_negated_package_pattern_keeps_its_place() {
+        let source = "[package]\ninclude = [\"src/**/*.rs\", \"!src/bin/secret.rs\", \"Cargo.toml\"]\n\n[workspace.package]\nexclude = [\"b\", \"!b/keep\", \"a\"]\n";
+
+        assert_eq!(
+            sorted(source, &style(|style| style.sort_arrays = true)),
+            source
+        );
     }
 
     #[test]

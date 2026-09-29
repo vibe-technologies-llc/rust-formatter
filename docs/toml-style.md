@@ -391,7 +391,9 @@ dropped.
 A comment can take the formatter out of a stretch of the document. Everything
 from the `off` marker through the `on` marker that closes it — both marker lines
 included — is written back byte for byte, under every combination of the options
-on this page.
+on this page. That includes line endings: a file that mixes `\n` and `\r\n` has
+the rest of its lines written with the ending of its first line, but each line
+inside a region keeps the ending it was written with.
 
 ```toml rf:fixed-point
 [package]
@@ -652,10 +654,12 @@ the *values*, and every other array cargo reads as a set rather than a sequence:
 | --- | --- |
 | `[features]` | every value |
 | a dependency entry | `features` |
-| `[package]` | `keywords`, `categories`, `exclude`, `include` |
+| `[package]` | `keywords`, `categories` |
 | `[workspace]` | `members`, `default-members`, `exclude` |
 
-`authors` is deliberately absent: the Cargo Book gives its order meaning.
+`authors` is deliberately absent: the Cargo Book gives its order meaning. So are
+`[package]`'s `include` and `exclude`: they are gitignore-style patterns where
+the last match wins, so moving a `!` negation changes which files are packaged.
 
 An array is only sorted when every element is a string and no comment sits
 inside it. Reordering past an interior comment would move the comment away from

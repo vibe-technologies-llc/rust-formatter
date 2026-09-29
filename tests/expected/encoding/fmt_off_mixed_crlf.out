@@ -1,0 +1,5 @@
+a = 1
+# fmt: off
+b   =  2
+# fmt: on
+c = 3
