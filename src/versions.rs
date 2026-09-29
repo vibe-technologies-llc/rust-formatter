@@ -243,11 +243,12 @@ impl RegistryLookup {
         rust_version: Option<PartialVersion>,
     ) -> Resolution {
         let incompatible = self.policy.upgrade.enabled && self.policy.upgrade.incompatible;
+        let lower_bound = req.lower_bound();
         let considered: Vec<&IndexEntry> = entries
             .iter()
             .filter(|entry| {
                 if incompatible {
-                    entry.version.pre.is_empty()
+                    entry.version.pre.is_empty() && entry.version >= *lower_bound
                 } else {
                     req.matches(&entry.version)
                 }
@@ -585,6 +586,53 @@ mod tests {
         assert_eq!(
             select(incompatible, "^1.0.0", &entries),
             Resolution::Pinned("^2.0.1".to_owned())
+        );
+    }
+
+    fn incompatible_upgrades() -> LookupPolicy {
+        LookupPolicy {
+            upgrade: UpgradePolicy {
+                enabled: true,
+                incompatible: true,
+                ..UpgradePolicy::default()
+            },
+            ..LookupPolicy::default()
+        }
+    }
+
+    #[test]
+    fn an_incompatible_upgrade_never_falls_back_below_a_fully_yanked_requirement() {
+        let entries = [
+            entry("0.2.9", false, None),
+            entry("0.3.2", true, None),
+            entry("0.3.4", true, None),
+        ];
+
+        assert_eq!(
+            select(incompatible_upgrades(), "0.3.2", &entries),
+            Resolution::Skipped(SkipReason::AllYanked)
+        );
+    }
+
+    #[test]
+    fn an_incompatible_upgrade_never_falls_back_below_the_requirement_for_rust_version() {
+        let entries = [
+            entry("1.38.1", false, Some("1.63")),
+            entry("1.40.0", false, Some("1.70")),
+            entry("1.41.0", false, Some("1.70")),
+        ];
+        let lookup = make_lookup(incompatible_upgrades());
+        let req = Requirement::parse("1.40.0").unwrap();
+
+        assert_eq!(
+            lookup.select(&req, &entries, PartialVersion::parse("1.63")),
+            Resolution::Skipped(SkipReason::BelowRustVersion(
+                PartialVersion::parse("1.63").unwrap()
+            ))
+        );
+        assert_eq!(
+            lookup.select(&req, &entries, PartialVersion::parse("1.70")),
+            Resolution::Pinned("1.41.0".to_owned())
         );
     }
 

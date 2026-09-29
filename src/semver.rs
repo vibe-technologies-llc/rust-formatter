@@ -32,6 +32,7 @@ pub enum Unpinnable {
     Range,
     Inequality,
     BareWildcard,
+    WholeZeroMajor,
     Prerelease,
 }
 
@@ -43,6 +44,9 @@ impl fmt::Display for Unpinnable {
             Self::Range => "a multi-comparator range already names its bounds",
             Self::Inequality => "a `<`/`>` comparator already names its bound",
             Self::BareWildcard => "`*` has no major version to complete",
+            Self::WholeZeroMajor => {
+                "a `0` with no minor admits every 0.x release, which no single x.y.z comparator can express"
+            }
             Self::Prerelease => "the requirement names a pre-release",
         };
         f.write_str(text)
@@ -56,7 +60,8 @@ pub struct Requirement {
     req: VersionReq,
     operator: Operator,
     complete: bool,
-    patch_wildcard: bool,
+    prefix: &'static str,
+    lower_bound: Version,
 }
 
 impl Requirement {
@@ -87,16 +92,34 @@ impl Requirement {
             return Err(Unpinnable::Prerelease);
         }
 
-        // `1.*` spells a minor without pinning one, so a wildcard is never
-        // complete however many components it carries.
-        let complete = comparator.patch.is_some() && operator != Operator::Wildcard;
-        let patch_wildcard = operator == Operator::Wildcard && comparator.minor.is_some();
+        let names_minor = comparator.minor.is_some();
+        let names_patch = comparator.patch.is_some();
+        let bounds_whole_zero_major = comparator.major == 0 && !names_minor;
+        if bounds_whole_zero_major && operator != Operator::Exact {
+            return Err(Unpinnable::WholeZeroMajor);
+        }
+
+        let complete = names_patch && operator != Operator::Wildcard;
+        let caret_bounds_minor =
+            comparator.major == 0 && comparator.minor == Some(0) && !names_patch;
+        let prefix = match operator {
+            Operator::Wildcard if names_minor => Operator::Tilde.as_str(),
+            Operator::Tilde if !names_minor => Operator::Caret.as_str(),
+            Operator::Implicit | Operator::Caret if caret_bounds_minor => Operator::Tilde.as_str(),
+            other => other.as_str(),
+        };
+        let lower_bound = Version::new(
+            comparator.major,
+            comparator.minor.unwrap_or(0),
+            comparator.patch.unwrap_or(0),
+        );
 
         Ok(Self {
             req,
             operator,
             complete,
-            patch_wildcard,
+            prefix,
+            lower_bound,
         })
     }
 
@@ -117,17 +140,14 @@ impl Requirement {
         self.req.matches(version)
     }
 
-    /// The requirement written out against `version`, keeping the operator and
-    /// dropping the pre-release and build metadata cargo ignores when matching.
+    pub fn lower_bound(&self) -> &Version {
+        &self.lower_bound
+    }
+
     pub fn render(&self, version: &Version) -> String {
-        let prefix = if self.patch_wildcard {
-            "~"
-        } else {
-            self.operator.as_str()
-        };
         format!(
             "{}{}.{}.{}",
-            prefix, version.major, version.minor, version.patch
+            self.prefix, version.major, version.minor, version.patch
         )
     }
 }
@@ -227,7 +247,38 @@ mod tests {
     fn tilde_stays_inside_its_minor() {
         let avail = ["1.0.100", "1.0.230", "1.1.0"];
         assert_eq!(complete("~1.0", &avail).as_deref(), Some("~1.0.230"));
-        assert_eq!(complete("~1", &avail).as_deref(), Some("~1.1.0"));
+    }
+
+    #[test]
+    fn a_major_only_tilde_keeps_its_whole_major() {
+        let avail = ["1.0.100", "1.7.3", "2.0.0"];
+        let written = complete("~1", &avail).unwrap();
+        let rewritten = Requirement::parse(&written).unwrap();
+
+        assert_eq!(written, "^1.7.3");
+        assert!(rewritten.matches(&Version::parse("1.9.0").unwrap()));
+        assert!(!rewritten.matches(&Version::parse("2.0.0").unwrap()));
+    }
+
+    #[test]
+    fn a_zero_zero_caret_keeps_every_patch_of_its_minor() {
+        let avail = ["0.0.3", "0.0.7", "0.1.0"];
+        for raw in ["0.0", "^0.0"] {
+            let written = complete(raw, &avail).unwrap();
+            let rewritten = Requirement::parse(&written).unwrap();
+
+            assert_eq!(written, "~0.0.7", "{raw}");
+            assert!(
+                rewritten.matches(&Version::parse("0.0.9").unwrap()),
+                "{raw}"
+            );
+            assert!(
+                !rewritten.matches(&Version::parse("0.1.0").unwrap()),
+                "{raw}"
+            );
+        }
+        assert_eq!(complete("~0.0", &avail).as_deref(), Some("~0.0.7"));
+        assert_eq!(complete("0.0.*", &avail).as_deref(), Some("~0.0.7"));
     }
 
     #[test]
@@ -262,7 +313,19 @@ mod tests {
     fn zero_major_caret_stays_inside_its_minor() {
         let avail = ["0.4.33", "0.5.0"];
         assert_eq!(complete("0.4", &avail).as_deref(), Some("0.4.33"));
-        assert_eq!(complete("0", &avail).as_deref(), Some("0.5.0"));
+        assert_eq!(complete("^0.4", &avail).as_deref(), Some("^0.4.33"));
+    }
+
+    #[test]
+    fn a_whole_zero_major_is_left_as_written() {
+        for raw in ["0", "^0", "~0", "0.*", "0.x"] {
+            assert_eq!(
+                Requirement::parse(raw).map(|_| ()).unwrap_err(),
+                Unpinnable::WholeZeroMajor,
+                "{raw}"
+            );
+        }
+        assert!(Requirement::parse("=0").is_ok());
     }
 
     #[test]

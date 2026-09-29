@@ -18,6 +18,8 @@ enum Section {
     /// `[patch]` itself. Its dependency tables are one level further down, which
     /// is what separates it from every other dependency section.
     Patch,
+    Target,
+    TargetCfg,
     Deps,
     DepEntry,
     Other,
@@ -174,12 +176,13 @@ fn descend(section: Section, name: &str, array_of_tables: bool) -> Section {
         (Section::Root, "workspace") if !array_of_tables => Section::Workspace,
         (Section::Root | Section::Workspace, "features") => Section::Features,
         (Section::Root, "patch") => Section::Patch,
-        // `[replace]` holds dependency entries directly; `[patch]` holds a table
-        // of registries whose entries are one level further down.
-        (Section::Root, "replace") | (Section::Patch, _) => Section::Deps,
+        (Section::Root, "target") if !array_of_tables => Section::Target,
+        (Section::Target, _) if !array_of_tables => Section::TargetCfg,
+        (Section::Root | Section::TargetCfg, name) if is_deps_section(name) => Section::Deps,
+        (Section::Workspace, "dependencies") | (Section::Root, "replace") | (Section::Patch, _) => {
+            Section::Deps
+        }
         (Section::Deps, _) => Section::DepEntry,
-        (Section::DepEntry, _) => Section::Other,
-        (_, name) if is_deps_section(name) => Section::Deps,
         _ => Section::Other,
     }
 }
@@ -787,6 +790,44 @@ mod tests {
 
     /// `[patch]` holds registries, and the dependency tables are one level
     /// further down than everywhere else.
+    #[test]
+    fn workspace_and_target_dependencies_are_dependency_sections() {
+        let style = style(|style| style.sort_deps = true);
+        for section in [
+            "workspace.dependencies",
+            "target.'cfg(unix)'.dependencies",
+            "target.'cfg(unix)'.dev-dependencies",
+            "target.'cfg(unix)'.build-dependencies",
+        ] {
+            let rendered = sorted(&format!("[{section}]\nb = \"1\"\na = \"1\"\n"), &style);
+            let path = section.replace("'cfg(unix)'", "cfg(unix)");
+
+            assert_eq!(keys_of(&rendered, &path), ["a", "b"], "{section}");
+        }
+    }
+
+    #[test]
+    fn a_dependencies_table_anywhere_else_is_not_a_dependency_section() {
+        assert_eq!(
+            descend(Section::Other, "dependencies", false),
+            Section::Other
+        );
+        assert_eq!(
+            descend(Section::Workspace, "dev-dependencies", false),
+            Section::Other
+        );
+        assert_eq!(
+            descend(Section::DepEntry, "dependencies", false),
+            Section::Other
+        );
+
+        let source = "[package.metadata.tool.dependencies]\nb = \"1\"\na = \"1\"\n";
+        assert_eq!(
+            sorted(source, &style(|style| style.sort_deps = true)),
+            source
+        );
+    }
+
     #[test]
     fn patch_sorts_one_level_down() {
         let rendered = sorted(

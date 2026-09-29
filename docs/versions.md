@@ -36,8 +36,10 @@ anchors a version rather than bounding one, and it does not name a pre-release.
 | `1.2` | `>=1.2.0, <2.0.0` | `1.7.3` | a bare requirement is a caret |
 | `^1.2` | `>=1.2.0, <2.0.0` | `^1.7.3` | the caret is kept |
 | `~1.2` | `>=1.2.0, <1.3.0` | `~1.2.9` | the tilde bounds the minor |
+| `~1` | `>=1.0.0, <2.0.0` | `^1.7.3` | a major-only tilde bounds the major, as a caret does |
 | `=1.2` | `>=1.2.0, <1.3.0` | `=1.2.9` | **narrows** — see below |
 | `0.4` | `>=0.4.0, <0.5.0` | `0.4.33` | a `0.x` caret bounds the minor |
+| `0.0`, `^0.0` | `>=0.0.0, <0.1.0` | `~0.0.7` | `0.0.7` would mean `=0.0.7`, so a tilde keeps the minor |
 | `1.*`, `1.x` | `>=1.0.0, <2.0.0` | `1.7.3` | the wildcard is replaced |
 | `1.2.*`, `1.2.x` | `>=1.2.0, <1.3.0` | `~1.2.9` | a patch wildcard is a tilde, not a caret |
 | `1.2.3` | `>=1.2.3, <2.0.0` | *(unchanged)* | already complete; see `--upgrade` |
@@ -46,8 +48,10 @@ anchors a version rather than bounding one, and it does not name a pre-release.
 admits any `1.x`, so picking the newest `1.0.x` would name an older release than
 the one cargo will actually resolve.
 
-The requirement is written as `major.minor.patch` with the original operator
-reattached. A pre-release or `+build` suffix on the chosen release is dropped,
+The requirement is written as `major.minor.patch` with the operator that keeps
+cargo's range: the original one, except where the table shows a different one.
+Apart from `=`, a rewrite only raises the lower bound and never moves the upper
+one. A pre-release or `+build` suffix on the chosen release is dropped,
 because cargo ignores build metadata when matching: `toml_edit` publishes its
 releases with a suffix, as in `0.25.15+spec-1.1.0`, and the requirement written
 for that release is `0.25.15`.
@@ -64,6 +68,7 @@ change of meaning and not just of spelling.
 | Requirement | Why |
 | --- | --- |
 | `*` | there is no major version to complete |
+| `0`, `^0`, `~0`, `0.*`, `0.x` | `<1.0.0` admits every `0.x`; no single `x.y.z` comparator does |
 | `>=1, <2` | a multi-comparator range already names its bounds |
 | `>=1.0`, `<2` | a `<`/`>` comparator already names its bound |
 | `1.0.0-rc.1` | the requirement names a pre-release |
@@ -86,7 +91,7 @@ and is counted in the summary, listed under `--verbose`, and always present in
 | inside a `# fmt: off` region | routine |
 | the requirement already names `x.y.z` | routine, and not counted |
 | an `=` requirement under `--upgrade` without `--upgrade-pinned` | routine |
-| the requirement cannot be completed (`*`, a range, a bound) | **notable** |
+| the requirement cannot be completed (`*`, a bare `0`, a range, a bound) | **notable** |
 | no such crate on the registry | **notable** |
 | not a legal crate name | **notable** |
 | no release satisfies the requirement | **notable** |
@@ -129,7 +134,9 @@ are visited so that they can be reported, and neither is ever rewritten.
 `[workspace.dependencies]` and every `[target.'cfg(…)'.…]` variant of them, in
 both the inline (`serde = "1"`, `serde = { version = "1" }`) and the table
 (`[dependencies.serde]`) form. A `package = "real-name"` rename is resolved, so
-the lookup uses the crate's real name and the record reports it.
+the lookup uses the crate's real name and the record reports it. A table named
+`dependencies` anywhere else, such as under `[package.metadata]`, is not a cargo
+dependency section and is never read.
 
 ## The minimum supported Rust version
 
@@ -156,7 +163,7 @@ bumping to a newer release is a separate opt-in. The vocabulary is cargo-edit's.
 | Flag | Effect |
 | --- | --- |
 | `--upgrade` | also rewrite complete requirements, to the newest release the requirement still admits |
-| `--upgrade-incompatible` | allow a bump that breaks the requirement, e.g. `^1.7.3` → `^2.0.1` |
+| `--upgrade-incompatible` | allow a bump that breaks the requirement, e.g. `^1.7.3` → `^2.0.1`, but never to a release below the requirement's own lower bound |
 | `--upgrade-pinned` | include `=` requirements, which are otherwise left alone |
 
 `--upgrade-incompatible` and `--upgrade-pinned` both require `--upgrade`.
@@ -238,7 +245,11 @@ In precedence order:
 ## Network behaviour
 
 Everything below follows cargo's own settings, with the environment overriding
-the merged `.cargo/config.toml` layers.
+the merged `.cargo/config.toml` layers. As with cargo, those layers are the
+`.cargo` directory of the formatted path's directory and of every directory
+above it, then `$CARGO_HOME`; a relative path is resolved against the working
+directory first. Where one directory holds both `config` and `config.toml`,
+only the extensionless `config` is read, which is the file cargo uses.
 
 | Setting | Config key | Environment | Default |
 | --- | --- | --- | --- |

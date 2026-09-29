@@ -801,6 +801,80 @@ fn cargo_net_offline_is_honoured_without_the_flag() {
 }
 
 #[test]
+fn a_parent_directory_cargo_config_reaches_a_run_inside_a_member() {
+    needs_nightly!();
+    let fixture = Fixture::new(crates_io_stub);
+    let member = fixture.path().join("member");
+    fs::create_dir_all(&member).unwrap();
+    write_project(
+        &member,
+        "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [dependencies]\nserde = \"1\"\n",
+    );
+    let cargo = fixture.path().join(".cargo");
+    fs::create_dir_all(&cargo).unwrap();
+    fs::write(cargo.join("config.toml"), "[net]\noffline = true\n").unwrap();
+
+    fixture
+        .command()
+        .env("CARGO_HOME", fixture.cache.path().join("cargo-home"))
+        .current_dir(&member)
+        .arg("--full-versions")
+        .arg(".")
+        .assert()
+        .code(0);
+
+    let text = fs::read_to_string(member.join("Cargo.toml")).unwrap();
+    assert!(text.contains("serde = \"1\""), "{text}");
+    assert!(fixture.registry.hits().is_empty());
+}
+
+#[test]
+fn only_cargo_dependency_tables_are_resolved() {
+    needs_nightly!();
+    let fixture = Fixture::with(
+        "[package]\nname = \"anchored\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [package.metadata.mytool.dependencies]\nmetadata-only = \"1\"\nserde = \"1\"\n\n\
+         [dependencies]\nclap = \"^4.6\"\n\n\
+         [target.'cfg(unix)'.dev-dependencies]\nserde = \"1\"\n\n\
+         [workspace]\n\n\
+         [workspace.dependencies]\nclap = \"4.6\"\n\n\
+         [workspace.metadata.dependencies]\nworkspace-metadata-only = \"1\"\n",
+    );
+
+    let output = fixture.run().assert().code(0).get_output().clone();
+
+    let text = fixture.text();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let doc: toml_edit::DocumentMut = text.parse().unwrap();
+    let metadata = &doc["package"]["metadata"]["mytool"]["dependencies"];
+    assert_eq!(metadata["metadata-only"].as_str(), Some("1"), "{text}");
+    assert_eq!(metadata["serde"].as_str(), Some("1"), "{text}");
+    assert_eq!(
+        doc["workspace"]["metadata"]["dependencies"]["workspace-metadata-only"].as_str(),
+        Some("1"),
+        "{text}"
+    );
+    assert_eq!(
+        doc["dependencies"]["clap"].as_str(),
+        Some("^4.7.0"),
+        "{text}"
+    );
+    assert_eq!(
+        doc["target"]["cfg(unix)"]["dev-dependencies"]["serde"].as_str(),
+        Some("1.2.3"),
+        "{text}"
+    );
+    assert_eq!(
+        doc["workspace"]["dependencies"]["clap"].as_str(),
+        Some("4.7.0"),
+        "{text}"
+    );
+    assert!(!stderr.contains("metadata-only"), "{stderr}");
+    assert_eq!(fixture.registry.hits(), vec!["clap", "serde"]);
+}
+
+#[test]
 fn the_json_envelope_carries_the_version_findings() {
     needs_nightly!();
     let fixture = Fixture::with(MANIFEST);

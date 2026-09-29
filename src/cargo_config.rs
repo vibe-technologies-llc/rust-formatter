@@ -3,14 +3,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::detector::normalize_lexically;
+
 /// Cargo stamps every build directory it creates with this tag. It is the only
 /// signal that separates a build directory from a source directory that happens
 /// to be called `target`, and it survives `--target-dir`, which this tool never
 /// sees.
 const CACHEDIR_SIGNATURE: &[u8] = b"Signature: 8a477f597d28d172789f06886806bc55";
 
-/// Cargo reads `config.toml` and, for compatibility, the extensionless `config`.
-const CONFIG_NAMES: [&str; 2] = ["config.toml", "config"];
+const LEGACY_CONFIG_NAME: &str = "config";
+const CONFIG_NAME: &str = "config.toml";
 
 pub type EnvLookup<'a> = &'a dyn Fn(&str) -> Option<OsString>;
 
@@ -36,26 +38,23 @@ pub struct CargoConfig {
 
 impl CargoConfig {
     pub fn load(start: &Path, env: EnvLookup<'_>) -> Self {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        Self::load_against(&cwd, start, env)
+    }
+
+    fn load_against(cwd: &Path, start: &Path, env: EnvLookup<'_>) -> Self {
+        let start = normalize_lexically(&cwd.join(start));
         let mut config = Self {
             layers: Vec::new(),
             unreadable: Vec::new(),
         };
 
-        // Every ancestor, as cargo reads them. A depth cap here would stop
-        // silently at exactly the layer that mattered, and the walk is two
-        // `stat`s per directory against a path length the filesystem already
-        // bounds.
         for dir in start.ancestors() {
-            let cargo_dir = dir.join(".cargo");
-            for name in CONFIG_NAMES {
-                config.push_layer(&cargo_dir.join(name), dir);
-            }
+            config.push_layer(&config_file_in(&dir.join(".cargo")), dir);
         }
 
         if let Some(home) = cargo_home(env) {
-            for name in CONFIG_NAMES {
-                config.push_layer(&home.join(name), &home);
-            }
+            config.push_layer(&config_file_in(&home), &home);
         }
 
         config
@@ -123,6 +122,15 @@ impl CargoConfig {
             }),
             Err(_) => self.unreadable.push(file.to_path_buf()),
         }
+    }
+}
+
+fn config_file_in(dir: &Path) -> PathBuf {
+    let legacy = dir.join(LEGACY_CONFIG_NAME);
+    if legacy.exists() {
+        legacy
+    } else {
+        dir.join(CONFIG_NAME)
     }
 }
 
@@ -350,6 +358,57 @@ mod tests {
 
         let config = CargoConfig::load(temp.path(), &lookup(&map));
         assert_eq!(config.u64(&["net", "retry"]), Some(9));
+    }
+
+    #[test]
+    fn a_relative_start_still_reads_the_config_of_every_parent_directory() {
+        let temp = tempdir().unwrap();
+        let member = temp.path().join("crates").join("member");
+        fs::create_dir_all(&member).unwrap();
+        write_config(
+            temp.path(),
+            "config.toml",
+            "[source.crates-io]\nreplace-with = \"vendored-sources\"\n",
+        );
+        let map = env_from(&[]);
+
+        let config =
+            CargoConfig::load_against(temp.path(), Path::new("crates/member"), &lookup(&map));
+
+        assert_eq!(
+            config.str(&["source", "crates-io", "replace-with"]),
+            Some("vendored-sources")
+        );
+    }
+
+    #[test]
+    fn only_the_extensionless_config_is_read_when_both_names_exist() {
+        let temp = tempdir().unwrap();
+        write_config(temp.path(), "config", "[http]\ntimeout = 3\n");
+        write_config(temp.path(), "config.toml", "[net]\nretry = 1\n");
+        let map = env_from(&[]);
+
+        let config = CargoConfig::load(temp.path(), &lookup(&map));
+
+        assert_eq!(config.u64(&["http", "timeout"]), Some(3));
+        assert_eq!(config.u64(&["net", "retry"]), None);
+    }
+
+    #[test]
+    fn only_the_extensionless_cargo_home_config_is_read_when_both_names_exist() {
+        let temp = tempdir().unwrap();
+        let home = temp.path().join("cargo-home");
+        fs::create_dir_all(&home).unwrap();
+        fs::write(home.join("config"), "[http]\ntimeout = 3\n").unwrap();
+        fs::write(home.join("config.toml"), "[net]\nretry = 1\n").unwrap();
+        let project = temp.path().join("project");
+        fs::create_dir_all(&project).unwrap();
+        let map = env_from(&[("CARGO_HOME", home.to_str().unwrap())]);
+
+        let config = CargoConfig::load(&project, &lookup(&map));
+
+        assert_eq!(config.u64(&["http", "timeout"]), Some(3));
+        assert_eq!(config.u64(&["net", "retry"]), None);
     }
 
     #[test]

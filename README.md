@@ -836,7 +836,9 @@ local = { path = "../local" } local = { path = "../local" }   # untouched
 ```
 
 The operator keeps cargo's meaning: `^1.0` admits any `1.x`, so it completes to
-the newest `1.x` and not to the newest `1.0.x`. `~1.0` stays inside `1.0`. `=4.6`
+the newest `1.x` and not to the newest `1.0.x`. `~1.0` stays inside `1.0`, `~1`
+becomes a caret and `0.0` a tilde so that neither narrows, and a bare `0` is left
+as written because no `x.y.z` spells `<1.0.0`. `=4.6`
 means "any `4.6.x`" to cargo, so completing it to `=4.6.6` *narrows* the
 requirement rather than filling it in.
 
@@ -844,7 +846,7 @@ requirement rather than filling it in.
 | --- | --- |
 | `--full-versions` | resolve and complete dependency requirements |
 | `--upgrade` | also rewrite requirements that already name `x.y.z`, to the newest release the requirement still admits |
-| `--upgrade-incompatible` | allow a bump that breaks the requirement (`^1.7.3` → `^2.0.1`); needs `--upgrade` |
+| `--upgrade-incompatible` | allow a bump that breaks the requirement (`^1.7.3` → `^2.0.1`), never below its lower bound; needs `--upgrade` |
 | `--upgrade-pinned` | include `=` requirements when upgrading; needs `--upgrade` |
 | `--allow-yanked` | consider yanked releases |
 | `--ignore-rust-version` | choose versions without regard for the manifest's `rust-version` |

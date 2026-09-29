@@ -1870,50 +1870,50 @@ fn restore_decor(decor: &mut Decor, (prefix, suffix): CapturedDecor) {
     }
 }
 
-/// Where in a manifest the walk currently is, which is what tells a dependency
-/// entry apart from an ordinary table and names it in a report.
 #[derive(Clone, Copy)]
 struct Scope<'s> {
     path: &'s str,
     kind: ScopeKind,
-    depth: usize,
 }
 
 impl Scope<'_> {
     const ROOT: Self = Self {
         path: "",
-        kind: ScopeKind::Other,
-        depth: 0,
+        kind: ScopeKind::Root,
     };
 
     fn child<'c>(self, path: &'c str, key: &str) -> Scope<'c> {
         Scope {
             path,
-            kind: self.kind.child(key, self.depth == 0),
-            depth: self.depth + 1,
+            kind: self.kind.child(key),
         }
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ScopeKind {
+    Root,
     Other,
+    Workspace,
+    TargetRoot,
+    TargetCfg,
     Deps,
-    /// `[patch]` itself; its children are the per-registry patch tables.
     PatchRoot,
     Patch,
     Replace,
 }
 
 impl ScopeKind {
-    fn child(self, key: &str, at_root: bool) -> Self {
+    fn child(self, key: &str) -> Self {
         match self {
+            Self::Root | Self::TargetCfg if is_deps_section(key) => Self::Deps,
+            Self::Root if key == "patch" => Self::PatchRoot,
+            Self::Root if key == "replace" => Self::Replace,
+            Self::Root if key == "workspace" => Self::Workspace,
+            Self::Root if key == "target" => Self::TargetRoot,
+            Self::Workspace if key == "dependencies" => Self::Deps,
+            Self::TargetRoot => Self::TargetCfg,
             Self::PatchRoot => Self::Patch,
-            Self::Other if is_deps_section(key) => Self::Deps,
-            Self::Other if at_root && key == "patch" => Self::PatchRoot,
-            Self::Other if at_root && key == "replace" => Self::Replace,
-            // A dependency section's children are entries, not sections, and
-            // nothing below one is a section either.
             _ => Self::Other,
         }
     }
