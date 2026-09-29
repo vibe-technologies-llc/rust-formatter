@@ -3,7 +3,8 @@ use std::{
     ffi::{OsStr, OsString},
     fs, io,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, Output, Stdio},
+    sync::OnceLock,
 };
 
 use crate::{
@@ -96,6 +97,7 @@ enum RepoScope {
 
 pub fn changed_files(selection: &GitSelection, cwd: &Path) -> Result<Changed> {
     let root = repository_root(cwd)?;
+    let git = Git::inherited(&root);
     let mut changed = Changed {
         root: root.clone(),
         ..Changed::default()
@@ -111,12 +113,12 @@ pub fn changed_files(selection: &GitSelection, cwd: &Path) -> Result<Changed> {
 
     let scope = match &selection.scope {
         GitScope::Staged => RepoScope::Staged,
-        GitScope::Since(reference) => RepoScope::Diff(base_for(&root, reference, &mut changed)?),
+        GitScope::Since(reference) => RepoScope::Diff(base_for(git, reference, &mut changed)?),
     };
 
     let mut visited = HashSet::new();
     visited.insert(root.clone());
-    collect_repo(&root, &scope, selection, 0, &mut visited, &mut changed)?;
+    collect_repo(git, &scope, selection, 0, &mut visited, &mut changed)?;
 
     changed.files.sort_unstable();
     changed.files.dedup();
@@ -126,7 +128,7 @@ pub fn changed_files(selection: &GitSelection, cwd: &Path) -> Result<Changed> {
 }
 
 pub fn repository_root(cwd: &Path) -> Result<PathBuf> {
-    let output = run(cwd, &["rev-parse", "--show-toplevel"])?;
+    let output = Git::inherited(cwd).run(&["rev-parse", "--show-toplevel"])?;
     if !output.status.success() {
         return Err(Error::NotAGitRepository(cwd.to_path_buf()));
     }
@@ -148,7 +150,7 @@ pub fn repository_root(cwd: &Path) -> Result<PathBuf> {
 /// comes back relative to the directory git was asked in, so it is joined back
 /// onto it.
 pub fn hooks_dir(cwd: &Path) -> Result<PathBuf> {
-    let output = run(cwd, &["rev-parse", "--git-path", "hooks"])?;
+    let output = Git::inherited(cwd).run(&["rev-parse", "--git-path", "hooks"])?;
     if !output.status.success() {
         return Err(Error::NotAGitRepository(cwd.to_path_buf()));
     }
@@ -195,15 +197,21 @@ pub fn restage<'a>(plan: &GitPlan, paths: impl Iterator<Item = &'a Path>) -> Res
         by_repo.entry(root).or_default().push(pathspec(relative));
     }
 
+    let superproject = plan.repos.first().map(PathBuf::as_path);
     let mut roots: Vec<&Path> = by_repo.keys().copied().collect();
     roots.sort_unstable();
     for root in roots {
+        let git = if superproject == Some(root) {
+            Git::inherited(root)
+        } else {
+            Git::isolated(root)?
+        };
         let mut specs = by_repo.remove(root).unwrap_or_default();
         specs.sort_unstable();
         for chunk in chunked(&specs) {
             let mut args: Vec<OsString> = vec![OsString::from("add"), OsString::from("--")];
             args.extend(chunk.iter().cloned());
-            checked(root, &args)?;
+            git.checked(&args)?;
         }
     }
 
@@ -246,24 +254,25 @@ fn chunked(specs: &[OsString]) -> Vec<&[OsString]> {
     chunks
 }
 
-fn base_for(root: &Path, reference: &str, changed: &mut Changed) -> Result<String> {
-    let verified = run(
-        root,
-        &[
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            "--end-of-options",
-            reference,
-        ],
-    )?;
-    if !verified.status.success() {
+fn base_for(git: Git<'_>, reference: &str, changed: &mut Changed) -> Result<String> {
+    let verified = git.run(&[
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "--end-of-options",
+        reference,
+    ])?;
+    let Some(object) = verified
+        .status
+        .success()
+        .then(|| text(&verified.stdout))
+        .flatten()
+        .filter(|object| !object.is_empty())
+    else {
         return Err(Error::UnknownGitRef(reference.to_string()));
-    }
+    };
 
-    // Diffing the merge base rather than the ref itself keeps commits the ref
-    // gained after the fork point out of "what I changed".
-    let merge_base = run(root, &["merge-base", "--end-of-options", reference, "HEAD"])?;
+    let merge_base = git.run(&["merge-base", "--end-of-options", &object, "HEAD"])?;
     if merge_base.status.success()
         && let Some(base) = text(&merge_base.stdout)
         && !base.is_empty()
@@ -275,32 +284,37 @@ fn base_for(root: &Path, reference: &str, changed: &mut Changed) -> Result<Strin
         "warning: no merge base between {reference} and HEAD, so the comparison is against \
          {reference} itself; a shallow clone has no fork point to find"
     ));
-    Ok(reference.to_string())
+    Ok(object)
 }
 
 fn collect_repo(
-    root: &Path,
+    git: Git<'_>,
     scope: &RepoScope,
     selection: &GitSelection,
     depth: usize,
     visited: &mut HashSet<PathBuf>,
     changed: &mut Changed,
 ) -> Result<()> {
-    changed.repos.push(root.to_path_buf());
+    changed.repos.push(git.cwd.to_path_buf());
 
     let mut files = match scope {
-        RepoScope::Staged => staged_names(root, &mut changed.warnings)?,
+        RepoScope::Staged => staged_names(git, &mut changed.warnings)?,
         RepoScope::Diff(base) => {
             let mut files = paths_from(
-                root,
-                &["diff", "--name-only", "-z", DIFF_FILTER, base],
+                git,
+                &[
+                    "diff",
+                    "--name-only",
+                    "-z",
+                    DIFF_FILTER,
+                    "--end-of-options",
+                    base,
+                ],
                 &mut changed.warnings,
             )?;
             if selection.untracked {
-                // A brand new file is a difference against the ref even though
-                // git's diff machinery cannot see it yet.
                 files.extend(paths_from(
-                    root,
+                    git,
                     &["ls-files", "--others", "--exclude-standard", "-z"],
                     &mut changed.warnings,
                 )?);
@@ -313,7 +327,7 @@ fn collect_repo(
 
     if !files.is_empty() {
         let unstaged: HashSet<PathBuf> = paths_from(
-            root,
+            git,
             &["diff", "--name-only", "-z", DIFF_FILTER],
             &mut changed.warnings,
         )?
@@ -324,7 +338,7 @@ fn collect_repo(
             // there is nothing more to ask git for.
             let staged: HashSet<PathBuf> = match scope {
                 RepoScope::Staged => files.iter().cloned().collect(),
-                RepoScope::Diff(_) => staged_names(root, &mut changed.warnings)?
+                RepoScope::Diff(_) => staged_names(git, &mut changed.warnings)?
                     .into_iter()
                     .collect(),
             };
@@ -340,23 +354,21 @@ fn collect_repo(
     changed.files.extend(files);
 
     if selection.recurse_submodules && depth < MAX_SUBMODULE_DEPTH {
-        recurse_submodules(root, scope, selection, depth, visited, changed)?;
+        recurse_submodules(git, scope, selection, depth, visited, changed)?;
     }
     Ok(())
 }
 
 fn recurse_submodules(
-    root: &Path,
+    git: Git<'_>,
     scope: &RepoScope,
     selection: &GitSelection,
     depth: usize,
     visited: &mut HashSet<PathBuf>,
     changed: &mut Changed,
 ) -> Result<()> {
-    for relative in gitlinks(root, &mut changed.warnings)? {
-        let path = root.join(&relative);
-        // An uninitialized submodule is an empty directory; there is nothing
-        // checked out to format.
+    for relative in gitlinks(git, &mut changed.warnings)? {
+        let path = git.cwd.join(&relative);
         if !path.join(".git").exists() {
             continue;
         }
@@ -366,6 +378,7 @@ fn recurse_submodules(
         if !visited.insert(sub_root.clone()) {
             continue;
         }
+        let submodule = Git::isolated(&sub_root)?;
 
         let sub_scope = match scope {
             RepoScope::Staged => RepoScope::Staged,
@@ -373,7 +386,7 @@ fn recurse_submodules(
                 let mut spec = OsString::from(base);
                 spec.push(":");
                 spec.push(relative.as_os_str());
-                if let Some(commit) = resolve_in(root, &sub_root, &spec)? {
+                if let Some(commit) = resolve_in(git, submodule, &spec)? {
                     RepoScope::Diff(commit)
                 } else {
                     changed.warnings.push(format!(
@@ -387,7 +400,7 @@ fn recurse_submodules(
         };
 
         collect_repo(
-            &sub_root,
+            submodule,
             &sub_scope,
             selection,
             depth + 1,
@@ -398,40 +411,30 @@ fn recurse_submodules(
     Ok(())
 }
 
-/// The gitlink the superproject recorded, but only when the submodule actually
-/// has that commit: a shallow submodule checkout does not.
-fn resolve_in(root: &Path, sub_root: &Path, spec: &OsStr) -> Result<Option<String>> {
-    let recorded = run(
-        root,
-        &[
-            OsStr::new("rev-parse"),
-            OsStr::new("--verify"),
-            OsStr::new("--quiet"),
-            spec,
-        ],
-    )?;
+fn resolve_in(superproject: Git<'_>, submodule: Git<'_>, spec: &OsStr) -> Result<Option<String>> {
+    let recorded = superproject.run(&[
+        OsStr::new("rev-parse"),
+        OsStr::new("--verify"),
+        OsStr::new("--quiet"),
+        spec,
+    ])?;
     if !recorded.status.success() {
         return Ok(None);
     }
     let Some(commit) = text(&recorded.stdout).filter(|commit| !commit.is_empty()) else {
         return Ok(None);
     };
-    let present = run(
-        sub_root,
-        &[
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &format!("{commit}^{{commit}}"),
-        ],
-    )?;
+    let present = submodule.run(&[
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        &format!("{commit}^{{commit}}"),
+    ])?;
     Ok(present.status.success().then_some(commit))
 }
 
-/// Submodule paths as the index records them: mode `160000` entries of
-/// `git ls-files --stage`.
-fn gitlinks(root: &Path, warnings: &mut Vec<String>) -> Result<Vec<PathBuf>> {
-    let stdout = checked(root, &["ls-files", "--stage", "-z"])?;
+fn gitlinks(git: Git<'_>, warnings: &mut Vec<String>) -> Result<Vec<PathBuf>> {
+    let stdout = git.checked(&["ls-files", "--stage", "-z"])?;
     let mut links = Vec::new();
     for entry in stdout.split(|byte| *byte == 0).filter(|e| !e.is_empty()) {
         if !entry.starts_with(b"160000 ") {
@@ -448,37 +451,35 @@ fn gitlinks(root: &Path, warnings: &mut Vec<String>) -> Result<Vec<PathBuf>> {
     Ok(links)
 }
 
-fn staged_names(root: &Path, warnings: &mut Vec<String>) -> Result<Vec<PathBuf>> {
-    // Before the first commit there is no HEAD to diff against, so the whole
-    // index is what is staged. Probing for HEAD rather than retrying on any
-    // failure matters: a locked index or an unreadable object would otherwise
-    // widen the selection to every tracked file and rewrite the repository.
-    let mut files = if head_exists(root)? {
+fn staged_names(git: Git<'_>, warnings: &mut Vec<String>) -> Result<Vec<PathBuf>> {
+    let mut files = if head_exists(git)? {
         paths_from(
-            root,
+            git,
             &["diff", "--name-only", "-z", "--cached", DIFF_FILTER],
             warnings,
         )?
     } else {
-        paths_from(root, &["ls-files", "--cached", "-z"], warnings)?
+        paths_from(git, &["ls-files", "--cached", "-z"], warnings)?
     };
     files.sort_unstable();
     files.dedup();
     Ok(files)
 }
 
-fn head_exists(root: &Path) -> Result<bool> {
-    Ok(run(root, &["rev-parse", "--verify", "--quiet", "HEAD"])?
+fn head_exists(git: Git<'_>) -> Result<bool> {
+    Ok(git
+        .run(&["rev-parse", "--verify", "--quiet", "HEAD"])?
         .status
         .success())
 }
 
 fn paths_from<S: AsRef<OsStr>>(
-    root: &Path,
+    git: Git<'_>,
     args: &[S],
     warnings: &mut Vec<String>,
 ) -> Result<Vec<PathBuf>> {
-    let stdout = checked(root, args)?;
+    let root = git.cwd;
+    let stdout = git.checked(args)?;
     let mut files = Vec::new();
     for entry in stdout.split(|byte| *byte == 0).filter(|e| !e.is_empty()) {
         let Some(relative) = decode_path(entry) else {
@@ -532,36 +533,78 @@ fn trim_ascii(bytes: &[u8]) -> &[u8] {
     }
 }
 
-fn checked<S: AsRef<OsStr>>(cwd: &Path, args: &[S]) -> Result<Vec<u8>> {
-    let output = run(cwd, args)?;
-    if !output.status.success() {
-        return Err(Error::GitCommandFailed {
-            command: describe(args),
-            details: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-        });
-    }
-    Ok(output.stdout)
+#[derive(Debug, Clone, Copy)]
+struct Git<'a> {
+    cwd: &'a Path,
+    removed_env: &'a [OsString],
 }
 
-fn run<S: AsRef<OsStr>>(cwd: &Path, args: &[S]) -> Result<std::process::Output> {
-    // The git environment is inherited on purpose. `git commit -- <paths>` points
-    // its hooks at a temporary index through GIT_INDEX_FILE, and that is exactly
-    // the index --staged must read and --restage must write; clearing it would
-    // make the flag wrong in the one place it exists for.
-    Command::new("git")
-        .arg("--no-optional-locks")
-        .args(args)
-        .current_dir(cwd)
-        .stdin(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| match err.kind() {
-            io::ErrorKind::NotFound => Error::GitNotFound,
-            _ => Error::CommandExecutionFailed {
-                command: describe(args),
-                source: err,
-            },
+impl<'a> Git<'a> {
+    fn inherited(cwd: &'a Path) -> Self {
+        Self {
+            cwd,
+            removed_env: &[],
+        }
+    }
+
+    fn isolated(cwd: &'a Path) -> Result<Self> {
+        Ok(Self {
+            cwd,
+            removed_env: repository_local_env(cwd)?,
         })
+    }
+
+    fn checked<S: AsRef<OsStr>>(self, args: &[S]) -> Result<Vec<u8>> {
+        let output = self.run(args)?;
+        if !output.status.success() {
+            return Err(Error::GitCommandFailed {
+                command: describe(args),
+                details: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            });
+        }
+        Ok(output.stdout)
+    }
+
+    fn run<S: AsRef<OsStr>>(self, args: &[S]) -> Result<Output> {
+        let mut command = Command::new("git");
+        for name in self.removed_env {
+            command.env_remove(name);
+        }
+        command
+            .arg("--no-optional-locks")
+            .args(args)
+            .current_dir(self.cwd)
+            .stdin(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|err| match err.kind() {
+                io::ErrorKind::NotFound => Error::GitNotFound,
+                _ => Error::CommandExecutionFailed {
+                    command: describe(args),
+                    source: err,
+                },
+            })
+    }
+}
+
+const SHARED_WITH_SUBMODULES: [&str; 2] = ["GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"];
+
+fn repository_local_env(cwd: &Path) -> Result<&'static [OsString]> {
+    static NAMES: OnceLock<Vec<OsString>> = OnceLock::new();
+
+    if let Some(names) = NAMES.get() {
+        return Ok(names);
+    }
+
+    let listed = Git::inherited(cwd).checked(&["rev-parse", "--local-env-vars"])?;
+    let names = listed
+        .split(u8::is_ascii_whitespace)
+        .filter(|name| !name.is_empty())
+        .map(|name| String::from_utf8_lossy(name).into_owned())
+        .filter(|name| !SHARED_WITH_SUBMODULES.contains(&name.as_str()))
+        .map(OsString::from)
+        .collect();
+    Ok(NAMES.get_or_init(|| names))
 }
 
 fn describe<S: AsRef<OsStr>>(args: &[S]) -> String {
@@ -607,13 +650,13 @@ mod tests {
             return;
         }
 
-        assert!(!head_exists(dir).unwrap());
+        assert!(!head_exists(Git::inherited(dir)).unwrap());
 
         fs::write(dir.join("seed.txt"), "seed\n").unwrap();
         assert!(git(dir, &["add", "-A"]));
         assert!(git(dir, &["commit", "--quiet", "-m", "seed"]));
 
-        assert!(head_exists(dir).unwrap());
+        assert!(head_exists(Git::inherited(dir)).unwrap());
     }
 
     /// A ref that looks like a git switch must still be a ref: without
@@ -630,7 +673,8 @@ mod tests {
         assert!(git(dir, &["add", "-A"]));
         assert!(git(dir, &["commit", "--quiet", "-m", "seed"]));
         let sha = text(
-            &run(dir, &["rev-parse", "--verify", "--quiet", "HEAD"])
+            &Git::inherited(dir)
+                .run(&["rev-parse", "--verify", "--quiet", "HEAD"])
                 .unwrap()
                 .stdout,
         )
@@ -639,14 +683,93 @@ mod tests {
         assert!(git(dir, &["update-ref", "refs/heads/-bar", &sha]));
 
         let mut changed = Changed::default();
-        assert_eq!(base_for(dir, "--foo", &mut changed).unwrap(), sha);
-        assert_eq!(base_for(dir, "-bar", &mut changed).unwrap(), sha);
+        assert_eq!(
+            base_for(Git::inherited(dir), "--foo", &mut changed).unwrap(),
+            sha
+        );
+        assert_eq!(
+            base_for(Git::inherited(dir), "-bar", &mut changed).unwrap(),
+            sha
+        );
         assert!(
             matches!(
-                base_for(dir, "--all", &mut changed),
+                base_for(Git::inherited(dir), "--all", &mut changed),
                 Err(Error::UnknownGitRef(name)) if name == "--all"
             ),
             "a git switch must not be taken as a revision"
+        );
+    }
+
+    #[test]
+    fn a_ref_that_looks_like_an_option_and_shares_no_history_is_still_diffed() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        if !seeded(dir) {
+            return;
+        }
+        fs::write(dir.join("seed.toml"), "a = 1\n").unwrap();
+        commit(dir, "seed");
+
+        let tree = StdCommand::new("git")
+            .args(["write-tree"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        let tree = text(&tree.stdout).expect("a tree id");
+        let orphan = StdCommand::new("git")
+            .args(["commit-tree", &tree, "-m", "orphan"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        let orphan = text(&orphan.stdout).expect("a commit id");
+        assert!(git(dir, &["update-ref", "refs/heads/--foo", &orphan]));
+
+        fs::write(dir.join("changed.toml"), "b = 2\n").unwrap();
+        commit(dir, "change");
+
+        let selection = GitSelection {
+            untracked: false,
+            ..GitSelection::new(GitScope::Since("--foo".to_string()))
+        };
+        let changed = changed_files(&selection, dir).unwrap();
+        let names: Vec<_> = changed
+            .files
+            .iter()
+            .filter_map(|path| path.file_name())
+            .collect();
+        let base = base_for(Git::inherited(dir), "--foo", &mut Changed::default()).unwrap();
+
+        assert_eq!(names, ["changed.toml"]);
+        assert_eq!(base, orphan);
+        assert!(
+            changed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("no merge base")),
+            "{:?}",
+            changed.warnings
+        );
+    }
+
+    #[test]
+    fn the_repository_local_variables_include_the_index_and_the_git_dir() {
+        let temp = tempfile::tempdir().unwrap();
+
+        let Ok(names) = repository_local_env(temp.path()) else {
+            eprintln!("SKIP: git is unavailable");
+            return;
+        };
+
+        assert!(
+            names.iter().any(|name| name == "GIT_INDEX_FILE"),
+            "{names:?}"
+        );
+        assert!(names.iter().any(|name| name == "GIT_DIR"), "{names:?}");
+        assert!(
+            !names
+                .iter()
+                .any(|name| SHARED_WITH_SUBMODULES.iter().any(|shared| name == *shared)),
+            "{names:?}"
         );
     }
 
@@ -679,8 +802,8 @@ mod tests {
         )
         .unwrap();
 
-        assert!(head_exists(dir).unwrap());
-        let err = staged_names(dir, &mut Vec::new()).unwrap_err();
+        assert!(head_exists(Git::inherited(dir)).unwrap());
+        let err = staged_names(Git::inherited(dir), &mut Vec::new()).unwrap_err();
         assert!(
             matches!(err, Error::GitCommandFailed { .. }),
             "expected a git failure, got {err:?}"
@@ -702,7 +825,12 @@ mod tests {
         // is dropped without a word; everything else is named.
         fs::remove_file(dir.join("gone.toml")).unwrap();
         let mut warnings = Vec::new();
-        let files = paths_from(dir, &["ls-files", "--cached", "-z"], &mut warnings).unwrap();
+        let files = paths_from(
+            Git::inherited(dir),
+            &["ls-files", "--cached", "-z"],
+            &mut warnings,
+        )
+        .unwrap();
         assert_eq!(files.len(), 1);
         assert!(warnings.is_empty(), "{warnings:?}");
     }
@@ -720,7 +848,12 @@ mod tests {
         assert!(git(dir, &["add", "-A"]));
 
         let mut warnings = Vec::new();
-        let files = paths_from(dir, &["ls-files", "--cached", "-z"], &mut warnings).unwrap();
+        let files = paths_from(
+            Git::inherited(dir),
+            &["ls-files", "--cached", "-z"],
+            &mut warnings,
+        )
+        .unwrap();
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(files.len(), 1, "{files:?}");
         assert!(files[0].ends_with("real.toml"), "{}", files[0].display());
@@ -1042,7 +1175,7 @@ mod tests {
             return;
         };
         let mut warnings = Vec::new();
-        let links = gitlinks(&super_dir, &mut warnings).unwrap();
+        let links = gitlinks(Git::inherited(&super_dir), &mut warnings).unwrap();
         assert_eq!(links, vec![PathBuf::from("vendored")]);
         assert!(warnings.is_empty(), "{warnings:?}");
     }
@@ -1058,7 +1191,11 @@ mod tests {
         commit(dir, "seed");
 
         let mut warnings = Vec::new();
-        assert!(gitlinks(dir, &mut warnings).unwrap().is_empty());
+        assert!(
+            gitlinks(Git::inherited(dir), &mut warnings)
+                .unwrap()
+                .is_empty()
+        );
         assert!(warnings.is_empty(), "{warnings:?}");
     }
 

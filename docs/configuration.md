@@ -77,6 +77,20 @@ The search stops where the settings-file search stops -- at the workspace root,
 else at the repository boundary -- rather than at the filesystem root rustup
 would walk to.
 
+A toolchain chosen for this one invocation outranks the pin, as it does in
+rustup: `cargo +nightly rust-formatter` in a repository pinned to `stable` runs
+nightly rustfmt. rustup's proxies export `RUSTUP_TOOLCHAIN` to everything they
+launch, together with `RUSTUP_TOOLCHAIN_SOURCE` naming why that toolchain was
+picked, so the two are read together. When `RUSTUP_TOOLCHAIN` is set and not
+empty, and `RUSTUP_TOOLCHAIN_SOURCE` is `cli` (a `+toolchain`), `env` (a
+`RUSTUP_TOOLCHAIN` the proxy was itself given) or absent (a `RUSTUP_TOOLCHAIN`
+exported directly), layer 2 takes its value in place of the pinned channel,
+and `--print-settings` names `$RUSTUP_TOOLCHAIN` as the source. Any other
+`RUSTUP_TOOLCHAIN_SOURCE` -- `toolchain-file`, `override`, `default` -- means
+rustup settled on the toolchain by itself, and the pin stands. Without a pin
+there is no layer 2, so `toolchain` stays at its default. Layers 3 to 8 outrank
+it either way.
+
 ## Where settings live
 
 ### Cargo metadata

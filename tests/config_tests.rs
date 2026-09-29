@@ -48,6 +48,8 @@ fn workspace(root_metadata: &str, member_metadata: &str) -> TempDir {
 /// without its provenance comments.
 fn settings(dir: &Path, args: &[&str]) -> String {
     let assert = formatter()
+        .env_remove("RUSTUP_TOOLCHAIN")
+        .env_remove("RUSTUP_TOOLCHAIN_SOURCE")
         .current_dir(dir)
         .args(["--print-settings", "--toml-only", "."])
         .args(args)
@@ -629,6 +631,32 @@ fn every_configuration_source_outranks_the_toolchain_file() {
         value(&settings(&member, &["--toolchain", "auto"]), "toolchain").as_deref(),
         Some("\"auto\"")
     );
+}
+
+#[test]
+fn a_toolchain_chosen_with_a_rustup_plus_outranks_the_toolchain_file() {
+    let temp = workspace("", "");
+    let member = temp.path().join("member");
+    fs::write(
+        temp.path().join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"stable\"\n",
+    )
+    .unwrap();
+
+    let assert = formatter()
+        .env("RUSTUP_TOOLCHAIN", "nightly-2026-06-01")
+        .env("RUSTUP_TOOLCHAIN_SOURCE", "cli")
+        .current_dir(&member)
+        .args(["--print-settings", "--toml-only", "."])
+        .assert()
+        .success();
+    let rendered = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+
+    assert_eq!(
+        value(&rendered, "toolchain").as_deref(),
+        Some("\"nightly-2026-06-01\"")
+    );
+    assert!(rendered.contains("# from: $RUSTUP_TOOLCHAIN"), "{rendered}");
 }
 
 /// `--no-config` names the file sources, and the pin is one of them.

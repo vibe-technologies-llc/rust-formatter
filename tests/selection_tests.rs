@@ -620,6 +620,80 @@ fn restage_reaches_the_index_of_each_submodule() {
 }
 
 #[test]
+fn a_submodule_uses_its_own_index_when_the_hook_names_the_superproject_index() {
+    let temp = tempdir().unwrap();
+    let inner = temp.path().join("sub");
+    fs::create_dir_all(&inner).unwrap();
+    if !git_repo(&inner) {
+        return;
+    }
+    let outer = temp.path().join("super");
+    fs::create_dir_all(&outer).unwrap();
+    if !git_repo(&outer) {
+        return;
+    }
+    let added = StdCommand::new("git")
+        .args([
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "--quiet",
+            "../sub",
+            "sub",
+        ])
+        .current_dir(&outer)
+        .status()
+        .unwrap();
+    if !added.success() {
+        eprintln!("SKIP: this git refuses a local submodule");
+        return;
+    }
+    git(&outer, &["commit", "--quiet", "-m", "add submodule"]);
+
+    let submodule = outer.join("sub");
+    let superproject_index = fs::canonicalize(outer.join(".git/index")).unwrap();
+    let superproject_file = write(&outer.join("shadow.toml"), DIRTY);
+    git(&outer, &["add", "shadow.toml"]);
+    let unstaged = write(&submodule.join("shadow.toml"), DIRTY);
+    let staged = write(&submodule.join("staged.toml"), DIRTY);
+    git(&submodule, &["add", "staged.toml"]);
+
+    let listed = formatter()
+        .current_dir(&outer)
+        .env("GIT_INDEX_FILE", &superproject_index)
+        .args(["--staged", "--recurse-submodules", "--list-files"])
+        .output()
+        .unwrap();
+    let listed = String::from_utf8(listed.stdout).unwrap();
+
+    assert!(listed.contains("staged.toml"), "{listed}");
+    assert!(!listed.contains("sub/shadow.toml"), "{listed}");
+
+    formatter()
+        .current_dir(&outer)
+        .env("GIT_INDEX_FILE", &superproject_index)
+        .args(["--staged", "--recurse-submodules", "--restage"])
+        .assert()
+        .success();
+
+    assert_eq!(read(&superproject_file), CLEAN);
+    assert_eq!(read(&unstaged), DIRTY);
+    assert_eq!(read(&staged), CLEAN);
+    assert_eq!(show(&submodule, ":staged.toml"), CLEAN);
+    assert_eq!(show(&outer, ":shadow.toml"), CLEAN);
+    assert!(
+        !StdCommand::new("git")
+            .args(["cat-file", "-e", ":staged.toml"])
+            .current_dir(&outer)
+            .status()
+            .unwrap()
+            .success(),
+        "the submodule's path was written to the superproject's index"
+    );
+}
+
+#[test]
 fn restage_needs_staged_and_refuses_a_read_only_run() {
     let temp = tempdir().unwrap();
     write(&temp.path().join("a.toml"), DIRTY);

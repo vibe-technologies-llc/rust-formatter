@@ -33,6 +33,10 @@ const METADATA_KEY: &str = "rust-formatter";
 /// environment variable for them would have nothing to say.
 const NO_ENV: [&str; 1] = ["presets"];
 
+const RUSTUP_TOOLCHAIN: &str = "RUSTUP_TOOLCHAIN";
+const RUSTUP_TOOLCHAIN_SOURCE: &str = "RUSTUP_TOOLCHAIN_SOURCE";
+const EXPLICIT_RUSTUP_TOOLCHAIN_SOURCES: [&str; 2] = ["cli", "env"];
+
 pub const TOML_TAB_WIDTH: RangeInclusive<i64> = 1..=16;
 pub const TOML_MAX_WIDTH: RangeInclusive<i64> = 1..=4096;
 pub const TOML_MAX_BLANK_LINES: RangeInclusive<i64> = 0..=32;
@@ -756,7 +760,7 @@ pub fn resolve(start: &Path, env: EnvLookup<'_>, cli: &SettingsCli) -> Result<Re
 
     let mut layers = Vec::new();
     if !cli.no_config {
-        layers.extend(toolchain_layer(start));
+        layers.extend(toolchain_layer(start, env));
         layers.extend(manifest_layers(start)?);
         if let Some(found) = discover(start) {
             layers.push(read_file(&found)?);
@@ -884,20 +888,32 @@ fn known_presets(defined: &BTreeMap<String, Settings>) -> String {
     names.join(", ")
 }
 
-/// The repository's own toolchain pin, as the lowest layer of the chain.
-///
-/// It is a layer rather than a fallback so that `--print-settings` names the
-/// file, and so that the ordinary precedence applies: anything this tool's own
-/// configuration says about `toolchain` outranks it.
-fn toolchain_layer(start: &Path) -> Option<Layer> {
+fn toolchain_layer(start: &Path, env: EnvLookup<'_>) -> Option<Layer> {
     let pin = crate::toolchain_file::discover(start)?;
+    let (source, toolchain) = match explicit_rustup_toolchain(env) {
+        Some(chosen) => (Source::Environment(RUSTUP_TOOLCHAIN.to_string()), chosen),
+        None => (Source::ToolchainFile(pin.path), pin.channel),
+    };
     Some(Layer {
-        source: Source::ToolchainFile(pin.path),
+        source,
         settings: Settings {
-            toolchain: Some(pin.channel),
+            toolchain: Some(toolchain),
             ..Settings::default()
         },
     })
+}
+
+fn explicit_rustup_toolchain(env: EnvLookup<'_>) -> Option<String> {
+    let toolchain = env(RUSTUP_TOOLCHAIN)?
+        .into_string()
+        .ok()
+        .filter(|toolchain| !toolchain.is_empty())?;
+    let chosen_explicitly = env(RUSTUP_TOOLCHAIN_SOURCE).is_none_or(|source| {
+        EXPLICIT_RUSTUP_TOOLCHAIN_SOURCES
+            .iter()
+            .any(|explicit| source == *explicit)
+    });
+    chosen_explicitly.then_some(toolchain)
 }
 
 fn manifest_layers(start: &Path) -> Result<Vec<Layer>> {
@@ -1326,6 +1342,130 @@ mod tests {
             "{:?}",
             resolved.sources
         );
+    }
+
+    fn pinned_to_stable() -> tempfile::TempDir {
+        let temp = tempdir().unwrap();
+        fs::write(
+            temp.path().join("rust-toolchain.toml"),
+            "[toolchain]\nchannel = \"stable\"\n",
+        )
+        .unwrap();
+        temp
+    }
+
+    fn toolchain_under(dir: &Path, pairs: &[(&str, &str)]) -> (Option<String>, Source) {
+        let map = env_from(pairs);
+        let resolved = resolve_in(dir, &map, &SettingsCli::default());
+        (
+            resolved.settings.toolchain,
+            resolved.provenance.source_of("toolchain"),
+        )
+    }
+
+    #[test]
+    fn a_rustup_plus_toolchain_outranks_the_pin() {
+        let temp = pinned_to_stable();
+
+        let found = toolchain_under(
+            temp.path(),
+            &[
+                ("RUSTUP_TOOLCHAIN", "nightly-x86_64-unknown-linux-gnu"),
+                ("RUSTUP_TOOLCHAIN_SOURCE", "cli"),
+            ],
+        );
+
+        assert_eq!(
+            found,
+            (
+                Some("nightly-x86_64-unknown-linux-gnu".to_string()),
+                Source::Environment("RUSTUP_TOOLCHAIN".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn a_rustup_toolchain_from_the_environment_outranks_the_pin() {
+        let temp = pinned_to_stable();
+
+        let through_a_proxy = toolchain_under(
+            temp.path(),
+            &[
+                ("RUSTUP_TOOLCHAIN", "nightly"),
+                ("RUSTUP_TOOLCHAIN_SOURCE", "env"),
+            ],
+        );
+        let exported_directly = toolchain_under(temp.path(), &[("RUSTUP_TOOLCHAIN", "nightly")]);
+
+        let expected = (
+            Some("nightly".to_string()),
+            Source::Environment("RUSTUP_TOOLCHAIN".to_string()),
+        );
+        assert_eq!(through_a_proxy, expected);
+        assert_eq!(exported_directly, expected);
+    }
+
+    #[test]
+    fn a_rustup_toolchain_rustup_resolved_on_its_own_leaves_the_pin() {
+        let temp = pinned_to_stable();
+        let pin =
+            Source::ToolchainFile(detector::canonical_dir(temp.path()).join("rust-toolchain.toml"));
+
+        for source in ["toolchain-file", "override", "default", "unrecognised", ""] {
+            let found = toolchain_under(
+                temp.path(),
+                &[
+                    ("RUSTUP_TOOLCHAIN", "stable-x86_64-unknown-linux-gnu"),
+                    ("RUSTUP_TOOLCHAIN_SOURCE", source),
+                ],
+            );
+
+            assert_eq!(found, (Some("stable".to_string()), pin.clone()), "{source}");
+        }
+    }
+
+    #[test]
+    fn an_empty_rustup_toolchain_leaves_the_pin() {
+        let temp = pinned_to_stable();
+
+        let (toolchain, _) = toolchain_under(temp.path(), &[("RUSTUP_TOOLCHAIN", "")]);
+
+        assert_eq!(toolchain.as_deref(), Some("stable"));
+    }
+
+    #[test]
+    fn a_rustup_toolchain_without_a_pin_leaves_the_default() {
+        let temp = tempdir().unwrap();
+
+        let found = toolchain_under(
+            temp.path(),
+            &[
+                ("RUSTUP_TOOLCHAIN", "stable-x86_64-unknown-linux-gnu"),
+                ("RUSTUP_TOOLCHAIN_SOURCE", "default"),
+            ],
+        );
+
+        assert_eq!(found, (None, Source::Default));
+    }
+
+    #[test]
+    fn a_configured_toolchain_still_outranks_a_rustup_plus_toolchain() {
+        let temp = pinned_to_stable();
+        fs::write(
+            temp.path().join("rust-formatter.toml"),
+            "toolchain = \"beta\"\n",
+        )
+        .unwrap();
+
+        let found = toolchain_under(
+            temp.path(),
+            &[
+                ("RUSTUP_TOOLCHAIN", "nightly"),
+                ("RUSTUP_TOOLCHAIN_SOURCE", "cli"),
+            ],
+        );
+
+        assert_eq!(found.0.as_deref(), Some("beta"));
     }
 
     #[test]
