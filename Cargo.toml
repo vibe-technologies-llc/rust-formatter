@@ -44,7 +44,7 @@ unicode-width = "0.2.2"
 xxhash-rust = { version = "0.8.19", default-features = false, features = ["xxh3"] }
 tempfile = "3.27.0"
 semver = "1.0.28"
-ureq = { version = "3.4.2", features = ["json", "platform-verifier", "socks-proxy"] }
+ureq = { version = "3.5.0", features = ["json", "platform-verifier", "socks-proxy"] }
 clap_complete = "4.6.11"
 clap_mangen = "0.3.3"
 notify-debouncer-full = "0.7.0"
