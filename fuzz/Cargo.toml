@@ -13,8 +13,8 @@ cargo-fuzz = true
 [workspace]
 
 [dependencies]
-libfuzzer-sys = "0.4.10"
-toml_edit = { version = "0.25.13", features = ["serde"] }
+libfuzzer-sys = "0.4.13"
+toml_edit = { version = "0.25.17", features = ["serde"] }
 
 [dependencies.rust-formatter]
 path = ".."
