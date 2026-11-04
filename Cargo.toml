@@ -39,12 +39,12 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 similar = "3.2.1"
 thiserror = "2.0.21"
-toml_edit = { version = "0.25.17", features = ["serde"] }
+toml_edit = { version = "0.25.18", features = ["serde"] }
 unicode-width = "0.2.3"
 xxhash-rust = { version = "0.8.19", default-features = false, features = ["xxh3"] }
 tempfile = "3.27.0"
 semver = "1.0.28"
-ureq = { version = "3.5.0", features = ["json", "platform-verifier", "socks-proxy"] }
+ureq = { version = "3.5.1", features = ["json", "platform-verifier", "socks-proxy"] }
 clap_complete = "4.6.11"
 clap_mangen = "0.3.3"
 notify-debouncer-full = "0.7.0"
