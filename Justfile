@@ -5,11 +5,6 @@
 # `fuzz` needs cargo-fuzz and a nightly toolchain; both say so if they are
 # missing.
 
-# Outside the repository, and on a real disk. Both matter: a work tree inside a
-# cargo project is detected as that project, so the sweep would format nothing
-# and pass having proved nothing, and /tmp is a tmpfs on some machines with no
-# room for a release build of the reference binary. `scripts/corpus.sh` refuses
-# to run if the first is wrong.
 corpus_tmp := env("XDG_CACHE_HOME", env("HOME") / ".cache") / "rust-formatter-corpus"
 
 default:
@@ -38,10 +33,10 @@ update-expect:
 
 # Prove the Rust suites skip rather than fail without a toolchain.
 test-no-toolchain:
-    sh scripts/no-toolchain.sh
+    cargo xtask no-toolchain
 
 clippy:
-    cargo clippy --all-targets --all-features --locked -- -D warnings
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 build:
     cargo build --release --locked
@@ -57,16 +52,14 @@ fmt:
 # Differential sweep against a git ref over the local crate registry, both
 # languages, every preset.
 corpus *args:
-    mkdir -p {{corpus_tmp}}
-    TMPDIR={{corpus_tmp}} sh scripts/corpus.sh {{args}}
+    cargo xtask corpus {{args}}
 
 # The TOML leg alone, which needs no toolchain and is much faster.
 corpus-toml *args:
-    mkdir -p {{corpus_tmp}}
-    TMPDIR={{corpus_tmp}} RS=0 sh scripts/corpus.sh {{args}}
+    cargo xtask corpus --no-rust {{args}}
 
 fuzz seconds="300":
-    SECONDS_TO_RUN={{seconds}} sh scripts/fuzz.sh
+    cargo xtask fuzz --seconds {{seconds}}
 
 coverage:
     cargo llvm-cov nextest --all-features --locked --html

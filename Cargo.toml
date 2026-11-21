@@ -9,7 +9,10 @@ repository = "https://github.com/vibe-technologies-llc/rust-formatter"
 readme = "README.md"
 keywords = ["rustfmt", "formatter", "toml", "cargo", "fmt"]
 categories = ["development-tools", "command-line-utilities"]
-exclude = ["fuzz"]
+exclude = [".cargo", "fuzz"]
+
+[workspace]
+members = ["xtask"]
 
 [lints.rust]
 unsafe_code = "forbid"

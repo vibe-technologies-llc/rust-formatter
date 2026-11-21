@@ -1021,7 +1021,7 @@ These have to pass before a change goes in:
 ```bash
 cargo nextest run --locked
 cargo test --locked --doc
-cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo run --locked -- --check .     # the formatter checks its own tree
 ```
 
@@ -1033,6 +1033,14 @@ doctests, so `cargo test --doc` runs them. The `Justfile` wraps all of this:
 that diff before committing it. `just test-ignored` runs the registry sweeps that
 read `~/.cargo/registry`, `just corpus` a differential sweep against a git ref,
 and `just fuzz` the fuzz targets.
+
+The corpus sweep, the fuzz run and `just test-no-toolchain` are `cargo xtask`
+tasks in `xtask/`, so they also run without `just`; `cargo xtask --help` lists
+them and their flags. `cargo xtask corpus` builds its work tree under
+`~/.cache/rust-formatter-corpus` unless given `--work-dir`: outside the
+repository, because a tree inside a cargo project is formatted as that project
+and the sweep would prove nothing, and on a real disk, because `/tmp` is a small
+tmpfs on some machines.
 
 Every fenced `toml` block in this README and in `docs/` carries an `rf:`
 annotation and is executed by `tests/doc_tests.rs`, or says with `rf:skip` why

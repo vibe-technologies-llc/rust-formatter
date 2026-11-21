@@ -59,7 +59,7 @@ All six are checked over committed fixtures, over generated documents and over
 the local crate registry, under each of the seven TOML presets and under a
 style drawn at random from the whole option surface. See
 `tests/corpus_tests.rs`, `tests/property_tests.rs`, `tests/encoding_tests.rs`
-and `scripts/corpus.sh`.
+and `cargo xtask corpus`.
 
 Every fenced TOML example on this page is executed by `tests/doc_tests.rs`,
 which is what the `rf:` marker on each fence selects.
