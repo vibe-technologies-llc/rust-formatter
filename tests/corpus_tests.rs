@@ -462,9 +462,18 @@ mod the_oracles_can_fail {
     /// as a comment and the oracle reports a comment the document never had.
     #[test]
     fn a_hash_inside_a_string_is_not_a_comment() {
-        assert!(comment_bodies("a = \"not # a comment\"\n").is_empty());
-        assert!(comment_bodies("a = 'not # a comment'\n").is_empty());
-        assert!(comment_bodies("a = \"\"\"not # a comment\"\"\"\n").is_empty());
+        assert_eq!(
+            comment_bodies("a = \"not # a comment\"\n"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            comment_bodies("a = 'not # a comment'\n"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            comment_bodies("a = \"\"\"not # a comment\"\"\"\n"),
+            Vec::<String>::new()
+        );
         assert_eq!(
             comment_bodies("a = \"x\" # real\n"),
             vec!["real".to_owned()]

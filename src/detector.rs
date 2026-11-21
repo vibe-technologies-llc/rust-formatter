@@ -1096,7 +1096,10 @@ mod tests {
         fs::create_dir_all(&build_dir).unwrap();
         fs::write(build_dir.join("generated.rs"), "fn gen() {}\n").unwrap();
 
-        assert!(collect_rust_files(temp.path()).unwrap().is_empty());
+        assert_eq!(
+            collect_rust_files(temp.path()).unwrap(),
+            Vec::<PathBuf>::new()
+        );
     }
 
     /// The whole point of judging a build directory by evidence: a module named

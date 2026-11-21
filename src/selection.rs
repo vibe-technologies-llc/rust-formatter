@@ -709,6 +709,9 @@ mod tests {
             format!("{}\n", temp.path().join("gone.rs").display()),
         )
         .unwrap();
-        assert!(read_file_list(&list, &mut Vec::new()).unwrap().is_empty());
+        assert_eq!(
+            read_file_list(&list, &mut Vec::new()).unwrap(),
+            Vec::<PathBuf>::new()
+        );
     }
 }

@@ -953,7 +953,7 @@ mod tests {
             warnings[0].contains("was not re-added to the index"),
             "{warnings:?}"
         );
-        assert!(staged_names_in(dir).is_empty());
+        assert_eq!(staged_names_in(dir), Vec::<String>::new());
     }
 
     #[test]
@@ -975,7 +975,7 @@ mod tests {
         let warnings = restage(&plan, std::iter::once(outside.as_path())).unwrap();
 
         assert!(warnings.is_empty(), "{warnings:?}");
-        assert!(staged_names_in(dir).is_empty());
+        assert_eq!(staged_names_in(dir), Vec::<String>::new());
     }
 
     /// A path under a nested repository belongs to the innermost one. Handing
@@ -1191,10 +1191,9 @@ mod tests {
         commit(dir, "seed");
 
         let mut warnings = Vec::new();
-        assert!(
-            gitlinks(Git::inherited(dir), &mut warnings)
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            gitlinks(Git::inherited(dir), &mut warnings).unwrap(),
+            Vec::<PathBuf>::new()
         );
         assert!(warnings.is_empty(), "{warnings:?}");
     }

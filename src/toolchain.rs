@@ -72,11 +72,7 @@ pub fn resolution_key(requested: &str, env: crate::cargo_config::EnvLookup<'_>) 
     if env("RUSTFMT").is_some_and(|value| !value.is_empty()) {
         return None;
     }
-    let read = |key: &str| {
-        env(key)
-            .map(|value| value.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    };
+    let read = |key: &str| env(key).map_or_default(|value| value.to_string_lossy().into_owned());
     Some(format!(
         "1\x1f{requested}\x1f{}\x1f{}\x1f{}",
         read("RUSTUP_HOME"),

@@ -112,9 +112,7 @@ fn format_regions(
         (!regions.is_empty()).then(|| Freeze::build(parsed.as_table(), parsed.trailing(), regions));
     // Spans die with `into_mut`, so a finding's location has to be taken from
     // the parse; a dependency the layout later moves simply has none.
-    let spans = lookup
-        .map(|_| dep_spans(parsed.as_table()))
-        .unwrap_or_default();
+    let spans = lookup.map_or_default(|_| dep_spans(parsed.as_table()));
     let rust_version = lookup.and_then(|_| manifest_rust_version(parsed.as_table(), context));
     let mut doc = parsed.into_mut();
     let guard = Guard::of(freeze.as_ref());

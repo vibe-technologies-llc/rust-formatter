@@ -305,7 +305,7 @@ fn proxy(configured: Option<&str>) -> Result<Option<Proxy>, HttpError> {
         Some(url) => Proxy::new(url)
             .map(Some)
             .map_err(|err| HttpError::Transport(format!("proxy {url} is unusable: {err}"))),
-        None => Ok(Proxy::try_from_env().map(Some).unwrap_or_default()),
+        None => Ok(Proxy::try_from_env().map_or_default(Some)),
     }
 }
 

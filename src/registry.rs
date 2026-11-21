@@ -580,7 +580,7 @@ mod tests {
         assert_eq!(parse_entries(mixed).unwrap().len(), 1);
 
         assert!(parse_entries(b"garbage\n").is_err());
-        assert!(parse_entries(b"").unwrap().is_empty());
+        assert_eq!(parse_entries(b"").unwrap(), Vec::<IndexEntry>::new());
     }
 
     #[test]

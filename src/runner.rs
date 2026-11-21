@@ -847,8 +847,7 @@ pub fn run_format_plan(
     warnings.extend(
         lookup
             .as_ref()
-            .map(RegistryLookup::warnings)
-            .unwrap_or_default()
+            .map_or_default(RegistryLookup::warnings)
             .iter()
             .cloned(),
     );
@@ -1017,8 +1016,7 @@ fn preview_one_file(
     let mut warnings: Vec<String> = findings.iter().map(issue_warning).collect();
     warnings.extend(
         lookup
-            .map(RegistryLookup::warnings)
-            .unwrap_or_default()
+            .map_or_default(RegistryLookup::warnings)
             .iter()
             .cloned(),
     );
@@ -1269,9 +1267,7 @@ fn run_one_target(
     // Phase two: the registry barrier. It has to finish before anything is
     // written, because a registry that failed outright must not leave half a
     // tree rewritten with unresolved versions.
-    let context = lookup
-        .map(|_| workspace_context(target, metadata))
-        .unwrap_or_default();
+    let context = lookup.map_or_default(|_| workspace_context(target, metadata));
     let prewarmed = match lookup {
         Some(lookup) => {
             let warmed = prewarm_manifest_versions(&toml_files, options, lookup);
@@ -3623,8 +3619,7 @@ fn workspace_context(target: &TargetKind, metadata: Option<&CargoMetadata>) -> M
 
 fn workspace_context_from_path(path: &Path) -> ManifestContext {
     find_cargo_manifest(path)
-        .map(|manifest| read_workspace_rust_version(&workspace_root(&manifest)))
-        .unwrap_or_default()
+        .map_or_default(|manifest| read_workspace_rust_version(&workspace_root(&manifest)))
 }
 
 fn read_workspace_rust_version(root: &Path) -> ManifestContext {
@@ -4340,8 +4335,7 @@ pub fn format_stdin(
         let context = options
             .stdin_filepath
             .as_deref()
-            .map(workspace_context_from_path)
-            .unwrap_or_default();
+            .map_or_default(workspace_context_from_path);
         let formatted = match &lookup {
             Some(lookup) => format_toml_with_versions(
                 source,
@@ -4376,8 +4370,7 @@ pub fn format_stdin(
             .collect();
         let mut warnings: Vec<String> = lookup
             .as_ref()
-            .map(RegistryLookup::warnings)
-            .unwrap_or_default()
+            .map_or_default(RegistryLookup::warnings)
             .to_vec();
         warnings.extend(version_warnings(&versions, options));
 
@@ -5229,7 +5222,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
                 "fn a() {}\n/nonexistent/b.rs:\n\nfn b() {}\n".to_string()
             )]
         );
-        assert!(unheaded.is_empty());
+        assert_eq!(unheaded, Vec::<(PathBuf, String)>::new());
     }
 
     #[test]
@@ -5316,7 +5309,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
 
         record_clean(&known, &outcome, Some(7), &mut fresh);
 
-        assert!(fresh.is_empty());
+        assert_eq!(fresh, Vec::<Fingerprint>::new());
     }
 
     #[test]

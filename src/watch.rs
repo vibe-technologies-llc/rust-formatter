@@ -22,7 +22,7 @@ use std::{
 
 use notify_debouncer_full::{
     DebouncedEvent, new_debouncer,
-    notify::{self, EventKind, RecursiveMode, event::AccessKind},
+    notify::{self, RecursiveMode},
 };
 
 use crate::{
@@ -499,15 +499,6 @@ fn triggered_by(event: &DebouncedEvent, scopes: &[Scope]) -> Option<PathBuf> {
     if event.need_rescan() {
         return Some(PathBuf::new());
     }
-    // A read or an open changes nothing. notify's inotify backend does not
-    // register for these, but a fsevent or polling backend can synthesise them,
-    // so the arm is written rather than assumed.
-    if matches!(event.kind, EventKind::Access(kind) if kind != AccessKind::Close(
-        notify_debouncer_full::notify::event::AccessMode::Write
-    )) {
-        return None;
-    }
-
     for path in &event.paths {
         for scope in scopes {
             if !path.starts_with(&scope.root) {
@@ -590,7 +581,7 @@ mod tests {
 
     use notify_debouncer_full::notify::{
         Event, EventKind,
-        event::{AccessKind, CreateKind, Flag, ModifyKind, RemoveKind},
+        event::{CreateKind, Flag, ModifyKind, RemoveKind},
     };
     use tempfile::TempDir;
 
@@ -914,16 +905,6 @@ mod tests {
         let rust = detector::absolutize(&dir.path().join("a.rs"));
         write(&rust, "");
         assert!(triggered_by(&modified(&rust), &scopes).is_none());
-    }
-
-    #[test]
-    fn reading_a_file_does_not_trigger() {
-        let dir = tree();
-        let scopes = only_scope(dir.path());
-        let path = detector::absolutize(&dir.path().join("a.rs"));
-        write(&path, "");
-        let read = event(EventKind::Access(AccessKind::Read), &path);
-        assert!(triggered_by(&read, &scopes).is_none());
     }
 
     /// The backend gave up on saying what changed, so the only honest answer is

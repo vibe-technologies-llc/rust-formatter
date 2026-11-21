@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn a_stray_on_is_ignored() {
-        assert!(regions("a = 1\n# fmt: on\nb = 2\n").is_empty());
+        assert_eq!(regions("a = 1\n# fmt: on\nb = 2\n"), Vec::<&str>::new());
     }
 
     #[test]
@@ -451,14 +451,20 @@ mod tests {
 
     #[test]
     fn prose_after_the_marker_is_not_a_marker() {
-        assert!(regions("# fmt: off please\na = 1\n").is_empty());
-        assert!(regions("## fmt: off\na = 1\n").is_empty());
+        assert_eq!(regions("# fmt: off please\na = 1\n"), Vec::<&str>::new());
+        assert_eq!(regions("## fmt: off\na = 1\n"), Vec::<&str>::new());
     }
 
     #[test]
     fn a_marker_inside_a_string_is_text() {
-        assert!(regions("a = \"\"\"\n# fmt: off\n\"\"\"\nb = 2\n").is_empty());
-        assert!(regions("a = '''\n# fmt: off\n'''\nb = 2\n").is_empty());
+        assert_eq!(
+            regions("a = \"\"\"\n# fmt: off\n\"\"\"\nb = 2\n"),
+            Vec::<&str>::new()
+        );
+        assert_eq!(
+            regions("a = '''\n# fmt: off\n'''\nb = 2\n"),
+            Vec::<&str>::new()
+        );
     }
 
     #[test]
@@ -477,7 +483,7 @@ mod tests {
     #[test]
     fn a_long_comment_is_never_a_marker() {
         let text = format!("# fmt: off{}\na = 1\n", "!".repeat(MAX_MARKER));
-        assert!(regions(&text).is_empty());
+        assert_eq!(regions(&text), Vec::<&str>::new());
     }
 
     /// `docs/toml-style.md` says spacing inside a marker is free up to 40
@@ -494,6 +500,6 @@ mod tests {
 
         assert!(marker("taplo: fmt-off").is_some());
         assert_eq!(regions(&padded(MAX_MARKER - 14)).len(), 1);
-        assert!(regions(&padded(MAX_MARKER - 13)).is_empty());
+        assert_eq!(regions(&padded(MAX_MARKER - 13)), Vec::<&str>::new());
     }
 }

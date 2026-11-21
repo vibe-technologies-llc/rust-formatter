@@ -2195,7 +2195,7 @@ mod tests {
 
         let subcommand = parse(&["completions", "bash"]);
         assert!(subcommand.command.is_some());
-        assert!(subcommand.paths.is_empty());
+        assert_eq!(subcommand.paths, Vec::<PathBuf>::new());
 
         for spelling in ["./completions", "completions/"] {
             let path = parse(&[spelling]);

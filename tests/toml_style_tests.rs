@@ -184,7 +184,7 @@ fn targeting_toml_1_0_reports_a_spelling_it_cannot_fix() {
         notes.contains("style.toml:2:8: a time without seconds is TOML 1.1 only"),
         "{notes}"
     );
-    assert!(styled_notes(source, &[]).is_empty());
+    assert_eq!(styled_notes(source, &[]), "");
 }
 
 #[test]

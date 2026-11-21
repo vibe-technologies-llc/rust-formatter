@@ -647,7 +647,7 @@ fn a_same_host_redirect_is_followed() {
             "Location",
             &format!(
                 "{}/se/rd/serde-moved",
-                seen.get().map(String::as_str).unwrap_or_default()
+                seen.get().map_or_default(String::as_str)
             ),
         ),
         "serde-moved" => Reply::ok(index_jsonl(&[("1.2.3", false)])),
@@ -797,7 +797,7 @@ fn cargo_net_offline_is_honoured_without_the_flag() {
         .code(0);
 
     assert!(fixture.text().contains("serde = \"1\""));
-    assert!(fixture.registry.hits().is_empty());
+    assert_eq!(fixture.registry.hits(), Vec::<String>::new());
 }
 
 #[test]
@@ -826,7 +826,7 @@ fn a_parent_directory_cargo_config_reaches_a_run_inside_a_member() {
 
     let text = fs::read_to_string(member.join("Cargo.toml")).unwrap();
     assert!(text.contains("serde = \"1\""), "{text}");
-    assert!(fixture.registry.hits().is_empty());
+    assert_eq!(fixture.registry.hits(), Vec::<String>::new());
 }
 
 #[test]
@@ -992,7 +992,7 @@ fn full_versions_leaves_a_plain_toml_buffer_alone() {
         .success()
         .stdout("[dependencies]\nserde = \"1\"\n");
 
-    assert!(fixture.registry.hits().is_empty());
+    assert_eq!(fixture.registry.hits(), Vec::<String>::new());
 }
 
 #[test]

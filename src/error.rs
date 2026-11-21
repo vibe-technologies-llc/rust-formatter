@@ -93,7 +93,7 @@ pub enum Error {
     #[error(
         "The filesystem watcher could not be started{}.\n\
          Details: {details}{}",
-        .path.as_ref().map(|path| format!(" for {}", path.display())).unwrap_or_default(),
+        .path.as_ref().map_or_default(|path| format!(" for {}", path.display())),
         if *.limit { WATCH_LIMIT } else { "" }
     )]
     Watch {
