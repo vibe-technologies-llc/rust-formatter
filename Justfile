@@ -1,7 +1,7 @@
 # Local verification recipes for rust-formatter. `just all` is what has to pass
 # before a change goes in.
 #
-# `just` is the only extra tool `all` needs. `coverage` needs cargo-llvm-cov and
+# `all` needs `just` and cargo-nextest. `coverage` needs cargo-llvm-cov and
 # `fuzz` needs cargo-fuzz and a nightly toolchain; both say so if they are
 # missing.
 
@@ -20,20 +20,21 @@ all: test clippy build check-self
 
 # The default suite: unit, integration, property, golden and doc tests.
 test:
-    cargo test --locked
+    cargo nextest run --locked
+    cargo test --locked --doc
 
 # The two registry sweeps, which read ~/.cargo/registry and so are #[ignore]d.
 test-ignored:
-    cargo test --locked --release -- --ignored --nocapture
+    cargo nextest run --locked --release --run-ignored only --no-capture
 
 # A deeper proptest budget than the 256 cases `test` runs.
 test-deep cases="20000":
-    RUST_FORMATTER_PROPTEST_CASES={{cases}} cargo test --locked --release --test property_tests
+    RUST_FORMATTER_PROPTEST_CASES={{cases}} cargo nextest run --locked --release --test property_tests
 
 # Regenerate every golden under tests/expected/. Read the diff before committing
 # it -- that diff is the whole point of the files.
 update-expect:
-    UPDATE_EXPECT=1 cargo test --locked
+    UPDATE_EXPECT=1 cargo nextest run --locked
 
 # Prove the Rust suites skip rather than fail without a toolchain.
 test-no-toolchain:
@@ -68,11 +69,11 @@ fuzz seconds="300":
     SECONDS_TO_RUN={{seconds}} sh scripts/fuzz.sh
 
 coverage:
-    cargo llvm-cov --all-features --locked --html
+    cargo llvm-cov nextest --all-features --locked --html
     @echo "report: target/llvm-cov/html/index.html"
 
 coverage-summary:
-    cargo llvm-cov --all-features --locked --summary-only
+    cargo llvm-cov nextest --all-features --locked --summary-only
 
 bench:
     cargo bench --locked

@@ -1019,12 +1019,16 @@ such as `"4.6.6"` -- see [Dependency versions](#dependency-versions).
 These have to pass before a change goes in:
 
 ```bash
-cargo test --locked
+cargo nextest run --locked
+cargo test --locked --doc
 cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo run --locked -- --check .     # the formatter checks its own tree
 ```
 
-The `Justfile` wraps them: `just all` runs the three plus a release build.
+The tests run on [cargo-nextest](https://nexte.st), one process per test, so a
+test cannot lean on state another test left behind. nextest does not run
+doctests, so `cargo test --doc` runs them. The `Justfile` wraps all of this:
+`just all` runs the checks plus a release build.
 `just update-expect` regenerates the goldens under `tests/expected/` -- review
 that diff before committing it. `just test-ignored` runs the registry sweeps that
 read `~/.cargo/registry`, `just corpus` a differential sweep against a git ref,
