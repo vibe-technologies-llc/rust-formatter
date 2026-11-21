@@ -16,6 +16,7 @@ pub fn comments(src: &str) -> Vec<String> {
         match bytes[i] {
             b'#' => {
                 let start = i + 1;
+
                 while i < bytes.len() && bytes[i] != b'\n' {
                     i += 1;
                 }
@@ -54,6 +55,7 @@ pub fn skip_string(bytes: &[u8], open: usize) -> usize {
 
     if multiline {
         let mut i = open + 3;
+
         while i < bytes.len() {
             if escapes && bytes[i] == b'\\' {
                 i += 2;
@@ -62,6 +64,7 @@ pub fn skip_string(bytes: &[u8], open: usize) -> usize {
             if bytes[i..].starts_with(&[quote, quote, quote]) {
                 // TOML allows up to two extra quotes to abut the delimiter.
                 let mut end = i + 3;
+
                 while end < bytes.len() && bytes[end] == quote && end - i < 5 {
                     end += 1;
                 }
@@ -73,6 +76,7 @@ pub fn skip_string(bytes: &[u8], open: usize) -> usize {
     }
 
     let mut i = open + 1;
+
     while i < bytes.len() {
         if escapes && bytes[i] == b'\\' {
             i += 2;

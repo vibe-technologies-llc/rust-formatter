@@ -11,7 +11,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// The machine-readable projection of an error: what `--message-format json`
 /// emits instead of a rendered sentence. `code` is a stable discriminant, so a
 /// consumer can branch on the kind without matching on prose.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic<'a> {
     pub code: &'static str,
     pub path: Option<&'a Path>,
@@ -208,7 +208,7 @@ pub enum Error {
     Usage(#[from] Usage),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum Usage {
     #[error(
@@ -330,6 +330,7 @@ impl Error {
                 message,
             }
         }
+
         let plain = |code| plain(code, self.to_string());
         let at = |code, path| at(code, path, self.to_string());
 
@@ -426,6 +427,7 @@ mod tests {
     fn a_toml_failure_carries_its_position_as_data() {
         let error = parse_failure("a = 1\nb = = 2\n");
         let diagnostic = error.diagnostic();
+
         assert_eq!(diagnostic.code, "toml-parse");
         assert_eq!(diagnostic.path, Some(Path::new("/tmp/a.toml")));
         assert_eq!(diagnostic.line, Some(2));
@@ -438,6 +440,7 @@ mod tests {
     #[test]
     fn a_toml_failure_still_renders_for_a_reader() {
         let rendered = parse_failure("a = 1\nb = = 2\n").to_string();
+
         assert!(rendered.starts_with("Failed to parse TOML file /tmp/a.toml:"));
         assert!(rendered.contains("line 2, column 5"), "{rendered}");
     }
@@ -452,12 +455,15 @@ mod tests {
     #[test]
     fn a_panic_payload_is_kept_whatever_shape_it_arrives_in() {
         let from_str = Error::thread_panicked(&"literal boom");
+
         assert!(from_str.to_string().ends_with("literal boom"));
 
         let from_string = Error::thread_panicked(&"formatted boom".to_string());
+
         assert!(from_string.to_string().ends_with("formatted boom"));
 
         let opaque = Error::thread_panicked(&7_u8);
+
         assert!(opaque.to_string().ends_with("no message"));
         assert_eq!(opaque.diagnostic().code, "thread-panicked");
     }
@@ -471,6 +477,7 @@ mod tests {
             message: "error: expected expression".to_string(),
         };
         let diagnostic = error.diagnostic();
+
         assert_eq!(diagnostic.code, "rustfmt-diagnostic");
         assert_eq!(diagnostic.path, Some(Path::new("/tmp/a.rs")));
         assert_eq!(diagnostic.line, Some(12));
@@ -486,6 +493,7 @@ mod tests {
             details: "no such manifest".to_string(),
         };
         let diagnostic = error.diagnostic();
+
         assert_eq!(diagnostic.code, "tool-failed");
         assert_eq!(diagnostic.path, None);
         assert!(diagnostic.message.contains("exited with code 101"));

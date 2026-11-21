@@ -156,12 +156,15 @@ struct Sweep {
 
 pub fn run(options: &Options) -> Result<ExitCode> {
     let corpus = options.corpus().ok_or(Error::HomeUnknown)?;
+
     if !corpus.is_dir() {
         return Err(Error::CorpusMissing { path: corpus });
     }
 
     let base = options.work_base().ok_or(Error::HomeUnknown)?;
+
     fs::create_dir_all(&base).map_err(Error::io(&base))?;
+
     let work = tempfile::Builder::new()
         .prefix(WORK_PREFIX)
         .tempdir_in(&base)
@@ -170,6 +173,7 @@ pub fn run(options: &Options) -> Result<ExitCode> {
     let worktree = work.join("ref");
 
     let result = sweep(options, &corpus, &work, &worktree);
+
     remove_worktree(&worktree);
 
     if options.keep || !matches!(result, Ok(Verdict::Passed)) {
@@ -197,10 +201,12 @@ fn sweep(options: &Options, corpus: &Path, work: &Path, worktree: &Path) -> Resu
             .arg(&options.reference)
             .stdout(Stdio::null()),
     )?;
+
     let reference_binary =
         cargo::release_binary(&worktree.join("Cargo.toml"), Some(&work.join("ref-target")))?;
 
     say("building working-tree binary");
+
     let binary = cargo::release_binary(&cargo::repo_root().join("Cargo.toml"), None)?;
 
     let mut sweep = Sweep {
@@ -210,7 +216,9 @@ fn sweep(options: &Options, corpus: &Path, work: &Path, worktree: &Path) -> Resu
         binary,
         failed: false,
     };
+
     let sampled = sweep.toml_leg(options, corpus)?;
+
     sweep.rust_leg(options, corpus)?;
 
     if sweep.failed {
@@ -232,11 +240,13 @@ impl Sweep {
             options.toml_files,
             corpus.display()
         ));
+
         let all = tree::files_with_suffix(corpus, ".toml", usize::MAX)?;
         let sample = tree::stride(&all, options.toml_files);
 
         let toml = self.work.join("toml");
         let pristine = toml.join("pristine");
+
         fs::create_dir_all(&pristine).map_err(Error::io(&pristine))?;
         for (index, file) in sample.iter().enumerate() {
             tree::copy_file(file, &pristine.join(format!("{:06}.toml", index + 1)))?;
@@ -273,6 +283,7 @@ impl Sweep {
             options.crates,
             corpus.display()
         ));
+
         let all = tree::directories_at_depth(corpus, CRATE_DEPTH)?;
         let crates: Vec<PathBuf> = tree::stride(&all, options.crates)
             .into_iter()
@@ -281,6 +292,7 @@ impl Sweep {
 
         let rs = self.work.join("rs");
         let pristine = rs.join("pristine");
+
         for (index, dir) in crates.iter().enumerate() {
             tree::copy_tree(
                 dir,
@@ -308,13 +320,18 @@ impl Sweep {
 
     fn project_leg(&mut self, pristine: &Path) -> Result<()> {
         say("rust/default (per-crate cargo projects)");
+
         let rsp = self.work.join("rsp");
+
         refresh_copies(pristine, &rsp)?;
+
         let [a, b, c] = COPIES.map(|copy| rsp.join(copy));
 
         format_each(&self.reference_binary, &a)?;
         format_each(&self.binary, &b)?;
+
         let differences = tree::differences(&a, &b)?;
+
         if differences.is_empty() {
             note(format!(
                 "rust/project: output identical to {}",
@@ -329,10 +346,13 @@ impl Sweep {
         }
 
         let first_pass = rsp.join(FIRST_PASS);
+
         format_each(&self.binary, &c)?;
         tree::replace_with_copy(&c, &first_pass)?;
         format_each(&self.binary, &c)?;
+
         let unstable = tree::differences(&first_pass, &c)?;
+
         if unstable.is_empty() {
             note("rust/project: stable after the second pass");
         } else {
@@ -344,14 +364,19 @@ impl Sweep {
 
     fn probe(&self) -> Result<()> {
         say("checking the work tree is formattable");
+
         let probe = self.work.join("probe");
+
         fs::create_dir_all(&probe).map_err(Error::io(&probe))?;
+
         let file = probe.join(PROBE_NAME);
+
         fs::write(&file, PROBE_SOURCE).map_err(Error::io(&file))?;
 
         format_quietly(&self.binary, &[], &probe)?;
 
         let formatted = fs::read_to_string(&file).map_err(Error::io(&file))?;
+
         if !formatted.contains(PROBE_FORMATTED) {
             return Err(Error::NotLoose {
                 work: self.work.clone(),
@@ -378,6 +403,7 @@ impl Sweep {
             }
 
             let differences = tree::differences(&a, &b)?;
+
             if differences.is_empty() {
                 note(format!("{label}: output identical to {}", self.reference));
             } else {
@@ -392,10 +418,12 @@ impl Sweep {
                 note(format!("{label}: stderr identical to {}", self.reference));
             } else {
                 self.bad(format!("{label}: stderr differs from {}", self.reference));
+
                 let diff = TextDiff::from_lines(&reference.stderr, &current.stderr)
                     .unified_diff()
                     .header("ref", "new")
                     .to_string();
+
                 show(&diff.lines().collect::<Vec<_>>(), SHOWN_DIFFERENCES);
             }
         } else {
@@ -417,6 +445,7 @@ impl Sweep {
         format_quietly(&self.binary, &style.flags, tree)?;
 
         let unstable = tree::differences(&first_pass, tree)?;
+
         if unstable.is_empty() {
             note(format!("{label}: stable after the second pass"));
         } else {
@@ -432,6 +461,7 @@ impl Sweep {
                 .stderr(Stdio::null()),
         )?;
         let listed = String::from_utf8_lossy(&listed.stdout);
+
         if listed.trim().is_empty() {
             note(format!("{label}: --check is clean"));
         } else {
@@ -478,6 +508,7 @@ fn format(binary: &Path, flags: &[String], tree: &Path) -> Result<Run> {
     let stderr =
         String::from_utf8_lossy(&output.stderr).replace(&*tree.to_string_lossy(), PATH_PLACEHOLDER);
     let mut lines: Vec<&str> = stderr.lines().collect();
+
     lines.sort_unstable();
     Ok(Run {
         code: output.status.code(),

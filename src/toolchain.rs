@@ -22,7 +22,7 @@ pub const AUTO: &str = "auto";
 const PREFERRED: &str = "nightly";
 
 /// Where a resolved rustfmt came from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Via {
     /// `$RUSTFMT`.
     Environment,
@@ -72,6 +72,7 @@ pub fn resolution_key(requested: &str, env: crate::cargo_config::EnvLookup<'_>) 
     if env("RUSTFMT").is_some_and(|value| !value.is_empty()) {
         return None;
     }
+
     let read = |key: &str| env(key).map_or_default(|value| value.to_string_lossy().into_owned());
     Some(format!(
         "1\x1f{requested}\x1f{}\x1f{}\x1f{}",
@@ -81,7 +82,7 @@ pub fn resolution_key(requested: &str, env: crate::cargo_config::EnvLookup<'_>) 
     ))
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Resolved {
     pub rustfmt: PathBuf,
     /// What the run asked for, which is `AUTO` unless something named a
@@ -94,7 +95,7 @@ pub struct Resolved {
 }
 
 /// What to do when a named toolchain has no rustfmt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum InstallPolicy {
     /// Print the install command, as every release before this one did.
     #[default]
@@ -132,6 +133,7 @@ pub fn resolve(requested: &str, install: InstallPolicy) -> Result<Resolved> {
 /// nothing for a machine that already had one.
 fn resolve_auto() -> Result<Resolved> {
     let requested = AUTO.to_string();
+
     if let Some(rustfmt) = from_environment() {
         return Ok(Resolved {
             rustfmt,
@@ -227,10 +229,13 @@ fn resolve_named(toolchain: &str, install: InstallPolicy) -> Result<Resolved> {
 /// given; a bare name is looked up the way a shell would.
 fn from_environment() -> Option<PathBuf> {
     let named = std::env::var_os("RUSTFMT")?;
+
     if named.is_empty() {
         return None;
     }
+
     let path = PathBuf::from(&named);
+
     if path.components().count() > 1 {
         return path.is_file().then_some(path);
     }
@@ -251,10 +256,12 @@ enum Rustup {
 
 fn rustup_which(bin: &str, toolchain: Option<&str>) -> Rustup {
     let mut cmd = Command::new("rustup");
+
     cmd.args(["which", bin]);
     if let Some(toolchain) = toolchain {
         cmd.args(["--toolchain", toolchain]);
     }
+
     let described = describe(bin, toolchain);
     let output = match cmd.stdin(Stdio::null()).output() {
         Ok(output) => output,
@@ -270,6 +277,7 @@ fn rustup_which(bin: &str, toolchain: Option<&str>) -> Rustup {
     if !output.status.success() {
         let details = String::from_utf8_lossy(&output.stderr);
         let details = details.trim();
+
         return Rustup::Refused {
             details: if details.is_empty() {
                 "Component not found".to_string()
@@ -281,6 +289,7 @@ fn rustup_which(bin: &str, toolchain: Option<&str>) -> Rustup {
 
     let path = String::from_utf8_lossy(&output.stdout);
     let path = path.trim();
+
     if path.is_empty() {
         return Rustup::Failed(Error::ToolFailed {
             command: described,
@@ -333,6 +342,7 @@ fn install_and_retry(
 ) -> Result<Option<PathBuf>> {
     let args = install_command(toolchain);
     let rendered = format!("rustup {}", args.join(" "));
+
     match install {
         InstallPolicy::Never => return Ok(None),
         InstallPolicy::Ask => {
@@ -342,6 +352,7 @@ fn install_and_retry(
         }
         InstallPolicy::Always => {
             let mut err = io::stderr();
+
             let _ = writeln!(err, "running: {rendered}");
         }
     }
@@ -354,6 +365,7 @@ fn install_and_retry(
             command: rendered.clone(),
             source: err,
         })?;
+
     if !status.success() {
         return Err(Error::ToolFailed {
             command: rendered,
@@ -370,6 +382,7 @@ fn install_and_retry(
 
 fn confirm(toolchain: &str, details: &str, rendered: &str) -> bool {
     let mut err = io::stderr();
+
     let _ = writeln!(
         err,
         "rustfmt is not available for toolchain '{toolchain}'.\nDetails: {details}"
@@ -378,6 +391,7 @@ fn confirm(toolchain: &str, details: &str, rendered: &str) -> bool {
     let _ = err.flush();
 
     let mut answer = String::new();
+
     if io::stdin().read_line(&mut answer).is_err() {
         return false;
     }
@@ -389,13 +403,16 @@ fn confirm(toolchain: &str, details: &str, rendered: &str) -> bool {
 /// to report, not a reason to refuse a TOML-only run.
 pub fn cargo_for_metadata(rustfmt: Option<&Path>, toolchain: &str) -> Option<PathBuf> {
     let name = if cfg!(windows) { "cargo.exe" } else { "cargo" };
+
     if let Some(rustfmt) = rustfmt {
         let sibling = rustfmt.with_file_name(name);
         if sibling.is_file() {
             return Some(sibling);
         }
     }
+
     let named = (!toolchain.eq_ignore_ascii_case(AUTO)).then_some(toolchain);
+
     if let Rustup::Found(path) = rustup_which("cargo", named) {
         return Some(path);
     }
@@ -423,9 +440,11 @@ mod tests {
     #[test]
     fn the_install_command_adds_a_component_to_a_toolchain_that_exists() {
         let installed = install_command("stable");
+
         if toolchain_is_installed("stable") {
             assert_eq!(installed.first().map(String::as_str), Some("component"));
         }
+
         assert_eq!(
             install_command("nightly-1970-01-01")
                 .first()
@@ -438,9 +457,13 @@ mod tests {
     fn cargo_for_metadata_uses_a_sibling_binary() {
         let dir = tempfile::tempdir().unwrap();
         let name = if cfg!(windows) { "cargo.exe" } else { "cargo" };
+
         let cargo = dir.path().join(name);
+
         std::fs::write(&cargo, "").unwrap();
+
         let rustfmt = dir.path().join("rustfmt");
+
         assert_eq!(cargo_for_metadata(Some(&rustfmt), AUTO).unwrap(), cargo);
     }
 

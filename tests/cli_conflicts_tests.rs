@@ -9,6 +9,7 @@ use toolchain::{needs_nightly, nightly_available};
 
 fn formatter() -> Command {
     let mut cmd = Command::cargo_bin("rust-formatter").unwrap();
+
     cmd.env("RUST_FORMATTER_CACHE_DIR", cache_dir());
     cmd
 }
@@ -27,6 +28,7 @@ fn cache_dir() -> &'static Path {
 fn rejected(args: &[&str], fragment: &str) {
     let assert = formatter().args(args).assert().failure().code(2);
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+
     assert!(
         stderr.contains(fragment),
         "{args:?}\nexpected {fragment:?} in:\n{stderr}"
@@ -101,6 +103,7 @@ fn a_clap_conflict_exits_two() {
 fn emit_files_writes_the_files() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("a.toml");
+
     fs::write(&file, "foo={path=\"x\"}\n").unwrap();
 
     formatter()
@@ -116,6 +119,7 @@ fn emit_files_writes_the_files() {
 fn emit_stdout_prints_the_file_and_leaves_it_alone() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("a.toml");
+
     fs::write(&file, "foo={path=\"x\"}\n").unwrap();
 
     formatter()
@@ -134,6 +138,7 @@ fn emit_stdout_prints_the_file_and_leaves_it_alone() {
 fn color_auto_is_plain_when_the_output_is_captured() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("a.toml");
+
     fs::write(&file, "foo={path=\"x\"}\n").unwrap();
 
     let assert = formatter()
@@ -148,12 +153,14 @@ fn color_auto_is_plain_when_the_output_is_captured() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+
     assert!(!text.contains('\u{1b}'), "auto painted a pipe:\n{text}");
 }
 
 #[test]
 fn color_always_paints_and_never_does_not() {
     let temp = tempdir().unwrap();
+
     fs::write(temp.path().join("a.toml"), "foo={path=\"x\"}\n").unwrap();
 
     for (choice, painted) in [("always", true), ("never", false)] {
@@ -169,6 +176,7 @@ fn color_always_paints_and_never_does_not() {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+
         assert_eq!(
             text.contains('\u{1b}'),
             painted,
@@ -182,7 +190,9 @@ fn color_always_paints_and_never_does_not() {
 #[test]
 fn a_pinned_toolchain_is_used_by_name() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     fs::create_dir_all(temp.path().join("src")).unwrap();
     fs::write(
         temp.path().join("Cargo.toml"),
@@ -206,6 +216,7 @@ fn a_pinned_toolchain_is_used_by_name() {
 #[test]
 fn an_unknown_toolchain_names_itself_rather_than_falling_back() {
     let temp = tempdir().unwrap();
+
     fs::write(temp.path().join("a.rs"), "fn  f( ){}\n").unwrap();
 
     let assert = formatter()
@@ -215,6 +226,7 @@ fn an_unknown_toolchain_names_itself_rather_than_falling_back() {
         .failure()
         .code(2);
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+
     assert!(
         stderr.contains("rust-formatter-no-such-toolchain"),
         "{stderr}"

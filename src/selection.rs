@@ -21,7 +21,7 @@ use crate::{
 pub const DEFAULT_TOML_SKIPS: [&str; 4] =
     ["Cargo.lock", "clippy.toml", "rustfmt.toml", ".rustfmt.toml"];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Languages {
     #[default]
@@ -40,14 +40,14 @@ impl Languages {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
     Rust,
     Toml,
 }
 
 /// Where the list of files to format comes from.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum FileSource {
     #[default]
     Paths,
@@ -63,7 +63,7 @@ impl FileSource {
 }
 
 /// The uncompiled, cloneable half of file selection; lives in `FormatterOptions`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SelectionOptions {
     pub include: Vec<String>,
     pub exclude: Vec<String>,
@@ -107,7 +107,7 @@ impl SelectionOptions {
 }
 
 /// Compiled selection rules. Built once per run and shared by every walk.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Selector {
     options: SelectionOptions,
     threads: usize,
@@ -169,17 +169,20 @@ impl Selector {
     /// 'tests/**'` means "under the path you named".
     pub fn filter_for(&self, root: &Path) -> Result<Filter> {
         let mut overrides = OverrideBuilder::new(root);
+
         for pattern in &self.options.include {
             add_override(&mut overrides, pattern)?;
         }
         for pattern in &self.options.exclude {
             add_override(&mut overrides, &format!("!{pattern}"))?;
         }
+
         let overrides = overrides
             .build()
             .map_err(|err| Error::InvalidGlob(err.to_string()))?;
 
         let mut skips = GitignoreBuilder::new(root);
+
         if self.options.default_toml_skips {
             for pattern in DEFAULT_TOML_SKIPS {
                 add_skip(&mut skips, pattern)?;
@@ -188,6 +191,7 @@ impl Selector {
         for pattern in &self.options.toml_skips {
             add_skip(&mut skips, pattern)?;
         }
+
         let skips = skips
             .build()
             .map_err(|err| Error::InvalidGlob(err.to_string()))?;
@@ -215,7 +219,7 @@ fn add_skip(builder: &mut GitignoreBuilder, pattern: &str) -> Result<()> {
 }
 
 /// Selection rules compiled against one root.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Filter {
     overrides: Override,
     skips: Gitignore,
@@ -278,7 +282,9 @@ pub fn resolve(
 
     if let FileSource::Paths = source {
         let mut errors = Vec::new();
+
         let targets = resolve_paths(paths, all, selector, &mut errors)?;
+
         return Ok(Plan {
             targets,
             errors,
@@ -290,9 +296,11 @@ pub fn resolve(
     let cwd = std::env::current_dir().map_err(|err| Error::io(".", err))?;
     let mut warnings = Vec::new();
     let mut git_plan = None;
+
     let (listed, root) = match source {
         FileSource::FilesFrom(sources) => {
             let mut listed = Vec::new();
+
             for entry in sources {
                 listed.extend(read_file_list(entry, &mut warnings)?);
             }
@@ -300,6 +308,7 @@ pub fn resolve(
         }
         FileSource::Git(selection) => {
             let changed = git::changed_files(selection, &cwd)?;
+
             warnings.extend(changed.warnings.iter().cloned());
             warnings.extend(changed.drifted.iter().map(|path| {
                 format!(
@@ -312,6 +321,7 @@ pub fn resolve(
         }
         FileSource::Paths => unreachable!("handled above"),
     };
+
     warnings.sort_unstable();
     warnings.dedup();
 
@@ -327,6 +337,7 @@ pub fn resolve(
         }
         if path.is_dir() {
             let walk = detector::collect(&path, selector, selector.languages(), &[], true)?;
+
             rust_files.extend(walk.rust_files);
             toml_files.extend(walk.toml_files);
             errors.extend(walk.errors);
@@ -377,6 +388,7 @@ fn resolve_paths(
     // times.
     let mut filters: HashMap<PathBuf, Filter> = HashMap::default();
     let mut resolved: Vec<TargetKind> = Vec::with_capacity(paths.len());
+
     for path in paths {
         let target = match detector::detect_target_with(path, selector, errors) {
             Ok(target) => target,
@@ -385,6 +397,7 @@ fn resolve_paths(
             Err(Error::NoFormattableFilesFound(_)) if narrows => continue,
             Err(err) => return Err(err),
         };
+
         if let TargetKind::SingleFile(file) = &target {
             let root = file.parent().unwrap_or(Path::new("."));
             let filter = match filters.get(root) {
@@ -418,9 +431,11 @@ pub(crate) fn collapse_targets(targets: Vec<TargetKind>, all: bool) -> Vec<Targe
             target,
         })
         .collect();
+
     resolved.sort_by(|left, right| (&left.key, &left.scope).cmp(&(&right.key, &right.scope)));
 
     let mut kept: Vec<Keyed> = Vec::with_capacity(resolved.len());
+
     for candidate in resolved {
         if kept.iter().any(|seen| subsumes(seen, &candidate, all)) {
             continue;
@@ -488,10 +503,13 @@ fn canonical_paths(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
 pub fn read_file_list(source: &Path, warnings: &mut Vec<String>) -> Result<Vec<PathBuf>> {
     let bytes = if source == Path::new("-") {
         let mut stdin = std::io::stdin();
+
         if stdin.is_terminal() {
             return Err(Error::StdinIsATerminal);
         }
+
         let mut bytes = Vec::new();
+
         stdin
             .read_to_end(&mut bytes)
             .map_err(|err| Error::io(source, err))?;
@@ -505,6 +523,7 @@ pub fn read_file_list(source: &Path, warnings: &mut Vec<String>) -> Result<Vec<P
     let separator = if bytes.contains(&0) { 0 } else { b'\n' };
 
     let mut listed = Vec::new();
+
     for entry in bytes
         .split(|byte| *byte == separator)
         .map(strip_carriage_return)
@@ -517,6 +536,7 @@ pub fn read_file_list(source: &Path, warnings: &mut Vec<String>) -> Result<Vec<P
             ));
             continue;
         };
+
         if !path.exists() {
             continue;
         }
@@ -552,6 +572,7 @@ mod tests {
         })
         .filter_for(Path::new("/ws"))
         .unwrap();
+
         assert!(
             filter
                 .classify(Path::new("/ws/crates/a/build.rs"))
@@ -571,6 +592,7 @@ mod tests {
         })
         .filter_for(Path::new("/ws"))
         .unwrap();
+
         assert!(filter.classify(Path::new("/ws/tests/a.rs")).is_none());
         assert_eq!(
             filter.classify(Path::new("/ws/src/tests/a.rs")),
@@ -586,6 +608,7 @@ mod tests {
         })
         .filter_for(Path::new("/ws"))
         .unwrap();
+
         assert_eq!(filter.classify(Path::new("/ws/src/a.rs")), Some(Kind::Rust));
         assert!(filter.classify(Path::new("/ws/other/a.rs")).is_none());
         // An include that pruned directories would stop the walk before it ever
@@ -602,6 +625,7 @@ mod tests {
         })
         .filter_for(Path::new("/ws"))
         .unwrap();
+
         assert!(filter.classify(Path::new("/ws/a.rs")).is_none());
     }
 
@@ -613,6 +637,7 @@ mod tests {
         })
         .filter_for(Path::new("/ws"))
         .unwrap();
+
         assert_eq!(rust.classify(Path::new("/ws/a.rs")), Some(Kind::Rust));
         assert!(rust.classify(Path::new("/ws/a.toml")).is_none());
 
@@ -622,6 +647,7 @@ mod tests {
         })
         .filter_for(Path::new("/ws"))
         .unwrap();
+
         assert!(toml.classify(Path::new("/ws/a.rs")).is_none());
         assert_eq!(toml.classify(Path::new("/ws/a.toml")), Some(Kind::Toml));
     }
@@ -631,12 +657,14 @@ mod tests {
         let default = selector(&SelectionOptions::default())
             .filter_for(Path::new("/ws"))
             .unwrap();
+
         for name in DEFAULT_TOML_SKIPS {
             assert!(
                 default.classify(&Path::new("/ws").join(name)).is_none(),
                 "expected skip for {name}"
             );
         }
+
         assert_eq!(
             default.classify(Path::new("/ws/deny.toml")),
             Some(Kind::Toml)
@@ -648,6 +676,7 @@ mod tests {
         })
         .filter_for(Path::new("/ws"))
         .unwrap();
+
         assert_eq!(
             cleared.classify(Path::new("/ws/clippy.toml")),
             Some(Kind::Toml)
@@ -662,6 +691,7 @@ mod tests {
         })
         .filter_for(Path::new("/ws"))
         .unwrap();
+
         assert!(filter.classify(Path::new("/ws/fixtures/a.toml")).is_none());
         assert_eq!(
             filter.classify(Path::new("/ws/clippy.toml")),
@@ -676,6 +706,7 @@ mod tests {
             ..Default::default()
         })
         .unwrap_err();
+
         assert!(matches!(err, Error::InvalidGlob(_)), "{err}");
     }
 
@@ -684,19 +715,24 @@ mod tests {
         let temp = tempdir().unwrap();
         let a = temp.path().join("a.rs");
         let b = temp.path().join("b.rs");
+
         fs::write(&a, "fn a() {}\n").unwrap();
         fs::write(&b, "fn b() {}\n").unwrap();
 
         let newline = temp.path().join("list.txt");
+
         fs::write(&newline, format!("{}\n\n{}\n", a.display(), b.display())).unwrap();
+
         assert_eq!(read_file_list(&newline, &mut Vec::new()).unwrap().len(), 2);
 
         let nul = temp.path().join("list.nul");
+
         fs::write(
             &nul,
             format!("{}\0{}\0", a.display(), b.display()).as_bytes(),
         )
         .unwrap();
+
         assert_eq!(read_file_list(&nul, &mut Vec::new()).unwrap().len(), 2);
     }
 
@@ -704,11 +740,13 @@ mod tests {
     fn a_file_list_entry_that_vanished_is_skipped() {
         let temp = tempdir().unwrap();
         let list = temp.path().join("list.txt");
+
         fs::write(
             &list,
             format!("{}\n", temp.path().join("gone.rs").display()),
         )
         .unwrap();
+
         assert_eq!(
             read_file_list(&list, &mut Vec::new()).unwrap(),
             Vec::<PathBuf>::new()

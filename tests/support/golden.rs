@@ -30,6 +30,7 @@ pub fn check(path: &Path, actual: &[u8]) -> Option<String> {
             path.display()
         ));
     };
+
     if expected == actual {
         return None;
     }
@@ -85,6 +86,7 @@ pub fn orphans(root: &Path, produced: &BTreeSet<PathBuf>) -> Vec<PathBuf> {
 
 pub fn assert_no_orphans(root: &Path, produced: &BTreeSet<PathBuf>) {
     let orphans = orphans(root, produced);
+
     assert!(
         orphans.is_empty(),
         "{} golden files under {} match no fixture: {:?}",

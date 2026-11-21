@@ -34,6 +34,7 @@ fn fixture_files() -> Vec<PathBuf> {
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|extension| extension == "in"))
         .collect();
+
     files.sort();
     files
 }
@@ -96,12 +97,14 @@ fn check_one(
         Err(err) => return fail("output does not parse", err.to_string()),
     };
     let (before, after) = (profile.normalize(before), profile.normalize(&after));
+
     if before != after {
         return fail("value tree changed", format!("{before:?}\n  ->\n{after:?}"));
     }
 
     let expected = profile.spelling_view(spelled);
     let actual = profile.spelling_view(&parse_spellings(&once).expect("output parses"));
+
     if expected != actual {
         return fail(
             "value spelling changed",
@@ -110,6 +113,7 @@ fn check_one(
     }
 
     let twice = format_toml(&once, &profile.style).expect("output parses, so it formats");
+
     if twice != once {
         return fail("not idempotent", first_difference(&once, &twice));
     }
@@ -118,6 +122,7 @@ fn check_one(
     // interleaved dotted keys on its own and strands their comments.
     let expected = profile.comment_view(baseline);
     let actual = profile.comment_view(&once);
+
     if expected != actual {
         return fail(
             "comments changed",
@@ -142,6 +147,7 @@ fn check_one(
 fn first_difference(left: &str, right: &str) -> String {
     let left: Vec<&str> = left.lines().collect();
     let right: Vec<&str> = right.lines().collect();
+
     let at = left
         .iter()
         .zip(&right)
@@ -152,6 +158,7 @@ fn first_difference(left: &str, right: &str) -> String {
 
 fn report(failures: &[Failure]) {
     let mut by_kind: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+
     for failure in failures {
         *by_kind
             .entry((failure.profile.as_str(), failure.kind))
@@ -175,6 +182,7 @@ fn report(failures: &[Failure]) {
     }
 
     let mut written = BTreeSet::new();
+
     for failure in failures {
         match corpus::record_failure(&failure.source, &failure.profile, failure.kind) {
             Ok(path) => {
@@ -207,6 +215,7 @@ fn every_committed_fixture_parses() {
             Some(format!("{}: {err}", path.display()))
         })
         .collect();
+
     assert!(
         broken.is_empty(),
         "committed fixtures that do not parse are checked by nothing:\n{}",
@@ -220,6 +229,7 @@ fn every_committed_fixture_parses() {
 fn committed_fixtures_are_idempotent_and_lossless() {
     let profiles = profiles();
     let files = fixture_files();
+
     assert!(
         files.len() >= 10,
         "expected a real fixture set, found {}",
@@ -264,6 +274,7 @@ fn committed_fixtures_match_their_goldens() {
             // rewrite the golden of every other profile.
             let expected = root.join(&profile.name).join(format!("{stem}.out"));
             let formatted = format_toml(&source, &profile.style).expect("fixture formats");
+
             if let Some(detail) = golden::check(&expected, formatted.as_bytes()) {
                 failures.push(format!("{} [{}]\n{detail}", path.display(), profile.name));
             }
@@ -287,11 +298,14 @@ fn committed_fixtures_match_their_goldens() {
 #[ignore = "sweeps the local crate registry; run with --ignored"]
 fn registry_corpus_is_idempotent_and_lossless() {
     let files = corpus_files();
+
     if files.is_empty() {
         corpus::skip("no crate registry found; set RUST_FORMATTER_CORPUS_DIR");
         return;
     }
+
     let profiles = profiles();
+
     eprintln!(
         "corpus: {} files x {} profiles",
         files.len(),
@@ -327,9 +341,11 @@ mod the_oracles_can_fail {
     fn the_value_tree_sees_a_key_swap() {
         let one = parse_tree("[t]\na = 1\nb = 2\n").unwrap();
         let other = parse_tree("[t]\nb = 2\na = 1\n").unwrap();
+
         assert_ne!(one, other, "key order is erased");
 
         let default = profile("default");
+
         assert_ne!(default.normalize(&one), default.normalize(&other));
     }
 
@@ -340,6 +356,7 @@ mod the_oracles_can_fail {
         let one = parse_tree("[t]\na = 1\nb = 2\n").unwrap();
         let other = parse_tree("[t]\nb = 2\na = 1\n").unwrap();
         let sorting = profile("everything");
+
         assert!(sorting.reorders());
         assert_eq!(sorting.normalize(&one), sorting.normalize(&other));
     }
@@ -351,6 +368,7 @@ mod the_oracles_can_fail {
         let section = parse_tree("[a]\nb = 1\n").unwrap();
         let dotted = parse_tree("a.b = 1\n").unwrap();
         let inline = parse_tree("a = { b = 1 }\n").unwrap();
+
         assert_eq!(section, dotted);
         assert_eq!(section, inline);
     }
@@ -358,6 +376,7 @@ mod the_oracles_can_fail {
     #[test]
     fn the_comment_view_sees_a_permutation() {
         let default = profile("default");
+
         assert!(!default.reorders());
         assert_ne!(
             default.comment_view("# one\na = 1\n# two\nb = 2\n"),
@@ -368,6 +387,7 @@ mod the_oracles_can_fail {
     #[test]
     fn a_sorting_profile_forgives_a_comment_permutation() {
         let sorting = profile("everything");
+
         assert_eq!(
             sorting.comment_view("# one\na = 1\n# two\nb = 2\n"),
             sorting.comment_view("# two\na = 1\n# one\nb = 2\n"),
@@ -424,6 +444,7 @@ mod the_oracles_can_fail {
         let section = parse_spellings("[a]\nb = 0x1F\n").unwrap();
         let dotted = parse_spellings("a.b = 0x1F\n").unwrap();
         let inline = parse_spellings("a = { b = 0x1F }\n").unwrap();
+
         assert_eq!(
             default.spelling_view(&section),
             default.spelling_view(&dotted)
@@ -440,6 +461,7 @@ mod the_oracles_can_fail {
     #[test]
     fn the_comment_view_forgives_padding_but_not_the_marker() {
         let default = profile("default");
+
         assert_eq!(
             default.comment_view("#note\n"),
             default.comment_view("#   note\n")
@@ -489,6 +511,7 @@ mod the_oracles_can_fail {
 #[ignore = "copies the crate registry into a tempdir; run with --ignored"]
 fn check_reports_exactly_what_a_write_would_change() {
     let files = corpus_files();
+
     if files.is_empty() {
         corpus::skip("no crate registry found; set RUST_FORMATTER_CORPUS_DIR");
         return;
@@ -496,9 +519,11 @@ fn check_reports_exactly_what_a_write_would_change() {
 
     let parseable: Vec<PathBuf> = corpus::map_parallel(&files, |path| {
         let source = fs::read_to_string(path).ok()?;
+
         source.parse::<DocumentMut>().ok()?;
         Some(path.clone())
     });
+
     eprintln!("{} of {} files parse", parseable.len(), files.len());
 
     let temp = tempfile::tempdir().expect("tempdir");
@@ -531,18 +556,23 @@ fn check_reports_exactly_what_a_write_would_change() {
         },
     )
     .expect("check run");
+
     assert!(
         checked.file_errors.is_empty(),
         "unexpected file errors: {:?}",
         checked.file_errors
     );
+
     let reported: BTreeSet<PathBuf> = checked.mismatched_toml().map(Path::to_path_buf).collect();
+
     assert_eq!(checked.exit_code, i32::from(!reported.is_empty()));
 
     let before = read_tree(temp.path());
     let written = run_format(detect_target(temp.path()).unwrap(), &base).expect("write run");
+
     assert!(written.file_errors.is_empty());
     assert_eq!(written.exit_code, 0, "a write run must never exit 1");
+
     let after = read_tree(temp.path());
 
     let changed: BTreeSet<PathBuf> = before
@@ -558,6 +588,7 @@ fn check_reports_exactly_what_a_write_would_change() {
     };
     let stale: Vec<String> = reported.difference(&changed).map(name).collect();
     let silent: Vec<String> = changed.difference(&reported).map(name).collect();
+
     assert!(
         stale.is_empty() && silent.is_empty(),
         "--check disagrees with a write run\n\
@@ -577,6 +608,7 @@ fn check_reports_exactly_what_a_write_would_change() {
         },
     )
     .expect("recheck run");
+
     assert!(
         recheck.mismatched_toml().next().is_none(),
         "{} files still need formatting after a write run",

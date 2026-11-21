@@ -31,7 +31,9 @@ local = { path = "../local" }
 
 fn write_project(dir: &Path, manifest: &str) {
     fs::write(dir.join("Cargo.toml"), manifest).unwrap();
+
     let src = dir.join("src");
+
     fs::create_dir_all(&src).unwrap();
     fs::write(src.join("lib.rs"), "pub fn f() {}\n").unwrap();
 }
@@ -75,6 +77,7 @@ impl Fixture {
 
     fn with(manifest: &str) -> Self {
         let fixture = Self::new(crates_io_stub);
+
         write_project(fixture.path(), manifest);
         fixture
     }
@@ -93,6 +96,7 @@ impl Fixture {
 
     fn command(&self) -> Command {
         let mut cmd = formatter();
+
         cmd.env("RUST_FORMATTER_CRATES_IO_URL", self.registry.base_url())
             .env("RUST_FORMATTER_REGISTRY_CACHE_DIR", self.cache.path())
             .env_remove("CARGO_NET_OFFLINE")
@@ -104,6 +108,7 @@ impl Fixture {
 
     fn run(&self) -> Command {
         let mut cmd = self.command();
+
         cmd.arg("--full-versions").arg(self.path());
         cmd
     }
@@ -112,7 +117,9 @@ impl Fixture {
 #[test]
 fn full_versions_completes_partial_requirements() {
     needs_nightly!();
+
     let fixture = Fixture::with(MANIFEST);
+
     fixture.run().assert().success().code(0);
 
     let formatted = fixture.text();
@@ -131,6 +138,7 @@ fn full_versions_completes_partial_requirements() {
 #[test]
 fn operators_are_kept_and_wildcards_completed() {
     needs_nightly!();
+
     let fixture = Fixture::with(
         "[dependencies]\nclap = \"~4.6\"\nserde = \"=1.0\"\nignore = \"1.*\"\nregex = \"1.2.*\"\n\
          [dev-dependencies]\ntokio = \"1.x\"\n",
@@ -146,13 +154,16 @@ fn operators_are_kept_and_wildcards_completed() {
         ])),
         _ => Reply::status(404),
     };
+
     let fixture = Fixture {
         registry: MockRegistry::start(route),
         ..fixture
     };
+
     fixture.run().assert().success();
 
     let formatted = fixture.text();
+
     assert!(formatted.contains("clap = \"~4.6.6\""), "{formatted}");
     assert!(formatted.contains("serde = \"=1.0.100\""), "{formatted}");
     assert!(formatted.contains("ignore = \"1.7.3\""), "{formatted}");
@@ -163,6 +174,7 @@ fn operators_are_kept_and_wildcards_completed() {
 #[test]
 fn publish_order_does_not_decide_the_pin() {
     needs_nightly!();
+
     let fixture = Fixture::with("[dependencies]\nserde = \"1\"\n");
     let route = |request: &Request| match request.name.as_str() {
         // The sparse index is written in publish order, so the newest release is
@@ -174,17 +186,21 @@ fn publish_order_does_not_decide_the_pin() {
         ])),
         _ => Reply::status(404),
     };
+
     let fixture = Fixture {
         registry: MockRegistry::start(route),
         ..fixture
     };
+
     fixture.run().assert().success();
+
     assert!(fixture.text().contains("serde = \"1.10.0\""));
 }
 
 #[test]
 fn build_metadata_is_dropped_from_a_pin() {
     needs_nightly!();
+
     let fixture = Fixture::with("[dependencies]\ntoml_edit = \"0.25\"\n");
     let route = |request: &Request| match request.name.as_str() {
         "toml_edit" => Reply::ok(index_jsonl(&[
@@ -193,27 +209,34 @@ fn build_metadata_is_dropped_from_a_pin() {
         ])),
         _ => Reply::status(404),
     };
+
     let fixture = Fixture {
         registry: MockRegistry::start(route),
         ..fixture
     };
+
     fixture.run().assert().success();
+
     assert!(fixture.text().contains("toml_edit = \"0.25.13\""));
 }
 
 #[test]
 fn a_leading_underscore_is_a_legal_crate_name() {
     needs_nightly!();
+
     let fixture = Fixture::with("[dependencies]\n_private = \"1\"\n");
     let route = |request: &Request| match request.name.as_str() {
         "_private" => Reply::ok(index_jsonl(&[("1.0.4", false)])),
         _ => Reply::status(404),
     };
+
     let fixture = Fixture {
         registry: MockRegistry::start(route),
         ..fixture
     };
+
     fixture.run().assert().success().code(0);
+
     assert!(fixture.text().contains("_private = \"1.0.4\""));
     assert_eq!(fixture.registry.hits(), vec!["_private"]);
 }
@@ -221,6 +244,7 @@ fn a_leading_underscore_is_a_legal_crate_name() {
 #[test]
 fn full_versions_check_names_the_version_finding() {
     needs_nightly!();
+
     let fixture = Fixture::with(MANIFEST);
     let before = fixture.text();
 
@@ -233,6 +257,7 @@ fn full_versions_check_names_the_version_finding() {
         .clone();
 
     let stderr = String::from_utf8(output.stderr).unwrap();
+
     assert!(stderr.contains("version:"), "{stderr}");
     assert!(stderr.contains("serde"), "{stderr}");
     assert!(stderr.contains("\"1.2.3\""), "{stderr}");
@@ -243,6 +268,7 @@ fn full_versions_check_names_the_version_finding() {
 #[test]
 fn a_registry_failure_stops_the_run_before_anything_is_written() {
     needs_nightly!();
+
     let fixture = Fixture::with(MANIFEST);
     let fixture = Fixture {
         registry: MockRegistry::start(|_: &Request| Reply::status(500)),
@@ -252,6 +278,7 @@ fn a_registry_failure_stops_the_run_before_anything_is_written() {
 
     let output = fixture.run().assert().code(2).get_output().clone();
     let stderr = String::from_utf8(output.stderr).unwrap();
+
     assert!(stderr.contains("registry lookup failed for"), "{stderr}");
     assert!(stderr.contains("500"), "{stderr}");
     assert_eq!(fixture.text(), before);
@@ -262,6 +289,7 @@ fn a_registry_failure_stops_the_run_before_anything_is_written() {
 #[test]
 fn an_unknown_crate_is_skipped_and_named() {
     needs_nightly!();
+
     let fixture = Fixture::with(
         "[package]\nname = \"x\"\nversion = \"0.1.0\"\n\n\
          [dependencies]\nserde = \"1\"\nnot-a-crate = \"3\"\n",
@@ -269,6 +297,7 @@ fn an_unknown_crate_is_skipped_and_named() {
 
     let output = fixture.run().assert().code(0).get_output().clone();
     let stderr = String::from_utf8(output.stderr).unwrap();
+
     assert!(stderr.contains("not-a-crate"), "{stderr}");
     assert!(stderr.contains("no such crate"), "{stderr}");
     assert!(fixture.text().contains("serde = \"1.2.3\""));
@@ -278,34 +307,41 @@ fn an_unknown_crate_is_skipped_and_named() {
 #[test]
 fn a_yanked_only_crate_is_reported_and_allow_yanked_pins_it() {
     needs_nightly!();
+
     let route = |request: &Request| match request.name.as_str() {
         "serde" => Reply::ok(index_jsonl(&[("1.0.1", true), ("1.0.2", true)])),
         _ => Reply::status(404),
     };
     let fixture = Fixture::new(route);
+
     write_project(fixture.path(), "[dependencies]\nserde = \"1\"\n");
 
     let output = fixture.run().assert().code(0).get_output().clone();
     let stderr = String::from_utf8(output.stderr).unwrap();
+
     assert!(stderr.contains("yanked"), "{stderr}");
     assert!(fixture.text().contains("serde = \"1\""));
 
     fixture.run().arg("--allow-yanked").assert().success();
+
     assert!(fixture.text().contains("serde = \"1.0.2\""));
 }
 
 #[test]
 fn a_prerelease_only_crate_is_reported() {
     needs_nightly!();
+
     let route = |request: &Request| match request.name.as_str() {
         "serde" => Reply::ok(index_jsonl(&[("1.0.0-rc.1", false)])),
         _ => Reply::status(404),
     };
     let fixture = Fixture::new(route);
+
     write_project(fixture.path(), "[dependencies]\nserde = \"1\"\n");
 
     let output = fixture.run().assert().code(0).get_output().clone();
     let stderr = String::from_utf8(output.stderr).unwrap();
+
     assert!(stderr.contains("pre-release"), "{stderr}");
     assert!(fixture.text().contains("serde = \"1\""));
 }
@@ -313,12 +349,14 @@ fn a_prerelease_only_crate_is_reported() {
 #[test]
 fn a_requirement_that_cannot_be_completed_says_so() {
     needs_nightly!();
+
     let fixture = Fixture::with(
         "[dependencies]\nany = \"*\"\nranged = { version = \">=1, <2\" }\nbounded = \">=1.0\"\n",
     );
 
     let output = fixture.run().assert().code(0).get_output().clone();
     let stderr = String::from_utf8(output.stderr).unwrap();
+
     assert!(stderr.contains("`*` has no major version"), "{stderr}");
     assert!(stderr.contains("multi-comparator range"), "{stderr}");
     assert!(stderr.contains("already names its bound"), "{stderr}");
@@ -328,6 +366,7 @@ fn a_requirement_that_cannot_be_completed_says_so() {
 #[test]
 fn other_sources_are_left_alone_and_accounted_for() {
     needs_nightly!();
+
     let fixture = Fixture::with(
         "[package]\nname = \"x\"\nversion = \"0.1.0\"\n\n\
          [dependencies]\n\
@@ -351,7 +390,9 @@ fn other_sources_are_left_alone_and_accounted_for() {
     let stderr = String::from_utf8(output.stderr).unwrap();
 
     let text = fixture.text();
+
     assert!(text.contains("serde = \"1.2.3\""), "{text}");
+
     for untouched in [
         "path = \"../local\"",
         "registry = \"corp\"",
@@ -359,6 +400,7 @@ fn other_sources_are_left_alone_and_accounted_for() {
     ] {
         assert!(text.contains(untouched), "{text}");
     }
+
     assert!(text.contains("version = \"0.1\""), "{text}");
     assert!(text.contains("shared.workspace = true"), "{text}");
 
@@ -372,14 +414,17 @@ fn other_sources_are_left_alone_and_accounted_for() {
     ] {
         assert!(stderr.contains(reason), "missing {reason:?} in {stderr}");
     }
+
     assert_eq!(fixture.registry.hits(), vec!["serde"]);
 }
 
 #[test]
 fn a_frozen_dependency_costs_no_request() {
     needs_nightly!();
+
     let fixture =
         Fixture::with("[dependencies]\n# fmt: off\nserde = \"1\"\n# fmt: on\nclap = \"^4.6\"\n");
+
     fixture.run().assert().success();
 
     assert!(fixture.text().contains("serde = \"1\""));
@@ -390,6 +435,7 @@ fn a_frozen_dependency_costs_no_request() {
 #[test]
 fn a_pin_cannot_raise_the_minimum_compiler() {
     needs_nightly!();
+
     let route = |request: &Request| match request.name.as_str() {
         "serde" => Reply::ok(index_lines(&[
             ("1.0.0", false, Some("1.60")),
@@ -398,6 +444,7 @@ fn a_pin_cannot_raise_the_minimum_compiler() {
         _ => Reply::status(404),
     };
     let fixture = Fixture::new(route);
+
     write_project(
         fixture.path(),
         "[package]\nname = \"x\"\nversion = \"0.1.0\"\nrust-version = \"1.63\"\n\n\
@@ -405,6 +452,7 @@ fn a_pin_cannot_raise_the_minimum_compiler() {
     );
 
     fixture.run().assert().success();
+
     assert!(
         fixture.text().contains("serde = \"1.0.0\""),
         "{}",
@@ -421,6 +469,7 @@ fn a_pin_cannot_raise_the_minimum_compiler() {
         .arg("--ignore-rust-version")
         .assert()
         .success();
+
     assert!(
         fixture.text().contains("serde = \"1.1.0\""),
         "{}",
@@ -431,6 +480,7 @@ fn a_pin_cannot_raise_the_minimum_compiler() {
 #[test]
 fn a_member_inherits_the_workspace_rust_version() {
     needs_nightly!();
+
     let route = |request: &Request| match request.name.as_str() {
         "serde" => Reply::ok(index_lines(&[
             ("1.0.0", false, Some("1.60")),
@@ -440,13 +490,16 @@ fn a_member_inherits_the_workspace_rust_version() {
     };
     let fixture = Fixture::new(route);
     let root = fixture.path();
+
     fs::write(
         root.join("Cargo.toml"),
         "[workspace]\nmembers = [\"member\"]\nresolver = \"2\"\n\n\
          [workspace.package]\nrust-version = \"1.63\"\n",
     )
     .unwrap();
+
     let member = root.join("member");
+
     fs::create_dir_all(member.join("src")).unwrap();
     fs::write(member.join("src").join("lib.rs"), "pub fn f() {}\n").unwrap();
     fs::write(
@@ -457,13 +510,16 @@ fn a_member_inherits_the_workspace_rust_version() {
     .unwrap();
 
     fixture.run().assert().success();
+
     let text = fs::read_to_string(member.join("Cargo.toml")).unwrap();
+
     assert!(text.contains("serde = \"1.0.0\""), "{text}");
 }
 
 #[test]
 fn stdin_inherits_the_workspace_rust_version() {
     needs_nightly!();
+
     let route = |request: &Request| match request.name.as_str() {
         "serde" => Reply::ok(index_lines(&[
             ("1.0.0", false, Some("1.60")),
@@ -473,17 +529,22 @@ fn stdin_inherits_the_workspace_rust_version() {
     };
     let fixture = Fixture::new(route);
     let root = fixture.path();
+
     fs::write(
         root.join("Cargo.toml"),
         "[workspace]\nmembers = [\"member\"]\nresolver = \"2\"\n\n\
          [workspace.package]\nrust-version = \"1.63\"\n",
     )
     .unwrap();
+
     let member = root.join("member");
+
     fs::create_dir_all(member.join("src")).unwrap();
     fs::write(member.join("src").join("lib.rs"), "pub fn f() {}\n").unwrap();
+
     let manifest = "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
          rust-version.workspace = true\n\n[dependencies]\nserde = \"1\"\n";
+
     fs::write(member.join("Cargo.toml"), manifest).unwrap();
 
     let out = fixture
@@ -498,6 +559,7 @@ fn stdin_inherits_the_workspace_rust_version() {
         .get_output()
         .clone();
     let text = String::from_utf8(out.stdout).unwrap();
+
     assert!(text.contains("serde = \"1.0.0\""), "{text}");
 
     let preview = fixture
@@ -511,12 +573,14 @@ fn stdin_inherits_the_workspace_rust_version() {
         .get_output()
         .clone();
     let preview = String::from_utf8(preview.stdout).unwrap();
+
     assert!(preview.contains("serde = \"1.0.0\""), "{preview}");
 }
 
 #[test]
 fn upgrade_bumps_a_complete_requirement_only_when_asked() {
     needs_nightly!();
+
     let route = |request: &Request| match request.name.as_str() {
         "serde" => Reply::ok(index_jsonl(&[
             ("1.0.0", false),
@@ -526,16 +590,20 @@ fn upgrade_bumps_a_complete_requirement_only_when_asked() {
         _ => Reply::status(404),
     };
     let fixture = Fixture::new(route);
+
     write_project(
         fixture.path(),
         "[dependencies]\nserde = \"1.0.0\"\npinned = \"=1.0.0\"\n",
     );
 
     fixture.run().assert().success();
+
     assert!(fixture.text().contains("serde = \"1.0.0\""));
 
     fixture.run().arg("--upgrade").assert().success();
+
     let text = fixture.text();
+
     assert!(text.contains("serde = \"1.7.3\""), "{text}");
     assert!(text.contains("pinned = \"=1.0.0\""), "{text}");
 }
@@ -543,12 +611,14 @@ fn upgrade_bumps_a_complete_requirement_only_when_asked() {
 #[test]
 fn upgrade_flags_reach_across_a_major_and_into_a_pin() {
     needs_nightly!();
+
     let route = |request: &Request| match request.name.as_str() {
         "serde" => Reply::ok(index_jsonl(&[("1.7.3", false), ("2.0.1", false)])),
         "pinned" => Reply::ok(index_jsonl(&[("1.0.0", false), ("1.4.0", false)])),
         _ => Reply::status(404),
     };
     let fixture = Fixture::new(route);
+
     write_project(
         fixture.path(),
         "[dependencies]\nserde = \"^1.0.0\"\npinned = \"=1.0.0\"\n",
@@ -561,6 +631,7 @@ fn upgrade_flags_reach_across_a_major_and_into_a_pin() {
         .success();
 
     let text = fixture.text();
+
     assert!(text.contains("serde = \"^2.0.1\""), "{text}");
     assert!(text.contains("pinned = \"=1.4.0\""), "{text}");
 }
@@ -568,6 +639,7 @@ fn upgrade_flags_reach_across_a_major_and_into_a_pin() {
 #[test]
 fn the_disk_cache_revalidates_rather_than_refetching() {
     needs_nightly!();
+
     let bodies = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&bodies);
     let route = move |request: &Request| match request.name.as_str() {
@@ -581,13 +653,16 @@ fn the_disk_cache_revalidates_rather_than_refetching() {
         _ => Reply::status(404),
     };
     let fixture = Fixture::new(route);
+
     write_project(fixture.path(), "[dependencies]\nserde = \"1\"\n");
 
     fixture.run().assert().success();
+
     assert!(fixture.text().contains("serde = \"1.2.3\""));
 
     write_project(fixture.path(), "[dependencies]\nserde = \"1\"\n");
     fixture.run().assert().success();
+
     assert!(fixture.text().contains("serde = \"1.2.3\""));
 
     assert_eq!(bodies.load(Ordering::SeqCst), 1);
@@ -597,6 +672,7 @@ fn the_disk_cache_revalidates_rather_than_refetching() {
 #[test]
 fn a_rate_limited_request_is_retried() {
     needs_nightly!();
+
     let attempts = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&attempts);
     let route = move |request: &Request| match request.name.as_str() {
@@ -609,9 +685,11 @@ fn a_rate_limited_request_is_retried() {
         _ => Reply::status(404),
     };
     let fixture = Fixture::new(route);
+
     write_project(fixture.path(), "[dependencies]\nserde = \"1\"\n");
 
     fixture.run().assert().success();
+
     assert!(fixture.text().contains("serde = \"1.2.3\""));
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
 }
@@ -619,6 +697,7 @@ fn a_rate_limited_request_is_retried() {
 #[test]
 fn a_redirect_off_the_registry_host_is_refused() {
     needs_nightly!();
+
     let route = |request: &Request| match request.name.as_str() {
         "serde" => {
             Reply::status(301).with_header("Location", "https://evil.example.com/se/rd/serde")
@@ -626,11 +705,14 @@ fn a_redirect_off_the_registry_host_is_refused() {
         _ => Reply::status(404),
     };
     let fixture = Fixture::new(route);
+
     write_project(fixture.path(), "[dependencies]\nserde = \"1\"\n");
+
     let before = fixture.text();
 
     let output = fixture.run().assert().code(2).get_output().clone();
     let stderr = String::from_utf8(output.stderr).unwrap();
+
     assert!(stderr.contains("refused a redirect"), "{stderr}");
     assert_eq!(fixture.text(), before);
 }
@@ -653,18 +735,23 @@ fn a_same_host_redirect_is_followed() {
         "serde-moved" => Reply::ok(index_jsonl(&[("1.2.3", false)])),
         _ => Reply::status(404),
     });
+
     base.set(fixture.registry.base_url()).unwrap();
     write_project(fixture.path(), "[dependencies]\nserde = \"1\"\n");
 
     fixture.run().assert().success();
+
     assert!(fixture.text().contains("serde = \"1.2.3\""));
 }
 
 #[test]
 fn full_versions_refuses_a_cleartext_override_to_a_remote_host() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     write_project(temp.path(), MANIFEST);
+
     let before = fs::read_to_string(temp.path().join("Cargo.toml")).unwrap();
 
     let output = Command::cargo_bin("rust-formatter")
@@ -684,6 +771,7 @@ fn full_versions_refuses_a_cleartext_override_to_a_remote_host() {
         .clone();
 
     let stderr = String::from_utf8(output.stderr).unwrap();
+
     assert!(stderr.contains("registry lookup failed for"), "{stderr}");
     assert_eq!(
         fs::read_to_string(temp.path().join("Cargo.toml")).unwrap(),
@@ -694,9 +782,13 @@ fn full_versions_refuses_a_cleartext_override_to_a_remote_host() {
 #[test]
 fn a_replaced_crates_io_source_refuses_to_pin() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     write_project(temp.path(), MANIFEST);
+
     let cargo = temp.path().join(".cargo");
+
     fs::create_dir_all(&cargo).unwrap();
     fs::write(
         cargo.join("config.toml"),
@@ -704,6 +796,7 @@ fn a_replaced_crates_io_source_refuses_to_pin() {
          [source.vendored-sources]\ndirectory = \"vendor\"\n",
     )
     .unwrap();
+
     let before = fs::read_to_string(temp.path().join("Cargo.toml")).unwrap();
 
     let output = Command::cargo_bin("rust-formatter")
@@ -721,17 +814,23 @@ fn a_replaced_crates_io_source_refuses_to_pin() {
         .clone();
 
     let stderr = String::from_utf8(output.stderr).unwrap();
+
     assert!(stderr.contains("vendored-sources"), "{stderr}");
+
     let text = fs::read_to_string(temp.path().join("Cargo.toml")).unwrap();
+
     assert!(text.contains("serde = \"1\""), "{text}");
     assert!(text.contains("clap = \"^4.6\""), "{text}");
+
     let _ = before;
 }
 
 #[test]
 fn a_registry_url_names_the_index_explicitly() {
     needs_nightly!();
+
     let fixture = Fixture::with("[dependencies]\nserde = \"1\"\n");
+
     fixture
         .command()
         .arg("--full-versions")
@@ -748,8 +847,10 @@ fn a_registry_url_names_the_index_explicitly() {
 #[test]
 fn offline_reads_the_local_registry_index() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let project = temp.path().join("project");
+
     fs::create_dir_all(&project).unwrap();
     write_project(&project, "[dependencies]\nserde = \"1\"\nabsent = \"1\"\n");
 
@@ -760,6 +861,7 @@ fn offline_reads_the_local_registry_index() {
         .join("index.crates.io-1949cf8c6b5b557f")
         .join(".cache");
     let entry = cache.join("se").join("rd").join("serde");
+
     fs::create_dir_all(entry.parent().unwrap()).unwrap();
     fs::write(&entry, cargo_index_cache(&[("1.2.3", false)])).unwrap();
 
@@ -780,16 +882,21 @@ fn offline_reads_the_local_registry_index() {
         .clone();
 
     let text = fs::read_to_string(project.join("Cargo.toml")).unwrap();
+
     assert!(text.contains("serde = \"1.2.3\""), "{text}");
     assert!(text.contains("absent = \"1\""), "{text}");
+
     let stderr = String::from_utf8(output.stderr).unwrap();
+
     assert!(stderr.contains("offline"), "{stderr}");
 }
 
 #[test]
 fn cargo_net_offline_is_honoured_without_the_flag() {
     needs_nightly!();
+
     let fixture = Fixture::with("[dependencies]\nserde = \"1\"\n");
+
     fixture
         .run()
         .env("CARGO_NET_OFFLINE", "true")
@@ -803,15 +910,19 @@ fn cargo_net_offline_is_honoured_without_the_flag() {
 #[test]
 fn a_parent_directory_cargo_config_reaches_a_run_inside_a_member() {
     needs_nightly!();
+
     let fixture = Fixture::new(crates_io_stub);
     let member = fixture.path().join("member");
+
     fs::create_dir_all(&member).unwrap();
     write_project(
         &member,
         "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
          [dependencies]\nserde = \"1\"\n",
     );
+
     let cargo = fixture.path().join(".cargo");
+
     fs::create_dir_all(&cargo).unwrap();
     fs::write(cargo.join("config.toml"), "[net]\noffline = true\n").unwrap();
 
@@ -825,6 +936,7 @@ fn a_parent_directory_cargo_config_reaches_a_run_inside_a_member() {
         .code(0);
 
     let text = fs::read_to_string(member.join("Cargo.toml")).unwrap();
+
     assert!(text.contains("serde = \"1\""), "{text}");
     assert_eq!(fixture.registry.hits(), Vec::<String>::new());
 }
@@ -832,6 +944,7 @@ fn a_parent_directory_cargo_config_reaches_a_run_inside_a_member() {
 #[test]
 fn only_cargo_dependency_tables_are_resolved() {
     needs_nightly!();
+
     let fixture = Fixture::with(
         "[package]\nname = \"anchored\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
          [package.metadata.mytool.dependencies]\nmetadata-only = \"1\"\nserde = \"1\"\n\n\
@@ -848,6 +961,7 @@ fn only_cargo_dependency_tables_are_resolved() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     let doc: toml_edit::DocumentMut = text.parse().unwrap();
     let metadata = &doc["package"]["metadata"]["mytool"]["dependencies"];
+
     assert_eq!(metadata["metadata-only"].as_str(), Some("1"), "{text}");
     assert_eq!(metadata["serde"].as_str(), Some("1"), "{text}");
     assert_eq!(
@@ -877,6 +991,7 @@ fn only_cargo_dependency_tables_are_resolved() {
 #[test]
 fn the_json_envelope_carries_the_version_findings() {
     needs_nightly!();
+
     let fixture = Fixture::with(MANIFEST);
     let output = fixture
         .run()
@@ -894,6 +1009,7 @@ fn the_json_envelope_carries_the_version_findings() {
         .iter()
         .find(|entry| entry["crate"] == "serde")
         .expect("serde is reported");
+
     assert_eq!(serde["outcome"], "completed");
     assert_eq!(serde["completed"], "1.2.3");
     assert_eq!(serde["section"], "dependencies");
@@ -904,6 +1020,7 @@ fn the_json_envelope_carries_the_version_findings() {
         .iter()
         .find(|entry| entry["crate"] == "local")
         .expect("the path dependency is reported");
+
     assert_eq!(local["outcome"], "skipped");
     assert!(
         local["reason"]
@@ -917,6 +1034,7 @@ fn the_json_envelope_carries_the_version_findings() {
 #[test]
 fn full_versions_asks_for_each_crate_exactly_once() {
     needs_nightly!();
+
     let route = |request: &Request| {
         if request.name.starts_with("dep-") {
             Reply::ok(index_jsonl(&[("0.4.33", false)]))
@@ -927,6 +1045,7 @@ fn full_versions_asks_for_each_crate_exactly_once() {
     let fixture = Fixture::new(route);
     let mut manifest =
         String::from("[package]\nname = \"many\"\nversion = \"0.1.0\"\n\n[dependencies]\n");
+
     for index in 0..12 {
         let _ = writeln!(manifest, "dep-{index} = \"0.4\"");
     }
@@ -935,14 +1054,18 @@ fn full_versions_asks_for_each_crate_exactly_once() {
     fixture.run().assert().success();
 
     let text = fixture.text();
+
     for index in 0..12 {
         assert!(
             text.contains(&format!("dep-{index} = \"0.4.33\"")),
             "{text}"
         );
     }
+
     let mut expected: Vec<String> = (0..12).map(|index| format!("dep-{index}")).collect();
+
     expected.sort();
+
     assert_eq!(fixture.registry.hits(), expected);
 }
 
@@ -1026,6 +1149,7 @@ fn the_upgrade_flags_require_their_parents() {
 /// `version NUL json NUL` pairs.
 fn cargo_index_cache(rows: &[(&str, bool)]) -> Vec<u8> {
     let mut bytes = vec![3_u8];
+
     bytes.extend_from_slice(&2_u32.to_le_bytes());
     bytes.extend_from_slice(b"etag: \"local\"");
     bytes.push(0);
@@ -1121,6 +1245,7 @@ mod mock_registry {
                         if shutdown.load(Ordering::SeqCst) {
                             return;
                         }
+
                         let Ok(stream) = stream else { continue };
                         let route = Arc::clone(&route);
                         let hits = Arc::clone(&hits);
@@ -1146,6 +1271,7 @@ mod mock_registry {
         /// Every crate name the binary asked for, sorted.
         pub fn hits(&self) -> Vec<String> {
             let mut hits = lock(&self.hits).clone();
+
             hits.sort();
             hits
         }
@@ -1201,9 +1327,11 @@ mod mock_registry {
             };
 
             let head = String::from_utf8_lossy(&buf[..head_end]).into_owned();
+
             buf.drain(..head_end + 4);
 
             let mut lines = head.split("\r\n");
+
             let request_line = lines.next().unwrap_or_default().to_owned();
             let headers: Vec<(String, String)> = lines
                 .filter_map(|line| line.split_once(':'))
@@ -1248,6 +1376,7 @@ mod mock_registry {
                 reply.status,
                 reply.body.len()
             );
+
             for (name, value) in &reply.headers {
                 let _ = write!(response, "{name}: {value}\r\n");
             }
@@ -1258,6 +1387,7 @@ mod mock_registry {
             {
                 return;
             }
+
             let _ = stream.flush();
 
             if wants_close {
@@ -1280,6 +1410,7 @@ mod mock_registry {
 
 fn formatter() -> Command {
     let mut cmd = Command::cargo_bin("rust-formatter").unwrap();
+
     cmd.env("RUST_FORMATTER_CACHE_DIR", cache_dir());
     cmd
 }

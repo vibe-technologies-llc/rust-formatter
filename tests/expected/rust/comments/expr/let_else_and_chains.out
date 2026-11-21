@@ -4,6 +4,7 @@ pub fn head(values: &[u8]) -> u8 {
     let Some((first, rest)) = values.split_first() else {
         return 0;
     };
+
     if let Some(second) = rest.first()
         && let extra = first.wrapping_add(*second)
         && extra > 4

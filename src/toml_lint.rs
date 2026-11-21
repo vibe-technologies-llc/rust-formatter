@@ -12,7 +12,7 @@ const INLINE_TRAILING_COMMA: &str = "a trailing comma in an inline table is TOML
 
 /// A TOML 1.1-only construct, positioned in the text it was found in. Lines and
 /// columns are 1-based, and a column counts characters.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TomlIssue {
     pub line: usize,
     pub column: usize,
@@ -33,6 +33,7 @@ pub fn toml_1_0_issues(text: &str) -> Vec<TomlIssue> {
         text,
         found: Vec::new(),
     };
+
     scan.table(doc.as_table());
     scan.found.sort_unstable_by_key(|(offset, _)| *offset);
     scan.found
@@ -147,6 +148,7 @@ impl Scan<'_> {
         let Some(repr) = self.text.get(span.clone()) else {
             return;
         };
+
         if repr.starts_with('\'') {
             return;
         }
@@ -158,11 +160,13 @@ impl Scan<'_> {
                 index += 1;
                 continue;
             }
+
             let message = match bytes.get(index + 1) {
                 Some(b'e') => Some(ESCAPE_E),
                 Some(b'x') => Some(ESCAPE_X),
                 _ => None,
             };
+
             if let Some(message) = message {
                 self.found.push((span.start + index, message));
             }

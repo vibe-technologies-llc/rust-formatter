@@ -16,6 +16,7 @@ fn fixtures() -> Vec<String> {
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
         .filter(|path| path.extension().is_some_and(|ext| ext == "in"))
         .collect();
+
     paths.sort();
     // A few fixtures are deliberately not valid TOML -- they exist to pin how
     // a parse failure is reported -- and timing the error path would be timing
@@ -31,6 +32,7 @@ fn fixtures() -> Vec<String> {
 /// on and the one the sort and width passes have the most work in.
 fn manifest(packages: usize) -> String {
     let mut out = String::with_capacity(packages * 128);
+
     out.push_str("[package]\nname = \"bench\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n");
     out.push_str("[dependencies]\n");
     for index in 0..packages {
@@ -80,6 +82,7 @@ fn documents(c: &mut Criterion) {
     let documents = fixtures();
     let bytes: usize = documents.iter().map(String::len).sum();
     let mut group = c.benchmark_group("format_toml/fixtures");
+
     group.throughput(Throughput::Bytes(bytes as u64));
     for (name, style) in styles() {
         group.bench_with_input(BenchmarkId::from_parameter(name), &style, |b, style| {
@@ -97,6 +100,7 @@ fn large(c: &mut Criterion) {
     let source = manifest(400);
     let style = TomlStyle::default();
     let mut group = c.benchmark_group("format_toml/manifest");
+
     group.throughput(Throughput::Bytes(source.len() as u64));
     group.bench_function("dirty", |b| {
         b.iter(|| black_box(format_toml(black_box(&source), &style).unwrap()));
@@ -105,6 +109,7 @@ fn large(c: &mut Criterion) {
     // A converged document goes through the same parse and render as a dirty
     // one, which is why a no-op `--check` was never free.
     let once = format_toml(&source, &style).unwrap();
+
     group.bench_function("converged", |b| {
         b.iter(|| black_box(format_toml(black_box(&once), &style).unwrap()));
     });

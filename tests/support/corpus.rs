@@ -22,6 +22,7 @@ pub fn corpus_files() -> Vec<PathBuf> {
 pub fn corpus_root() -> Option<PathBuf> {
     if let Some(dir) = env::var_os("RUST_FORMATTER_CORPUS_DIR") {
         let path = PathBuf::from(dir);
+
         return path.is_dir().then_some(path);
     }
 
@@ -92,6 +93,7 @@ where
 /// tree stays a plain `LooseDirectory` and every file is actually visited.
 pub fn flat_copy(files: &[PathBuf], dir: &std::path::Path) -> Vec<(PathBuf, PathBuf)> {
     let mut mapping = Vec::with_capacity(files.len());
+
     for (index, source) in files.iter().enumerate() {
         let dest = dir.join(format!("{index:06}.toml"));
         if std::fs::copy(source, &dest).is_ok() {
@@ -122,16 +124,20 @@ pub fn record_failure(source: &str, profile: &str, kind: &str) -> std::io::Resul
     use std::hash::{DefaultHasher, Hash, Hasher};
 
     let dir = failure_dir();
+
     std::fs::create_dir_all(&dir)?;
 
     let mut hasher = DefaultHasher::new();
+
     source.hash(&mut hasher);
+
     let path = dir.join(format!(
         "{}-{}-{:016x}.toml.in",
         slug(kind),
         slug(profile),
         hasher.finish()
     ));
+
     std::fs::write(&path, source)?;
     Ok(path)
 }
@@ -141,6 +147,7 @@ fn slug(text: &str) -> String {
         .chars()
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
         .collect();
+
     out.truncate(48);
     out.trim_matches('-').to_owned()
 }

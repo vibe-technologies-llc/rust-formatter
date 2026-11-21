@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ColorChoice {
     #[default]
@@ -26,14 +26,14 @@ impl ColorChoice {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Emit {
     #[default]
     Files,
     Stdout,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MessageFormat {
     #[default]
@@ -41,7 +41,7 @@ pub enum MessageFormat {
     Json,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ListMode {
     #[default]
     None,
@@ -155,6 +155,7 @@ impl<'a> Streams<'a> {
     /// Render into a string with `paint`, then emit it as one locked write.
     pub fn paint_note(&self, paint: impl FnOnce(&mut Vec<u8>) -> io::Result<()>) -> io::Result<()> {
         let mut buf = Vec::new();
+
         paint(&mut buf)?;
         match String::from_utf8(buf) {
             Ok(text) => self.note(&text),
@@ -173,6 +174,7 @@ impl<'a> Streams<'a> {
         let mut guard = stream
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+
         let result = guard
             .writer
             .write_all(bytes)
@@ -183,6 +185,7 @@ impl<'a> Streams<'a> {
 
 fn with_newline(text: &str) -> String {
     let mut buf = String::with_capacity(text.len() + 1);
+
     buf.push_str(text);
     buf.push('\n');
     buf
@@ -263,6 +266,7 @@ mod tests {
     #[test]
     fn auto_is_off_when_the_handle_is_not_a_terminal() {
         let file = tempfile::tempfile().expect("temp file");
+
         assert!(!ColorChoice::Auto.resolve(&file));
     }
 
@@ -281,6 +285,7 @@ mod tests {
     fn product_and_note_reach_their_own_stream() {
         let out = Recorder::new();
         let err = Recorder::new();
+
         let streams = Streams::plain(out.clone(), err.clone());
 
         streams.product_line("product").unwrap();
@@ -293,12 +298,15 @@ mod tests {
     #[test]
     fn colour_off_strips_escapes_and_colour_on_keeps_them() {
         let plain = Recorder::new();
+
         Streams::plain(plain.clone(), io::sink())
             .product(RED)
             .unwrap();
+
         assert_eq!(plain.text(), "red");
 
         let painted = Recorder::new();
+
         Streams::new(
             painted.clone(),
             true,
@@ -308,6 +316,7 @@ mod tests {
         )
         .product(RED)
         .unwrap();
+
         assert_eq!(painted.text(), RED);
     }
 
@@ -317,24 +326,29 @@ mod tests {
     #[test]
     fn product_bytes_is_never_stripped() {
         let out = Recorder::new();
+
         Streams::plain(out.clone(), io::sink())
             .product_bytes(RED.as_bytes())
             .unwrap();
+
         assert_eq!(out.text(), RED);
     }
 
     #[test]
     fn product_bytes_carries_bytes_that_are_not_utf8() {
         let out = Recorder::new();
+
         Streams::plain(out.clone(), io::sink())
             .product_bytes(&[0xff, 0xfe, b'x'])
             .unwrap();
+
         assert_eq!(out.bytes(), vec![0xff, 0xfe, b'x']);
     }
 
     #[test]
     fn product_color_reports_the_stdout_sink_not_the_choice() {
         let coloured = Streams::new(io::sink(), true, io::sink(), false, ColorChoice::Auto);
+
         assert!(coloured.product_color());
         assert_eq!(coloured.color(), ColorChoice::Auto);
 
@@ -344,12 +358,14 @@ mod tests {
     #[test]
     fn paint_note_emits_what_the_painter_wrote() {
         let err = Recorder::new();
+
         Streams::plain(io::sink(), err.clone())
             .paint_note(|buf| {
                 buf.extend_from_slice(b"painted\n");
                 Ok(())
             })
             .unwrap();
+
         assert_eq!(err.text(), "painted\n");
     }
 
@@ -358,6 +374,7 @@ mod tests {
         let err = Streams::plain(io::sink(), io::sink())
             .paint_note(|_| Err(io::Error::other("painter")))
             .unwrap_err();
+
         assert_eq!(err.to_string(), "painter");
     }
 
@@ -366,12 +383,14 @@ mod tests {
     #[test]
     fn paint_note_falls_back_to_bytes() {
         let err = Recorder::new();
+
         Streams::plain(io::sink(), err.clone())
             .paint_note(|buf| {
                 buf.extend_from_slice(&[b'a', 0xff, b'b']);
                 Ok(())
             })
             .unwrap();
+
         assert_eq!(err.bytes(), vec![b'a', 0xff, b'b']);
     }
 
@@ -383,6 +402,7 @@ mod tests {
             Recorder::failing(io::ErrorKind::BrokenPipe),
             Recorder::failing(io::ErrorKind::BrokenPipe),
         );
+
         streams.product("x").unwrap();
         streams.product_bytes(b"x").unwrap();
         streams.note("x").unwrap();
@@ -400,6 +420,7 @@ mod tests {
             Recorder::failing(io::ErrorKind::PermissionDenied),
             io::sink(),
         );
+
         assert_eq!(
             streams.product("x").unwrap_err().kind(),
             io::ErrorKind::PermissionDenied
@@ -413,8 +434,10 @@ mod tests {
     #[test]
     fn discard_swallows_everything() {
         let streams = Streams::discard();
+
         streams.product_line("x").unwrap();
         streams.note_line("y").unwrap();
+
         assert_eq!(streams.color(), ColorChoice::Never);
     }
 
@@ -425,17 +448,24 @@ mod tests {
         let out = Recorder::new();
         let streams = Streams::plain(out.clone(), io::sink());
         let hook = std::panic::take_hook();
+
         std::panic::set_hook(Box::new(|_| {}));
+
         let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = streams.out.lock().unwrap();
+
             panic!("worker");
         }));
+
         std::panic::set_hook(hook);
+
         assert!(poisoned.is_err());
 
         assert!(streams.out.is_poisoned());
         assert!(!streams.product_color());
+
         streams.product("after").unwrap();
+
         assert_eq!(out.text(), "after");
     }
 }

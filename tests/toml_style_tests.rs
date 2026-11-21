@@ -3,6 +3,7 @@ use rust_formatter::toml_1_0_issues;
 
 fn formatter() -> Command {
     let mut cmd = Command::cargo_bin("rust-formatter").unwrap();
+
     cmd.env("RUST_FORMATTER_CACHE_DIR", cache_dir());
     cmd
 }
@@ -33,6 +34,7 @@ const WIDE_TABLE: &str = "clap = { version = \"4.6.6\", features = [\"derive\", 
 #[test]
 fn a_table_that_fits_stays_on_one_line_by_default() {
     let source = "clap = { version = \"4.6.6\", features = [\"derive\"] }\n";
+
     assert_eq!(styled(source, &[]), source);
 }
 
@@ -44,6 +46,7 @@ fn a_table_past_the_budget_wraps_by_default() {
 #[test]
 fn compact_adds_no_toml_1_1_construct_of_its_own() {
     let out = styled(WIDE_TABLE, &["--toml-inline-tables", "compact"]);
+
     assert_eq!(out, WIDE_TABLE);
     assert_eq!(toml_1_0_issues(&out), []);
 }
@@ -52,6 +55,7 @@ fn compact_adds_no_toml_1_1_construct_of_its_own() {
 fn compact_still_passes_a_1_1_spelling_through() {
     let source = "esc = \"\\x41\"\n";
     let out = styled(source, &["--toml-inline-tables", "compact"]);
+
     assert_eq!(out, source);
     assert_eq!(toml_1_0_issues(&out).len(), 1);
 }
@@ -59,6 +63,7 @@ fn compact_still_passes_a_1_1_spelling_through() {
 #[test]
 fn expand_restores_the_two_key_rule() {
     let source = "clap = { version = \"4.6.6\", features = [\"derive\"] }\n";
+
     assert_eq!(
         styled(source, &["--toml-inline-tables", "expand"]),
         "clap = {\n    version = \"4.6.6\",\n    features = [\"derive\"]\n}\n"
@@ -70,6 +75,7 @@ fn expand_restores_the_two_key_rule() {
 #[test]
 fn the_width_budget_is_configurable() {
     let source = "features = [\"one\", \"two\"]\n";
+
     assert_eq!(styled(source, &["--toml-max-width", "100"]), source);
     assert_eq!(
         styled(source, &["--toml-max-width", "20"]),
@@ -91,6 +97,7 @@ fn a_zero_width_is_rejected_by_the_parser() {
 #[test]
 fn the_indent_is_configurable() {
     let source = "features = [\"one\", \"two\"]\n";
+
     assert_eq!(
         styled(source, &["--toml-max-width", "20", "--toml-indent", "2"]),
         "features = [\n  \"one\",\n  \"two\"\n]\n"
@@ -115,6 +122,7 @@ fn an_unparseable_indent_is_rejected_by_the_parser() {
 #[test]
 fn a_deliberate_multiline_array_is_kept_by_default() {
     let source = "features = [\n    \"one\",\n    \"two\"\n]\n";
+
     assert_eq!(styled(source, &[]), source);
 }
 
@@ -132,6 +140,7 @@ fn auto_arrays_reflow_it() {
 #[test]
 fn the_trailing_comma_policy_is_configurable() {
     let source = "a = [\n    1,\n    2\n]\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--toml-trailing-comma", "multiline"]),
@@ -144,6 +153,7 @@ fn the_trailing_comma_policy_is_configurable() {
 #[test]
 fn blank_lines_before_tables_are_only_inserted_on_request() {
     let source = "[a]\nx = 1\n[b]\ny = 2\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--toml-blank-line-before-tables"]),
@@ -168,6 +178,7 @@ fn styled_notes(source: &str, args: &[&str]) -> String {
 #[test]
 fn targeting_toml_1_0_overrides_the_inline_table_style() {
     let out = styled(WIDE_TABLE, &["--toml-version", "1.0"]);
+
     assert_eq!(out, WIDE_TABLE);
     assert_eq!(toml_1_0_issues(&out), []);
 }
@@ -176,6 +187,7 @@ fn targeting_toml_1_0_overrides_the_inline_table_style() {
 fn targeting_toml_1_0_reports_a_spelling_it_cannot_fix() {
     let source = "esc = \"\\e[0m\"\nwhen = 07:32\n";
     let notes = styled_notes(source, &["--toml-version", "1.0"]);
+
     assert!(
         notes.contains("style.toml:1:8: \\e escape is TOML 1.1 only"),
         "{notes}"
@@ -219,6 +231,7 @@ fn a_key_path_always_loses_the_padding_around_its_dots() {
 #[test]
 fn keys_are_only_unquoted_on_request() {
     let source = "\"quoted\" = 1\n'lit key' = 2\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--toml-normalize-keys"]),
@@ -231,6 +244,7 @@ fn keys_are_only_unquoted_on_request() {
 #[test]
 fn dependencies_are_only_sorted_on_request() {
     let source = "[dependencies]\nzzz = \"1\"\naaa = \"2\"\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--sort-deps"]),
@@ -241,6 +255,7 @@ fn dependencies_are_only_sorted_on_request() {
 #[test]
 fn the_package_table_is_only_ordered_on_request() {
     let source = "[package]\nversion = \"0.1.0\"\nname = \"demo\"\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--sort-package"]),
@@ -251,6 +266,7 @@ fn the_package_table_is_only_ordered_on_request() {
 #[test]
 fn dependency_fields_are_only_ordered_on_request() {
     let source = "[dependencies.serde]\nfeatures = [\"derive\"]\nversion = \"1\"\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--sort-dep-fields"]),
@@ -261,6 +277,7 @@ fn dependency_fields_are_only_ordered_on_request() {
 #[test]
 fn features_are_only_ordered_on_request() {
     let source = "[features]\nzzz = []\naaa = []\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--sort-features"]),
@@ -271,6 +288,7 @@ fn features_are_only_ordered_on_request() {
 #[test]
 fn arrays_are_only_ordered_on_request() {
     let source = "[package]\nkeywords = [\"z\", \"a\"]\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--sort-arrays"]),
@@ -281,6 +299,7 @@ fn arrays_are_only_ordered_on_request() {
 #[test]
 fn target_sections_are_only_ordered_on_request() {
     let source = "[[bin]]\nname = \"zzz\"\n\n[[bin]]\nname = \"aaa\"\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--sort-targets"]),
@@ -291,6 +310,7 @@ fn target_sections_are_only_ordered_on_request() {
 #[test]
 fn the_document_sequence_is_only_ordered_on_request() {
     let source = "[dependencies]\na = \"1\"\n\n[package]\nname = \"n\"\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--sort-tables"]),
@@ -301,6 +321,7 @@ fn the_document_sequence_is_only_ordered_on_request() {
 #[test]
 fn plain_keys_are_only_ordered_on_request() {
     let source = "[profile.release]\nzzz = 1\naaa = 2\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--sort-keys"]),
@@ -311,6 +332,7 @@ fn plain_keys_are_only_ordered_on_request() {
 #[test]
 fn grouping_is_only_honoured_on_request() {
     let source = "[dependencies]\nzzz = \"1\"\n\naaa = \"2\"\n";
+
     assert_eq!(
         styled(source, &["--sort-deps"]),
         "[dependencies]\naaa = \"2\"\n\nzzz = \"1\"\n"
@@ -331,6 +353,7 @@ fn grouping_refuses_the_cap_that_would_erase_its_own_input() {
 #[test]
 fn the_package_order_is_selectable() {
     let source = "[package]\ndescription = \"d\"\nedition = \"2024\"\nname = \"n\"\n";
+
     assert_eq!(
         styled(source, &["--sort-package"]),
         "[package]\nname = \"n\"\nedition = \"2024\"\ndescription = \"d\"\n"
@@ -354,6 +377,7 @@ fn the_package_order_is_selectable() {
 #[test]
 fn a_version_only_table_is_only_collapsed_on_request() {
     let source = "[dependencies]\nserde = { version = \"1.0\" }\n";
+
     assert_eq!(
         styled(source, &[]),
         "[dependencies]\nserde.version = \"1.0\"\n"
@@ -369,6 +393,7 @@ fn a_version_only_table_is_only_collapsed_on_request() {
 #[test]
 fn the_style_guide_preset_breaks_out_an_over_wide_dependency() {
     let source = "[dependencies]\nshort = \"1\"\nexplicit = { version = \"2\" }\nextremely_long_crate_name_goes_here = { path = \"extremely_long_path_name_goes_right_here\", version = \"4.5.6\" }\n";
+
     assert_eq!(
         styled(source, &["--style-guide"]),
         "[dependencies]\nexplicit.version = \"2\"\nshort = \"1\"\n\n[dependencies.extremely_long_crate_name_goes_here]\npath = \"extremely_long_path_name_goes_right_here\"\nversion = \"4.5.6\"\n"
@@ -379,6 +404,7 @@ fn the_style_guide_preset_breaks_out_an_over_wide_dependency() {
 fn an_explicit_flag_beats_the_style_guide_preset() {
     let source =
         "k = [\"aaaaaaaaaaaaaaaaaaaa\", \"bbbbbbbbbbbbbbbbbbbb\", \"cccccccccccccccccccc\"]\n";
+
     assert_eq!(styled(source, &["--style-guide"]), source);
     assert!(
         styled(source, &["--style-guide", "--toml-max-width", "40"])
@@ -390,6 +416,7 @@ fn an_explicit_flag_beats_the_style_guide_preset() {
 fn the_style_guide_preset_is_a_fixed_point() {
     let source = "[dependencies]\nzzz = \"1\"\n# note\naaa = { features = [\"z\", \"a\"], version = \"2\" }\n[features]\nzed = [\"b\", \"a\"]\n[package]\nversion = \"0.1.0\"\n\"name\" = \"demo\"\ndescription = \"d\"\nkeywords = [\"z\", \"a\"]\n[[bin]]\nname = \"zzz\"\n[[bin]]\nname = \"aaa\"\n";
     let once = styled(source, &["--style-guide"]);
+
     assert_eq!(
         styled(&once, &["--style-guide"]),
         once,
@@ -442,6 +469,7 @@ fn every_style_flag_survives_a_second_pass() {
     let source = "[package]\nversion = \"0.1.0\"\n\"name\" = \"demo\"\n[dependencies]\nzzz = \"1\" # pinned\n# note\naaa = { version = \"2\", features = [\"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\"] }\n[  dependencies  .  mmm  ]\nversion = \"3\"\n";
 
     let once = styled(source, &args);
+
     assert_eq!(styled(&once, &args), once, "not a fixed point:\n{once}");
 }
 
@@ -450,6 +478,7 @@ fn every_style_flag_survives_a_second_pass() {
 #[test]
 fn the_width_budget_is_measured_in_display_columns() {
     let source = "k = [\"日本語日本語日本語日本語\"]\n";
+
     assert_eq!(
         styled(source, &["--toml-max-width", "25"]),
         "k = [\n    \"日本語日本語日本語日本語\"\n]\n"
@@ -461,6 +490,7 @@ fn the_width_budget_is_measured_in_display_columns() {
 fn the_tab_width_is_configurable() {
     let source = "k = [[1, 2, 3, 4]]\n";
     let args = ["--toml-indent", "tab", "--toml-max-width", "15"];
+
     assert_eq!(
         styled(source, &args),
         "k = [\n\t[\n\t\t1,\n\t\t2,\n\t\t3,\n\t\t4\n\t]\n]\n"
@@ -496,6 +526,7 @@ fn expand_arrays_are_selectable() {
 #[test]
 fn the_blank_line_maximum_is_selectable() {
     let source = "a = 1\n\n\n\nb = 2\n";
+
     assert_eq!(styled(source, &[]), "a = 1\n\nb = 2\n");
     assert_eq!(
         styled(source, &["--toml-max-blank-lines", "2"]),
@@ -510,6 +541,7 @@ fn the_blank_line_maximum_is_selectable() {
 #[test]
 fn container_spacing_is_selectable() {
     let source = "a = [1, 2]\nb = { x = 1, y = 2 }\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(
@@ -528,6 +560,7 @@ fn container_spacing_is_selectable() {
 #[test]
 fn alignment_is_selectable() {
     let source = "a = 1 # one\nbbb = 22 # two\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--toml-align-entries"]),
@@ -546,6 +579,7 @@ fn alignment_is_selectable() {
 #[test]
 fn table_indentation_is_selectable() {
     let source = "[t]\nk = 1\n\n[t.u]\nm = 2\n";
+
     assert_eq!(styled(source, &[]), source);
     assert_eq!(
         styled(source, &["--toml-indent-entries"]),
@@ -578,17 +612,21 @@ fn an_out_of_range_tab_width_is_rejected_by_the_parser() {
 #[test]
 fn a_comment_between_the_equals_and_the_value_survives() {
     let out = styled("a = { b = # why\n1 }\n", &[]);
+
     assert_eq!(out, "a = {\n    # why\n    b = 1\n}\n");
 
     let nested = styled("x = [{ p = # inner\n2 }]\n", &[]);
+
     assert!(nested.contains("# inner"), "{nested}");
 
     let later = styled("y = { m = 1, n = # second\n2 }\n", &[]);
+
     assert_eq!(later, "y = {\n    m = 1,\n    # second\n    n = 2\n}\n");
 
     // The hoisted comment must not displace one already above the key, nor
     // introduce a blank line between the two.
     let stacked = styled("z = {\n    # above\n    k = # after\n    3,\n}\n", &[]);
+
     assert_eq!(stacked, "z = {\n    # above\n    # after\n    k = 3\n}\n");
 }
 
@@ -610,6 +648,7 @@ version = \"1\"
 #[test]
 fn a_directive_region_survives_the_style_guide() {
     let once = styled(HAND_ALIGNED, &["--style-guide"]);
+
     assert!(once.contains("  40,  50,  60,\n"), "{once}");
     assert!(once.contains("#   a   hand   aligned   note\n"), "{once}");
     assert_eq!(
@@ -622,6 +661,7 @@ fn a_directive_region_survives_the_style_guide() {
 #[test]
 fn directives_can_be_turned_off() {
     let once = styled(HAND_ALIGNED, &["--style-guide", "--toml-directives", "off"]);
+
     assert!(once.contains("matrix = [1, 2, 3, 40, 50, 60]\n"), "{once}");
     assert!(once.contains("# a   hand   aligned   note\n"), "{once}");
 }
@@ -634,6 +674,7 @@ fn every_directive_spelling_is_honoured() {
         ("# rust-formatter: fmt-off", "# rust-formatter: fmt-on"),
     ] {
         let source = format!("{off}\na   =   1\n{on}\nb   =   2\n");
+
         assert_eq!(
             styled(&source, &[]),
             format!("{off}\na   =   1\n{on}\nb = 2\n"),
@@ -676,6 +717,7 @@ fn a_frozen_region_keeps_its_own_line_endings_in_a_crlf_file() {
 fn a_frozen_region_is_reported_as_clean() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("frozen.toml");
+
     std::fs::write(&path, "# fmt: off\na   =   1\n# fmt: on\n").unwrap();
 
     formatter()

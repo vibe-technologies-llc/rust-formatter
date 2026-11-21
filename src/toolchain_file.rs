@@ -15,7 +15,7 @@ use crate::detector;
 const NAMES: [&str; 2] = ["rust-toolchain.toml", "rust-toolchain"];
 
 /// The channel a repository pins, and the file that pinned it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pin {
     pub channel: String,
     pub path: PathBuf,
@@ -30,6 +30,7 @@ pub struct Pin {
 pub fn discover(start: &Path) -> Option<Pin> {
     let stop =
         detector::find_cargo_manifest(start).map(|manifest| detector::workspace_root(&manifest));
+
     for dir in detector::project_ancestors(start) {
         for name in NAMES {
             let candidate = dir.join(name);
@@ -53,6 +54,7 @@ pub fn discover(start: &Path) -> Option<Pin> {
 fn read(path: &Path) -> Option<String> {
     let source = std::fs::read_to_string(path).ok()?;
     let trimmed = source.trim();
+
     if trimmed.is_empty() {
         return None;
     }
@@ -98,12 +100,15 @@ mod tests {
     #[test]
     fn the_channel_is_read_out_of_the_toolchain_table() {
         let temp = tempfile::tempdir().unwrap();
+
         at(
             temp.path(),
             "rust-toolchain.toml",
             "[toolchain]\nchannel = \"nightly-2026-06-01\"\ncomponents = [\"rustfmt\"]\n",
         );
+
         let found = discover(temp.path()).unwrap();
+
         assert_eq!(found.channel, "nightly-2026-06-01");
         assert_eq!(found.path, temp.path().join("rust-toolchain.toml"));
     }
@@ -113,19 +118,23 @@ mod tests {
     #[test]
     fn a_legacy_file_is_a_bare_channel_name() {
         let temp = tempfile::tempdir().unwrap();
+
         at(temp.path(), "rust-toolchain", "stable\n");
+
         assert_eq!(discover(temp.path()).unwrap().channel, "stable");
     }
 
     #[test]
     fn the_toml_spelling_is_preferred_over_the_legacy_one() {
         let temp = tempfile::tempdir().unwrap();
+
         at(temp.path(), "rust-toolchain", "stable\n");
         at(
             temp.path(),
             "rust-toolchain.toml",
             "[toolchain]\nchannel = \"beta\"\n",
         );
+
         assert_eq!(discover(temp.path()).unwrap().channel, "beta");
     }
 
@@ -134,31 +143,38 @@ mod tests {
     #[test]
     fn a_file_with_no_channel_contributes_nothing() {
         let temp = tempfile::tempdir().unwrap();
+
         at(
             temp.path(),
             "rust-toolchain.toml",
             "[toolchain]\ncomponents = [\"rustfmt\"]\n",
         );
+
         assert!(discover(temp.path()).is_none());
 
         at(temp.path(), "rust-toolchain.toml", "this is not = = toml\n");
+
         assert!(discover(temp.path()).is_none());
 
         at(temp.path(), "rust-toolchain.toml", "   \n");
+
         assert!(discover(temp.path()).is_none());
     }
 
     #[test]
     fn an_unparseable_toml_file_is_not_read_as_a_bare_channel() {
         let temp = tempfile::tempdir().unwrap();
+
         at(
             temp.path(),
             "rust-toolchain.toml",
             "[toolchain]\nchannel = \"nightly\n",
         );
+
         assert!(discover(temp.path()).is_none());
 
         at(temp.path(), "rust-toolchain.toml", "nightly\n");
+
         assert!(discover(temp.path()).is_none());
     }
 
@@ -166,12 +182,14 @@ mod tests {
     fn a_file_above_the_start_is_found() {
         let temp = tempfile::tempdir().unwrap();
         let nested = temp.path().join("crates").join("member");
+
         fs::create_dir_all(&nested).unwrap();
         at(
             temp.path(),
             "rust-toolchain.toml",
             "[toolchain]\nchannel = \"nightly\"\n",
         );
+
         assert_eq!(discover(&nested).unwrap().channel, "nightly");
     }
 }

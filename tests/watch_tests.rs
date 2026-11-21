@@ -68,6 +68,7 @@ fn spawn(dir: &Path, cache: &Path) -> Watcher {
 /// this from being flaky.
 fn becomes(path: &PathBuf, expected: &str) -> bool {
     let deadline = Instant::now() + DEADLINE;
+
     while Instant::now() < deadline {
         if fs::read_to_string(path).is_ok_and(|body| body == expected) {
             return true;
@@ -82,10 +83,12 @@ fn becomes(path: &PathBuf, expected: &str) -> bool {
 #[test]
 fn a_save_is_reformatted() {
     needs_watcher!();
+
     let dir = tempdir().unwrap();
     let cache = tempdir().unwrap();
 
     let existing = dir.path().join("before.toml");
+
     fs::write(&existing, "a={b=\"c\"}\n").unwrap();
 
     let _watcher = spawn(dir.path(), cache.path());
@@ -98,7 +101,9 @@ fn a_save_is_reformatted() {
 
     // Then a save the watcher had to notice for itself.
     let saved = dir.path().join("after.toml");
+
     fs::write(&saved, "d={e=\"f\"}\n").unwrap();
+
     assert!(
         becomes(&saved, "d.e = \"f\"\n"),
         "a file written while watching was not formatted"
@@ -110,12 +115,16 @@ fn a_save_is_reformatted() {
 #[test]
 fn an_excluded_save_is_left_alone() {
     needs_watcher!();
+
     let dir = tempdir().unwrap();
     let cache = tempdir().unwrap();
 
     let watched = dir.path().join("watched.toml");
+
     fs::write(&watched, "a={b=\"c\"}\n").unwrap();
+
     let generated = dir.path().join("gen/x.toml");
+
     fs::create_dir_all(generated.parent().unwrap()).unwrap();
 
     let child = process::Command::new(assert_cmd::cargo::cargo_bin("rust-formatter"))
@@ -132,10 +141,12 @@ fn an_excluded_save_is_left_alone() {
     assert!(becomes(&watched, "a.b = \"c\"\n"), "the first pass ran");
 
     let untouched = "g={h=\"i\"}\n";
+
     fs::write(&generated, untouched).unwrap();
     // Give the watcher every chance to get it wrong: one more save it *does*
     // care about has to be handled before the excluded one is judged.
     fs::write(&watched, "j={k=\"l\"}\n").unwrap();
+
     assert!(becomes(&watched, "j.k = \"l\"\n"), "the later save ran");
     assert_eq!(
         fs::read_to_string(&generated).unwrap(),
@@ -150,6 +161,7 @@ fn an_excluded_save_is_left_alone() {
 fn a_missing_path_exits_two() {
     let dir = tempdir().unwrap();
     let missing = dir.path().join("nowhere");
+
     let assert = Command::cargo_bin("rust-formatter")
         .unwrap()
         .env("RUST_FORMATTER_CACHE_DIR", dir.path())
@@ -159,6 +171,7 @@ fn a_missing_path_exits_two() {
         .failure()
         .code(2);
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+
     assert!(stderr.contains("does not exist"), "{stderr}");
     assert!(
         assert.get_output().stdout.is_empty(),

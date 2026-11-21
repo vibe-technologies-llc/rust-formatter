@@ -27,7 +27,7 @@ use crate::{
 
 const EDITIONS: [&str; 4] = ["2015", "2018", "2021", "2024"];
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum ColorArg {
     Auto,
     Always,
@@ -44,13 +44,13 @@ impl From<ColorArg> for ColorChoice {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum EmitArg {
     Files,
     Stdout,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum MessageFormatArg {
     Human,
     Json,
@@ -65,7 +65,7 @@ impl From<MessageFormatArg> for MessageFormat {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum ArrayStyleArg {
     Preserve,
     Auto,
@@ -82,7 +82,7 @@ impl From<ArrayStyleArg> for ArrayStyle {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum SpacingArg {
     Compact,
     Spaced,
@@ -97,7 +97,7 @@ impl From<SpacingArg> for Spacing {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum InlineTableStyleArg {
     Auto,
     Compact,
@@ -116,7 +116,7 @@ impl From<InlineTableStyleArg> for InlineTableStyle {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum PackageOrderArg {
     Book,
     StyleGuide,
@@ -131,7 +131,7 @@ impl From<PackageOrderArg> for PackageOrder {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum TomlVersionArg {
     #[value(name = "1.0")]
     V1_0,
@@ -148,7 +148,7 @@ impl From<TomlVersionArg> for TomlVersion {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum TrailingCommaArg {
     Never,
     Multiline,
@@ -163,13 +163,13 @@ impl From<TrailingCommaArg> for TrailingComma {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum DirectivesArg {
     On,
     Off,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum RustStyleArg {
     Comments,
     Literals,
@@ -205,6 +205,7 @@ fn parse_range(value: &str) -> Result<LineRange, String> {
         let only = position(value)?;
         (only, only)
     };
+
     if end < start {
         return Err(format!("range {start}-{end} ends before it starts"));
     }
@@ -231,7 +232,7 @@ Examples:
   cat x.rs | rust-formatter --stdin --stdin-filepath x.rs
 ";
 
-#[derive(Parser, Debug)]
+#[derive(Debug, Parser)]
 #[command(
     name = "rust-formatter",
     about = "Format Rust and TOML without writing rustfmt.toml or changing the project's toolchain",
@@ -875,6 +876,46 @@ struct Cli {
     )]
     no_all: Option<bool>,
 
+    #[arg(
+        help_heading = "Rust formatting",
+        long = "paragraphs",
+        help = "Insert a blank line between statement groups of different kinds (on by default; --no-paragraphs turns it off).",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "true",
+        value_name = "BOOL",
+        value_parser = boolish(),
+        overrides_with_all = ["paragraphs", "no_paragraphs"]
+    )]
+    paragraphs: Option<bool>,
+
+    #[arg(long = "no-paragraphs",
+        hide = true,
+        action = clap::ArgAction::SetTrue,
+        overrides_with_all = ["paragraphs", "no_paragraphs"]
+    )]
+    no_paragraphs: bool,
+
+    #[arg(
+        help_heading = "Rust formatting",
+        long = "sort-attributes",
+        help = "Sort #[derive(..)] and lint lists, and order runs of movable attributes shortest first (on by default; --no-sort-attributes turns it off).",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "true",
+        value_name = "BOOL",
+        value_parser = boolish(),
+        overrides_with_all = ["sort_attributes", "no_sort_attributes"]
+    )]
+    sort_attributes: Option<bool>,
+
+    #[arg(long = "no-sort-attributes",
+        hide = true,
+        action = clap::ArgAction::SetTrue,
+        overrides_with_all = ["sort_attributes", "no_sort_attributes"]
+    )]
+    no_sort_attributes: bool,
+
     /// Apply a named group of rustfmt options (repeatable, layered). --config still wins over it.
     #[arg(
         help_heading = "Rust formatting",
@@ -1095,7 +1136,7 @@ struct Cli {
 /// source: they are wiring for something else -- a shell, a manpage reader, a
 /// git repository -- and a repository with a typo in its own settings should
 /// still be able to ask for them.
-#[derive(clap::Subcommand, Debug)]
+#[derive(Debug, clap::Subcommand)]
 enum Commands {
     /// Print a shell completion script for SHELL on standard output.
     Completions {
@@ -1121,7 +1162,7 @@ enum Commands {
     },
 }
 
-#[derive(clap::Subcommand, Debug)]
+#[derive(Debug, clap::Subcommand)]
 enum HookAction {
     /// Write the `pre-commit` hook into this repository's hooks directory.
     Install {
@@ -1162,6 +1203,7 @@ fn generated_from() -> clap::Command {
 
 fn completions(shell: clap_complete::aot::Shell, out_dir: Option<&Path>) -> i32 {
     let mut command = generated_from();
+
     if let Some(directory) = out_dir {
         return match clap_complete::aot::generate_to(
             shell,
@@ -1183,6 +1225,7 @@ fn completions(shell: clap_complete::aot::Shell, out_dir: Option<&Path>) -> i32 
     // build aborts on a panic -- so it is handed a buffer and the pipe is dealt
     // with here.
     let mut script = Vec::new();
+
     clap_complete::aot::generate(shell, &mut command, "rust-formatter", &mut script);
     emit(&script)
 }
@@ -1199,6 +1242,7 @@ fn man(out_dir: Option<&Path>) -> i32 {
             )),
         };
     }
+
     let mut page = Vec::new();
     match clap_mangen::Man::new(generated_from())
         .manual("General Commands Manual")
@@ -1244,6 +1288,7 @@ impl HookAction {
 /// preferred, and the alias itself is only recorded when there is none.
 fn hook_fallback() -> PathBuf {
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("rust-formatter"));
+
     if exe
         .file_stem()
         .is_some_and(|stem| stem == "cargo-rust-formatter")
@@ -1263,11 +1308,13 @@ fn install(cwd: &Path, check: bool, force: bool) -> i32 {
         hook::Mode::Restage
     };
     let fallback = hook_fallback();
+
     let (located, outcome) = match hook::install(cwd, mode, force, &fallback) {
         Ok(result) => result,
         Err(err) => fail(err),
     };
     let path = located.path.display();
+
     match outcome {
         Ok(hook::Installed::Unchanged) => {
             println!(
@@ -1315,6 +1362,7 @@ fn uninstall(cwd: &Path) -> i32 {
         Err(err) => fail(err),
     };
     let path = located.path.display();
+
     match outcome {
         Ok(hook::Uninstalled::Removed(mode)) => println!("removed {path} (mode {})", mode.name()),
         Ok(hook::Uninstalled::Restored(mode)) => {
@@ -1338,6 +1386,7 @@ fn status(cwd: &Path) -> i32 {
         Ok(located) => located,
         Err(err) => fail(err),
     };
+
     println!("hooks-dir: {}", located.directory.display());
     match located.state {
         hook::State::Ours { version, mode } => {
@@ -1417,6 +1466,7 @@ fn is(value: Option<Toggle>, fallback: bool) -> bool {
 
 fn config_overlay(entries: &[String]) -> Result<BTreeMap<String, ConfigValue>, Usage> {
     let mut parsed = RustfmtConfig::empty();
+
     parsed.extend_from_slice(entries)?;
     Ok(parsed
         .options()
@@ -1554,6 +1604,8 @@ impl Cli {
             self.cargo_conventions,
             self.no_cargo_conventions,
         ));
+        out.paragraphs = toggle(typed_flag(self.paragraphs, self.no_paragraphs));
+        out.sort_attributes = toggle(typed_flag(self.sort_attributes, self.no_sort_attributes));
 
         out.jobs = self.jobs;
         out.fail_fast = toggle(typed_flag(self.fail_fast, self.no_fail_fast));
@@ -1585,6 +1637,7 @@ impl Cli {
         run: &RunContext,
     ) -> Result<FormatterOptions, Usage> {
         let mut config = RustfmtConfig::default();
+
         for style in settings.rust_style.clone().unwrap_or_default() {
             config.apply_style(style);
         }
@@ -1593,6 +1646,7 @@ impl Cli {
                 config.set(key.clone(), value.to_string());
             }
         }
+
         let unset_configs = settings.unset_config.clone().unwrap_or_default();
         let unset_misses = config.unset_all(&unset_configs);
 
@@ -1602,6 +1656,7 @@ impl Cli {
         // patterns, anchored at the directory being walked, and applies them to
         // TOML as well -- so that is where the list goes.
         let mut excludes = settings.exclude.clone().unwrap_or_default();
+
         if let Some(list) = config.take("ignore") {
             excludes.extend(parse_string_list(&list)?);
         }
@@ -1695,6 +1750,8 @@ impl Cli {
             config_sources: run.config_sources.clone(),
             lenient_keys: run.lenient.clone(),
             toml_style,
+            paragraphs: is(settings.paragraphs, true),
+            sort_attributes: is(settings.sort_attributes, true),
             extra_args: self.extra_args,
             full_versions: self.full_versions,
             upgrade: UpgradePolicy {
@@ -1761,6 +1818,7 @@ pub fn main() -> ! {
 /// every error message names a binary the caller did not type.
 pub fn cargo_main() -> ! {
     let mut args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+
     if args.get(1).is_some_and(|first| first == "rust-formatter") {
         args.remove(1);
     }
@@ -1782,9 +1840,11 @@ fn dispatch(args: impl IntoIterator<Item = std::ffi::OsString>, bin_name: &'stat
     }
 
     let mut names = cli.preset.clone();
+
     if cli.style_guide {
         names.insert(0, "style-guide".to_string());
     }
+
     let request = SettingsCli {
         preset: names,
         config_file: cli.config_file.clone(),
@@ -1800,6 +1860,7 @@ fn dispatch(args: impl IntoIterator<Item = std::ffi::OsString>, bin_name: &'stat
         Err(usage) => fail_run(usage, &cli, resolved.settings.message_format),
     };
     let typed = |id: &str| matches.value_source(id) == Some(ValueSource::CommandLine);
+
     let run = RunContext {
         lenient: lenient_keys(&resolved.settings, &overlay),
         config_sources: resolved.sources.iter().map(Source::to_string).collect(),
@@ -1812,6 +1873,7 @@ fn dispatch(args: impl IntoIterator<Item = std::ffi::OsString>, bin_name: &'stat
     if cli.print_settings {
         let json = settings.message_format == Some(MessageFormat::Json);
         let text = settings::render(&settings, &provenance, json);
+
         print!("{text}");
         process::exit(0);
     }
@@ -1824,6 +1886,7 @@ fn dispatch(args: impl IntoIterator<Item = std::ffi::OsString>, bin_name: &'stat
     let watch = cli.watch;
     let message_format = settings.message_format;
     let failure_mode = failure_mode(&cli);
+
     let options = match cli.into_options(&settings, &run) {
         Ok(options) => options,
         Err(usage) => report_run_failure(usage.into(), failure_mode, message_format),
@@ -1856,7 +1919,9 @@ fn report_run_failure(err: Error, mode: ReportMode, format: Option<MessageFormat
     if format != Some(MessageFormat::Json) {
         fail(err);
     }
+
     let streams = Streams::new(io::stdout(), false, io::stderr(), false, ColorChoice::Never);
+
     process::exit(crate::report_failure(err, mode, &streams));
 }
 
@@ -1895,6 +1960,7 @@ fn lenient_keys(resolved: &Settings, overlay: &Settings) -> BTreeSet<String> {
         .filter(|key| !typed_config.contains_key(*key))
         .cloned()
         .collect();
+
     keys.extend(
         resolved
             .unset_config
@@ -1912,6 +1978,7 @@ fn merge_command_line(resolved: Resolved, overlay: Settings) -> (Settings, Prove
         mut provenance,
         ..
     } = resolved;
+
     settings.merge_from(overlay, &Source::CommandLine, &mut provenance);
     (settings, provenance)
 }
@@ -1976,11 +2043,13 @@ fn validate(cli: &Cli, settings: &Settings) -> Result<(), Usage> {
         if !cli.stdin && cli.paths.len() != 1 {
             return Err(Usage::RangeNeedsOnePath);
         }
+
         let named = if cli.stdin {
             cli.stdin_filepath.as_deref()
         } else {
             cli.paths.first().map(PathBuf::as_path)
         };
+
         if named.is_some_and(crate::detector::is_toml_path) {
             return Err(Usage::RangeOnToml);
         }
@@ -2081,6 +2150,7 @@ mod tests {
             let err = Cli::command()
                 .try_get_matches_from(std::iter::once("rust-formatter").chain(args.iter().copied()))
                 .expect_err(&format!("{left} + {right} was accepted: {args:?}"));
+
             assert_eq!(
                 err.kind(),
                 clap::error::ErrorKind::ArgumentConflict,
@@ -2101,6 +2171,7 @@ mod tests {
             .collect();
 
         let mut missing = Vec::new();
+
         for arg in command.get_arguments() {
             let left = arg.get_id().as_str();
             for other in command.get_arg_conflicts_with(arg) {
@@ -2112,6 +2183,7 @@ mod tests {
         }
         missing.sort_unstable();
         missing.dedup();
+
         assert!(
             missing.is_empty(),
             "conflicts with no row in CONFLICTS: {missing:?}"
@@ -2128,6 +2200,7 @@ mod tests {
             .try_get_matches_from(std::iter::once("rust-formatter").chain(args.iter().copied()))
             .map_err(|err| format!("clap rejected the arguments: {err}"))?;
         let cli = Cli::from_arg_matches(&matches).map_err(|err| err.to_string())?;
+
         let settings = cli.overlay(&matches).map_err(|usage| usage.to_string())?;
         validate(&cli, &settings).map_err(|usage| usage.to_string())
     }
@@ -2135,6 +2208,7 @@ mod tests {
     #[track_caller]
     fn rejected(args: &[&str], expected: &str) {
         let message = check(args).expect_err(&format!("{args:?} was accepted"));
+
         assert_eq!(message, expected, "{args:?}");
     }
 
@@ -2153,6 +2227,7 @@ mod tests {
     #[test]
     fn emit_stdout_needs_exactly_one_file_to_print() {
         let message = "--emit stdout needs --stdin or exactly one PATH";
+
         rejected(&["--emit", "stdout"], message);
         rejected(&["--emit", "stdout", "a.rs", "b.rs"], message);
         accepted(&["--emit", "stdout", "a.rs"]);
@@ -2162,6 +2237,7 @@ mod tests {
     #[test]
     fn stdin_takes_no_path() {
         let message = "--stdin formats standard input and takes no PATH; name the input with --stdin-filepath";
+
         rejected(&["--stdin", "x/Cargo.toml"], message);
         rejected(&["--stdin", "--stdin-filepath", "a.rs", "b.rs"], message);
         accepted(&["--stdin"]);
@@ -2175,6 +2251,7 @@ mod tests {
     fn watch_cannot_preview() {
         let message =
             "--watch rewrites files as they change, so it cannot be combined with --emit stdout";
+
         rejected(&["--watch", "--emit", "stdout", "a.rs"], message);
         accepted(&["--watch", "--emit", "files"]);
         accepted(&["--watch"]);
@@ -2194,20 +2271,24 @@ mod tests {
         };
 
         let subcommand = parse(&["completions", "bash"]);
+
         assert!(subcommand.command.is_some());
         assert_eq!(subcommand.paths, Vec::<PathBuf>::new());
 
         for spelling in ["./completions", "completions/"] {
             let path = parse(&[spelling]);
+
             assert!(path.command.is_none(), "{spelling}");
             assert_eq!(path.paths, vec![PathBuf::from(spelling)], "{spelling}");
         }
 
         let after_a_path = parse(&["src", "completions"]);
+
         assert!(after_a_path.command.is_none());
         assert_eq!(after_a_path.paths.len(), 2);
 
         let passed_through = parse(&["--", "completions"]);
+
         assert!(passed_through.command.is_none());
         assert_eq!(passed_through.extra_args, vec!["completions".to_string()]);
     }
@@ -2220,6 +2301,7 @@ mod tests {
         let err = Cli::command()
             .try_get_matches_from(["rust-formatter", "--check", "completions"])
             .expect_err("`completions` is taken as the subcommand");
+
         assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
     }
 
@@ -2232,6 +2314,7 @@ mod tests {
             .get_subcommands()
             .map(clap::Command::get_name)
             .collect();
+
         assert_eq!(names, ["completions", "man", "hook"]);
 
         let hook = command
@@ -2241,6 +2324,7 @@ mod tests {
             .get_subcommands()
             .map(clap::Command::get_name)
             .collect();
+
         assert_eq!(actions, ["install", "uninstall", "status"]);
     }
 
@@ -2266,6 +2350,7 @@ mod tests {
     fn a_preview_is_not_a_listing() {
         let message =
             "--emit stdout prints a formatted file, so it cannot be combined with a listing";
+
         rejected(&["--emit", "stdout", "--list-files", "a.rs"], message);
         rejected(&["--emit", "stdout", "--list-different", "a.rs"], message);
     }
@@ -2298,6 +2383,7 @@ mod tests {
     fn recursing_submodules_needs_a_git_scope() {
         let message =
             "--recurse-submodules narrows --since or --staged, which is what asks git for a scope";
+
         rejected(&["--recurse-submodules"], message);
         accepted(&["--recurse-submodules", "--staged"]);
         accepted(&["--recurse-submodules", "--since", "HEAD"]);
@@ -2327,6 +2413,7 @@ mod tests {
     #[test]
     fn a_range_names_lines_of_one_file() {
         let message = "--range needs --stdin or exactly one PATH";
+
         rejected(&["--range", "1:2"], message);
         rejected(&["--range", "1:2", "a.rs", "b.rs"], message);
         accepted(&["--range", "1:2", "a.rs"]);
@@ -2339,6 +2426,7 @@ mod tests {
     #[test]
     fn a_range_over_a_directory_is_refused() {
         let message = "--range needs a .rs file or --stdin";
+
         rejected(&["--range", "1:2", "."], message);
         rejected(&["--range", "1:2", "src"], message);
         rejected(&["--range", "1:2", "lib.rs.bak"], message);
@@ -2351,6 +2439,7 @@ mod tests {
     #[test]
     fn a_range_over_toml_is_refused_by_name() {
         let message = "--range formats Rust only; TOML is formatted as a whole document";
+
         rejected(&["--range", "1:2", "Cargo.toml"], message);
         rejected(
             &[

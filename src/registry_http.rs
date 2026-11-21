@@ -25,7 +25,7 @@ const BACKOFF_CAP: Duration = Duration::from_secs(10);
 /// the header is treated as a refusal rather than a delay.
 const RETRY_AFTER_CAP: Duration = Duration::from_secs(60);
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct HttpOptions {
     pub timeout: Duration,
     pub retries: u32,
@@ -132,6 +132,7 @@ impl HttpClient {
                 Ok(fetched) => return Ok(fetched),
                 Err(err) if attempt < self.retries && retry_delay(&err).is_some() => {
                     let hinted = retry_delay(&err).unwrap_or_default();
+
                     thread::sleep(hinted.max(backoff(attempt)));
                     attempt += 1;
                 }
@@ -149,11 +150,13 @@ impl HttpClient {
                 .get(target.as_str())
                 .header("User-Agent", self.user_agent.as_str())
                 .header("Accept", "text/plain");
+
             if let Some(etag) = etag {
                 request = request.header("If-None-Match", etag);
             }
 
             let mut response = request.call().map_err(transport_error)?;
+
             let status = response.status().as_u16();
 
             match status {
@@ -169,6 +172,7 @@ impl HttpClient {
                         .limit(MAX_BODY_BYTES)
                         .read_to_vec()
                         .map_err(transport_error)?;
+
                     return Ok(Fetched::Body { bytes, etag });
                 }
                 304 => return Ok(Fetched::NotModified),
@@ -181,6 +185,7 @@ impl HttpClient {
                         .ok_or_else(|| {
                             HttpError::Redirect(format!("{status} without a Location header"))
                         })?;
+
                     target = self.redirect_target(&target, location)?;
                 }
                 other => {
@@ -189,6 +194,7 @@ impl HttpClient {
                         .get("retry-after")
                         .and_then(|value| value.to_str().ok())
                         .and_then(retry_after);
+
                     return Err(HttpError::Status {
                         code: other,
                         retry_after,
@@ -264,6 +270,7 @@ fn backoff(attempt: u32) -> Duration {
 /// thing to a caller that only needs a delay.
 fn retry_after(value: &str) -> Option<Duration> {
     let trimmed = value.trim();
+
     if trimmed.is_empty() {
         return None;
     }
@@ -289,6 +296,7 @@ fn tls_config(cainfo: Option<&Path>) -> Result<TlsConfig, HttpError> {
             _ => None,
         })
         .collect();
+
     if certs.is_empty() {
         return Err(HttpError::Tls(format!(
             "{} holds no PEM certificates",
@@ -315,6 +323,7 @@ fn split_origin(url: &str) -> Option<(&str, &str)> {
     let host = authority
         .rsplit_once('@')
         .map_or(authority, |(_, host)| host);
+
     if host.is_empty() {
         return None;
     }
@@ -327,9 +336,11 @@ pub fn is_loopback_http(base: &str) -> bool {
     let Some((scheme, authority)) = split_origin(base) else {
         return false;
     };
+
     if scheme != "http" {
         return false;
     }
+
     let host = match authority.strip_prefix('[') {
         Some(v6) => v6.split(']').next().unwrap_or(v6),
         None => authority.split(':').next().unwrap_or(authority),
@@ -402,7 +413,9 @@ mod tests {
     #[test]
     fn a_loopback_client_may_follow_a_cleartext_redirect_to_itself() {
         let mut options = options();
+
         options.allow_cleartext = true;
+
         let client = HttpClient::new(&options).unwrap();
 
         assert!(
@@ -457,7 +470,9 @@ mod tests {
     fn a_ca_bundle_without_certificates_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let empty = dir.path().join("roots.pem");
+
         std::fs::write(&empty, "not a certificate\n").unwrap();
+
         assert!(tls_config(Some(&empty)).is_err());
         assert!(tls_config(Some(&dir.path().join("missing.pem"))).is_err());
     }

@@ -93,7 +93,9 @@ pub fn artifacts(command: &mut Command) -> Result<Vec<Artifact>> {
         .arg("--message-format=json-render-diagnostics")
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
+
     let output = output(command)?;
+
     if !output.status.success() {
         return Err(Error::Failed {
             command: describe(command),
@@ -102,10 +104,12 @@ pub fn artifacts(command: &mut Command) -> Result<Vec<Artifact>> {
     }
 
     let mut artifacts = Vec::new();
+
     for line in output.stdout.split(|byte| *byte == b'\n') {
         if line.is_empty() {
             continue;
         }
+
         let message: Message =
             serde_json::from_slice(line).map_err(|source| Error::CargoMessage {
                 command: describe(command),
@@ -116,6 +120,7 @@ pub fn artifacts(command: &mut Command) -> Result<Vec<Artifact>> {
         else {
             continue;
         };
+
         if message.reason != ARTIFACT {
             continue;
         }
@@ -131,6 +136,7 @@ pub fn artifacts(command: &mut Command) -> Result<Vec<Artifact>> {
 
 pub fn release_binary(manifest: &Path, target_dir: Option<&Path>) -> Result<PathBuf> {
     let mut command = cargo();
+
     command
         .args([
             "build",

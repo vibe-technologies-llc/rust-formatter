@@ -255,6 +255,7 @@ mod tests {
 
     fn write_config(dir: &Path, name: &str, body: &str) {
         let cargo = dir.join(".cargo");
+
         fs::create_dir_all(&cargo).unwrap();
         fs::write(cargo.join(name), body).unwrap();
     }
@@ -266,9 +267,12 @@ mod tests {
         let temp = tempdir().unwrap();
         let tree = temp.path().join("tree");
         let cwd = temp.path().join("cwd");
+
         fs::create_dir_all(&tree).unwrap();
         fs::create_dir_all(&cwd).unwrap();
+
         let map = env_from(&[("CARGO_TARGET_DIR", "build")]);
+
         assert_eq!(
             target_dir(&tree, &cwd, &lookup(&map)).path,
             Some(cwd.join("build"))
@@ -278,9 +282,12 @@ mod tests {
     #[test]
     fn an_unreadable_config_is_named_by_the_build_directory_lookup() {
         let temp = tempdir().unwrap();
+
         write_config(temp.path(), "config.toml", "[build\ntarget-dir = ");
+
         let map = env_from(&[]);
         let found = target_dir(temp.path(), temp.path(), &lookup(&map));
+
         assert_eq!(found.path, None);
         assert_eq!(found.unreadable.len(), 1);
     }
@@ -288,12 +295,15 @@ mod tests {
     #[test]
     fn env_target_dir_wins_over_config() {
         let temp = tempdir().unwrap();
+
         write_config(
             temp.path(),
             "config.toml",
             "[build]\ntarget-dir = \"from-config\"\n",
         );
+
         let map = env_from(&[("CARGO_TARGET_DIR", "/from/env")]);
+
         assert_eq!(
             target_dir(temp.path(), temp.path(), &lookup(&map)).path,
             Some(PathBuf::from("/from/env"))
@@ -304,6 +314,7 @@ mod tests {
     fn nearest_config_wins() {
         let temp = tempdir().unwrap();
         let nested = temp.path().join("crates").join("foo");
+
         fs::create_dir_all(&nested).unwrap();
         write_config(
             temp.path(),
@@ -311,7 +322,9 @@ mod tests {
             "[build]\ntarget-dir = \"outer\"\n",
         );
         write_config(&nested, "config.toml", "[build]\ntarget-dir = \"inner\"\n");
+
         let map = env_from(&[]);
+
         assert_eq!(
             target_dir(&nested, &nested, &lookup(&map)).path,
             Some(nested.join("inner"))
@@ -321,8 +334,11 @@ mod tests {
     #[test]
     fn extensionless_config_is_read() {
         let temp = tempdir().unwrap();
+
         write_config(temp.path(), "config", "[build]\ntarget-dir = \"legacy\"\n");
+
         let map = env_from(&[]);
+
         assert_eq!(
             target_dir(temp.path(), temp.path(), &lookup(&map)).path,
             Some(temp.path().join("legacy"))
@@ -333,15 +349,20 @@ mod tests {
     fn cargo_home_config_is_the_last_layer() {
         let temp = tempdir().unwrap();
         let home = temp.path().join("cargo-home");
+
         fs::create_dir_all(&home).unwrap();
         fs::write(
             home.join("config.toml"),
             "[build]\ntarget-dir = \"/shared/target\"\n",
         )
         .unwrap();
+
         let project = temp.path().join("project");
+
         fs::create_dir_all(&project).unwrap();
+
         let map = env_from(&[("CARGO_HOME", home.to_str().unwrap())]);
+
         assert_eq!(
             target_dir(&project, &project, &lookup(&map)).path,
             Some(PathBuf::from("/shared/target"))
@@ -352,11 +373,14 @@ mod tests {
     fn cargo_home_reads_the_extensionless_name_too() {
         let temp = tempdir().unwrap();
         let home = temp.path().join("cargo-home");
+
         fs::create_dir_all(&home).unwrap();
         fs::write(home.join("config"), "[net]\nretry = 9\n").unwrap();
+
         let map = env_from(&[("CARGO_HOME", home.to_str().unwrap())]);
 
         let config = CargoConfig::load(temp.path(), &lookup(&map));
+
         assert_eq!(config.u64(&["net", "retry"]), Some(9));
     }
 
@@ -364,12 +388,14 @@ mod tests {
     fn a_relative_start_still_reads_the_config_of_every_parent_directory() {
         let temp = tempdir().unwrap();
         let member = temp.path().join("crates").join("member");
+
         fs::create_dir_all(&member).unwrap();
         write_config(
             temp.path(),
             "config.toml",
             "[source.crates-io]\nreplace-with = \"vendored-sources\"\n",
         );
+
         let map = env_from(&[]);
 
         let config =
@@ -384,8 +410,10 @@ mod tests {
     #[test]
     fn only_the_extensionless_config_is_read_when_both_names_exist() {
         let temp = tempdir().unwrap();
+
         write_config(temp.path(), "config", "[http]\ntimeout = 3\n");
         write_config(temp.path(), "config.toml", "[net]\nretry = 1\n");
+
         let map = env_from(&[]);
 
         let config = CargoConfig::load(temp.path(), &lookup(&map));
@@ -398,11 +426,15 @@ mod tests {
     fn only_the_extensionless_cargo_home_config_is_read_when_both_names_exist() {
         let temp = tempdir().unwrap();
         let home = temp.path().join("cargo-home");
+
         fs::create_dir_all(&home).unwrap();
         fs::write(home.join("config"), "[http]\ntimeout = 3\n").unwrap();
         fs::write(home.join("config.toml"), "[net]\nretry = 1\n").unwrap();
+
         let project = temp.path().join("project");
+
         fs::create_dir_all(&project).unwrap();
+
         let map = env_from(&[("CARGO_HOME", home.to_str().unwrap())]);
 
         let config = CargoConfig::load(&project, &lookup(&map));
@@ -415,6 +447,7 @@ mod tests {
     fn the_nearest_layer_wins_per_key_rather_than_per_table() {
         let temp = tempdir().unwrap();
         let nested = temp.path().join("crates").join("foo");
+
         fs::create_dir_all(&nested).unwrap();
         write_config(
             temp.path(),
@@ -422,9 +455,11 @@ mod tests {
             "[http]\ntimeout = 5\nproxy = \"http://outer:3128\"\n",
         );
         write_config(&nested, "config.toml", "[http]\ntimeout = 11\n");
+
         let map = env_from(&[]);
 
         let config = CargoConfig::load(&nested, &lookup(&map));
+
         assert_eq!(config.u64(&["http", "timeout"]), Some(11));
         assert_eq!(config.str(&["http", "proxy"]), Some("http://outer:3128"));
         assert_eq!(config.bool(&["net", "offline"]), None);
@@ -433,10 +468,13 @@ mod tests {
     #[test]
     fn a_config_that_does_not_parse_is_named_rather_than_swallowed() {
         let temp = tempdir().unwrap();
+
         write_config(temp.path(), "config.toml", "[http\ntimeout = ");
+
         let map = env_from(&[]);
 
         let config = CargoConfig::load(temp.path(), &lookup(&map));
+
         assert_eq!(config.unreadable().len(), 1);
         assert!(config.unreadable()[0].ends_with("config.toml"));
         assert_eq!(config.u64(&["http", "timeout"]), None);
@@ -445,15 +483,18 @@ mod tests {
     #[test]
     fn a_source_table_is_readable_by_name() {
         let temp = tempdir().unwrap();
+
         write_config(
             temp.path(),
             "config.toml",
             "[source.crates-io]\nreplace-with = \"mirror\"\n\
              [source.mirror]\nregistry = \"sparse+https://mirror.example/index/\"\n",
         );
+
         let map = env_from(&[]);
 
         let config = CargoConfig::load(temp.path(), &lookup(&map));
+
         assert_eq!(
             config.str(&["source", "crates-io", "replace-with"]),
             Some("mirror")
@@ -468,14 +509,17 @@ mod tests {
     #[test]
     fn a_relative_config_path_resolves_against_the_layer_that_declared_it() {
         let temp = tempdir().unwrap();
+
         write_config(
             temp.path(),
             "config.toml",
             "[http]\ncainfo = \"roots.pem\"\n",
         );
+
         let map = env_from(&[]);
 
         let config = CargoConfig::load(temp.path(), &lookup(&map));
+
         assert_eq!(
             config.path(&["http", "cainfo"]),
             Some(temp.path().join("roots.pem"))
@@ -486,16 +530,22 @@ mod tests {
     fn a_source_dir_named_target_is_not_a_build_dir() {
         let temp = tempdir().unwrap();
         let source = temp.path().join("src").join("target");
+
         fs::create_dir_all(&source).unwrap();
+
         assert!(!is_build_dir(&source, "target".as_ref(), &[]));
     }
 
     #[test]
     fn a_target_dir_beside_a_manifest_is_a_build_dir() {
         let temp = tempdir().unwrap();
+
         fs::write(temp.path().join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+
         let build = temp.path().join("target");
+
         fs::create_dir_all(&build).unwrap();
+
         assert!(is_build_dir(&build, "target".as_ref(), &[]));
     }
 
@@ -503,12 +553,14 @@ mod tests {
     fn a_cachedir_tag_marks_a_build_dir_under_any_name() {
         let temp = tempdir().unwrap();
         let build = temp.path().join("build-output");
+
         fs::create_dir_all(&build).unwrap();
         fs::write(
             build.join("CACHEDIR.TAG"),
             "Signature: 8a477f597d28d172789f06886806bc55\n",
         )
         .unwrap();
+
         assert!(has_cachedir_tag(&build));
         assert!(is_build_dir(&build, "build-output".as_ref(), &[]));
     }

@@ -21,6 +21,7 @@ pub(crate) fn align<'a>(text: &'a str, style: &TomlStyle) -> Cow<'a, str> {
 
     let tab = style.tab_width();
     let mut current = Cow::Borrowed(text);
+
     if style.align_entries {
         current = pad(&current, tab, Column::Equals, style.directives).map_or(current, Cow::Owned);
     }
@@ -98,9 +99,11 @@ fn pad(text: &str, tab: usize, column: Column, directives: bool) -> Option<Strin
             group.clear();
             widest = 0;
         }
+
         let Some(head) = head else {
             continue;
         };
+
         if group.is_empty() {
             indent = leading_width(head, tab);
         }
@@ -114,6 +117,7 @@ fn pad(text: &str, tab: usize, column: Column, directives: bool) -> Option<Strin
     }
 
     let mut out = String::with_capacity(text.len() + targets.len());
+
     for (line, target) in lines.iter().zip(&targets) {
         let Some(target) = *target else {
             out.push_str(line.raw);
@@ -121,6 +125,7 @@ fn pad(text: &str, tab: usize, column: Column, directives: bool) -> Option<Strin
         };
         let at = line.split(column).expect("target implies a split point");
         let head = line.content[..at].trim_end();
+
         out.push_str(head);
         for _ in 0..=target - toml_width::width(head, tab) {
             out.push(' ');
@@ -153,6 +158,7 @@ fn scan<'a>(text: &'a str, regions: &Regions) -> Vec<Line<'a>> {
 
     for (split, equals, comment) in toml_scan::lines(text) {
         let end = offset + split.raw.len();
+
         lines.push(Line {
             raw: split.raw,
             content: split.content,
@@ -170,6 +176,7 @@ fn scan<'a>(text: &'a str, regions: &Regions) -> Vec<Line<'a>> {
 /// a wrapped array, say — has an `=` that belongs to something nested.
 fn is_key_path(text: &str) -> bool {
     let mut rest = text.trim();
+
     if rest.is_empty() {
         return false;
     }
@@ -177,6 +184,7 @@ fn is_key_path(text: &str) -> bool {
     loop {
         let end = if let Some(&quote @ (b'"' | b'\'')) = rest.as_bytes().first() {
             let end = single_line_string(rest.as_bytes(), 1, quote, quote == b'"');
+
             if rest.as_bytes().get(end - 1) != Some(&quote) || end == 1 {
                 return false;
             }
@@ -186,6 +194,7 @@ fn is_key_path(text: &str) -> bool {
                 .bytes()
                 .take_while(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'-')
                 .count();
+
             if end == 0 {
                 return false;
             }
@@ -256,6 +265,7 @@ mod tests {
     #[test]
     fn an_array_element_is_not_an_entry() {
         let source = "x = [\n    { a = 1 },\n    { bbb = 2 }\n]\n";
+
         assert_eq!(entries(source), source);
     }
 
@@ -299,12 +309,14 @@ mod tests {
     #[test]
     fn a_hash_inside_a_string_is_not_a_comment() {
         let source = "a = \"# no\"\nb = '# no'\n";
+
         assert_eq!(comments(source), source);
     }
 
     #[test]
     fn a_multi_line_string_hides_its_hashes() {
         let source = "a = \"\"\"\n# not a comment\nstill\"\"\"\nb = 1 # yes\nc = 2 # also\n";
+
         assert_eq!(
             comments(source),
             "a = \"\"\"\n# not a comment\nstill\"\"\"\nb = 1 # yes\nc = 2 # also\n"
@@ -345,6 +357,7 @@ mod tests {
     #[test]
     fn a_frozen_region_is_not_padded() {
         let source = "# fmt: off\na = 1\nbb = 2\n# fmt: on\n";
+
         assert_eq!(entries(source), source);
     }
 
@@ -367,6 +380,7 @@ mod tests {
             align_comments: true,
             ..TomlStyle::default()
         };
+
         assert_eq!(
             align(source, &style).into_owned(),
             "aaaaaaa = 1 # pad me\nb       = 2 # and me\n# fmt: off\nc = 3 # not me\ncc = 4 # nor me\n"
@@ -381,6 +395,7 @@ mod tests {
             directives: false,
             ..TomlStyle::default()
         };
+
         assert_eq!(
             align(source, &style).into_owned(),
             "# fmt: off\na  = 1\nbb = 2\n# fmt: on\n"

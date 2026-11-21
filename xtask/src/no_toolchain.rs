@@ -28,11 +28,13 @@ pub fn run() -> Result<ExitCode> {
         .filter(|artifact| artifact.test)
         .map(|artifact| artifact.executable.as_path())
         .collect();
+
     tests.sort_unstable();
     tests.dedup();
     if tests.is_empty() {
         return Err(Error::NoTestBinaries);
     }
+
     let binaries: Vec<(String, &Path)> = artifacts
         .iter()
         .filter(|artifact| artifact.bin && !artifact.test)
@@ -45,15 +47,18 @@ pub fn run() -> Result<ExitCode> {
         .collect();
 
     let shim = tempfile::tempdir().map_err(Error::io(&env::temp_dir()))?;
+
     for tool in FAILING_TOOLS {
         write_failing_tool(&shim.path().join(tool))?;
     }
+
     let search_path = env::join_paths(
         std::iter::once(shim.path().to_owned()).chain(SYSTEM_PATH.map(PathBuf::from)),
     )
     .map_err(Error::SearchPath)?;
 
     let mut failed = false;
+
     for test in &tests {
         let output = cargo::output(
             Command::new(test)
@@ -67,6 +72,7 @@ pub fn run() -> Result<ExitCode> {
             .file_name()
             .unwrap_or(test.as_os_str())
             .to_string_lossy();
+
         if output.status.success() {
             println!("    {name} skipped cleanly");
             continue;
@@ -74,6 +80,7 @@ pub fn run() -> Result<ExitCode> {
 
         failed = true;
         eprintln!("FAIL: {name} does not skip without a toolchain");
+
         let report = format!(
             "{}{}",
             String::from_utf8_lossy(&output.stdout),

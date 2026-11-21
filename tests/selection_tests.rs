@@ -14,6 +14,7 @@ use toolchain::{needs_nightly, nightly_available};
 
 fn formatter() -> Command {
     let mut cmd = Command::cargo_bin("rust-formatter").unwrap();
+
     cmd.env("RUST_FORMATTER_CACHE_DIR", cache_dir());
     cmd
 }
@@ -49,6 +50,7 @@ fn git_repo(dir: &Path) -> bool {
             .status()
             .is_ok_and(|status| status.success())
     };
+
     if !git(&["init", "--quiet", "."]) {
         eprintln!("SKIP: git is unavailable");
         return false;
@@ -134,6 +136,7 @@ fn pass_through_arguments_survive_multiple_paths() {
 #[test]
 fn several_targets_collapse_into_one_summary_line() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a/one.toml"), DIRTY);
     write(&temp.path().join("b/two.toml"), DIRTY);
 
@@ -150,6 +153,7 @@ fn several_targets_collapse_into_one_summary_line() {
 #[test]
 fn several_clean_targets_are_named_rather_than_counted() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a/one.toml"), CLEAN);
     write(&temp.path().join("b/two.toml"), CLEAN);
 
@@ -170,6 +174,7 @@ fn a_file_list_selects_exactly_its_entries() {
     let temp = tempdir().unwrap();
     let listed = write(&temp.path().join("listed.toml"), DIRTY);
     let unlisted = write(&temp.path().join("unlisted.toml"), DIRTY);
+
     let list = write(
         &temp.path().join("list.txt"),
         &format!("{}\n", listed.display()),
@@ -217,6 +222,7 @@ fn a_file_list_on_stdin_accepts_either_separator() {
 fn a_file_list_skips_blank_and_vanished_entries() {
     let temp = tempdir().unwrap();
     let kept = write(&temp.path().join("kept.toml"), DIRTY);
+
     let list = write(
         &temp.path().join("list.txt"),
         &format!(
@@ -253,6 +259,7 @@ fn positional_paths_narrow_a_file_list() {
     let temp = tempdir().unwrap();
     let inside = write(&temp.path().join("keep/one.toml"), DIRTY);
     let outside = write(&temp.path().join("drop/two.toml"), DIRTY);
+
     let list = write(
         &temp.path().join("list.txt"),
         &format!("{}\n{}\n", inside.display(), outside.display()),
@@ -274,14 +281,19 @@ fn positional_paths_narrow_a_file_list() {
 #[test]
 fn since_selects_committed_and_untracked_changes() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
+
     let committed = write(&temp.path().join("committed.toml"), DIRTY);
+
     git(temp.path(), &["add", "-A"]);
     git(temp.path(), &["commit", "--quiet", "-m", "change"]);
+
     let untracked = write(&temp.path().join("untracked.toml"), DIRTY);
     let unchanged = write(&temp.path().join("unchanged.toml"), DIRTY);
+
     git(temp.path(), &["add", "unchanged.toml"]);
     git(temp.path(), &["commit", "--quiet", "-m", "base"]);
 
@@ -294,12 +306,14 @@ fn since_selects_committed_and_untracked_changes() {
 
     assert_eq!(read(&committed), CLEAN);
     assert_eq!(read(&untracked), CLEAN, "a new file is a change too");
+
     let _ = unchanged;
 }
 
 #[test]
 fn since_with_no_changes_exits_zero_and_says_nothing() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
@@ -318,6 +332,7 @@ fn since_with_no_changes_exits_zero_and_says_nothing() {
 #[test]
 fn since_outside_a_repository_is_a_tool_error() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY);
 
     formatter()
@@ -333,6 +348,7 @@ fn since_outside_a_repository_is_a_tool_error() {
 #[test]
 fn an_unknown_ref_is_a_tool_error() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
@@ -352,6 +368,7 @@ fn an_unknown_ref_is_a_tool_error() {
 #[test]
 fn a_since_ref_that_looks_like_a_git_switch_is_a_ref() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
@@ -369,11 +386,14 @@ fn a_since_ref_that_looks_like_a_git_switch_is_a_ref() {
 #[test]
 fn staged_formats_only_staged_paths() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
+
     let staged = write(&temp.path().join("staged.toml"), DIRTY);
     let unstaged = write(&temp.path().join("unstaged.toml"), DIRTY);
+
     git(temp.path(), &["add", "staged.toml"]);
 
     formatter()
@@ -392,10 +412,13 @@ fn staged_formats_only_staged_paths() {
 #[test]
 fn staged_warns_when_the_working_tree_has_drifted() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
+
     let path = write(&temp.path().join("drift.toml"), DIRTY);
+
     git(temp.path(), &["add", "drift.toml"]);
     write(&path, &format!("{DIRTY}bar={{path=\"y\"}}\n"));
 
@@ -422,6 +445,7 @@ fn staged_works_before_the_first_commit() {
         .current_dir(temp.path())
         .status()
         .is_ok_and(|status| status.success());
+
     if !git_init {
         eprintln!("SKIP: git is unavailable");
         return;
@@ -431,8 +455,10 @@ fn staged_works_before_the_first_commit() {
         &["config", "user.email", "test@example.invalid"],
     );
     git(temp.path(), &["config", "user.name", "test"]);
+
     let staged = write(&temp.path().join("staged.toml"), DIRTY);
     let untracked = write(&temp.path().join("loose.toml"), DIRTY);
+
     git(temp.path(), &["add", "staged.toml"]);
 
     formatter()
@@ -450,13 +476,18 @@ fn staged_works_before_the_first_commit() {
 #[test]
 fn staged_reports_a_git_failure_rather_than_widening() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
+
     let tracked = write(&temp.path().join("tracked.toml"), DIRTY);
+
     git(temp.path(), &["add", "-A"]);
     git(temp.path(), &["commit", "--quiet", "-m", "tracked"]);
+
     let staged = write(&temp.path().join("staged.toml"), DIRTY);
+
     git(temp.path(), &["add", "staged.toml"]);
 
     let blob = StdCommand::new("git")
@@ -464,7 +495,9 @@ fn staged_reports_a_git_failure_rather_than_widening() {
         .current_dir(temp.path())
         .output()
         .unwrap();
+
     assert!(blob.status.success());
+
     git(temp.path(), &["symbolic-ref", "HEAD", "refs/heads/broken"]);
     write(
         &temp.path().join(".git/refs/heads/broken"),
@@ -486,11 +519,13 @@ fn staged_reports_a_git_failure_rather_than_widening() {
 #[test]
 fn staged_never_touches_the_index() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
     write(&temp.path().join("indexed.toml"), DIRTY);
     git(temp.path(), &["add", "indexed.toml"]);
+
     let before = StdCommand::new("git")
         .args(["diff", "--cached", "--name-only"])
         .current_dir(temp.path())
@@ -508,6 +543,7 @@ fn staged_never_touches_the_index() {
         .current_dir(temp.path())
         .output()
         .unwrap();
+
     assert_eq!(String::from_utf8(staged_blob.stdout).unwrap(), DIRTY);
     assert!(before.status.success());
 }
@@ -518,6 +554,7 @@ fn show(dir: &Path, spec: &str) -> String {
         .current_dir(dir)
         .output()
         .unwrap();
+
     assert!(output.status.success(), "git show {spec} failed");
     String::from_utf8(output.stdout).unwrap()
 }
@@ -527,10 +564,13 @@ fn show(dir: &Path, spec: &str) -> String {
 #[test]
 fn restage_puts_the_formatted_bytes_in_the_index() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
+
     let indexed = write(&temp.path().join("indexed.toml"), DIRTY);
+
     git(temp.path(), &["add", "indexed.toml"]);
 
     formatter()
@@ -548,11 +588,14 @@ fn restage_puts_the_formatted_bytes_in_the_index() {
 #[test]
 fn restage_leaves_a_partially_staged_path_alone() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
+
     let drifted = write(&temp.path().join("drifted.toml"), DIRTY);
     let clean = write(&temp.path().join("clean.toml"), DIRTY);
+
     git(temp.path(), &["add", "-A"]);
     write(&drifted, &format!("{DIRTY}bar={{path=\"y\"}}\n"));
 
@@ -565,6 +608,7 @@ fn restage_leaves_a_partially_staged_path_alone() {
 
     assert_eq!(show(temp.path(), ":clean.toml"), CLEAN);
     assert_eq!(show(temp.path(), ":drifted.toml"), DIRTY);
+
     let _ = clean;
 }
 
@@ -572,15 +616,19 @@ fn restage_leaves_a_partially_staged_path_alone() {
 fn restage_reaches_the_index_of_each_submodule() {
     let temp = tempdir().unwrap();
     let inner = temp.path().join("sub");
+
     fs::create_dir_all(&inner).unwrap();
     if !git_repo(&inner) {
         return;
     }
+
     let outer = temp.path().join("super");
+
     fs::create_dir_all(&outer).unwrap();
     if !git_repo(&outer) {
         return;
     }
+
     let added = StdCommand::new("git")
         .args([
             "-c",
@@ -594,12 +642,15 @@ fn restage_reaches_the_index_of_each_submodule() {
         .current_dir(&outer)
         .status()
         .unwrap();
+
     if !added.success() {
         eprintln!("SKIP: this git refuses a local submodule");
         return;
     }
     git(&outer, &["commit", "--quiet", "-m", "add submodule"]);
+
     let nested = write(&outer.join("sub/nested.toml"), DIRTY);
+
     git(&outer.join("sub"), &["add", "nested.toml"]);
 
     formatter()
@@ -623,15 +674,19 @@ fn restage_reaches_the_index_of_each_submodule() {
 fn a_submodule_uses_its_own_index_when_the_hook_names_the_superproject_index() {
     let temp = tempdir().unwrap();
     let inner = temp.path().join("sub");
+
     fs::create_dir_all(&inner).unwrap();
     if !git_repo(&inner) {
         return;
     }
+
     let outer = temp.path().join("super");
+
     fs::create_dir_all(&outer).unwrap();
     if !git_repo(&outer) {
         return;
     }
+
     let added = StdCommand::new("git")
         .args([
             "-c",
@@ -645,6 +700,7 @@ fn a_submodule_uses_its_own_index_when_the_hook_names_the_superproject_index() {
         .current_dir(&outer)
         .status()
         .unwrap();
+
     if !added.success() {
         eprintln!("SKIP: this git refuses a local submodule");
         return;
@@ -654,9 +710,12 @@ fn a_submodule_uses_its_own_index_when_the_hook_names_the_superproject_index() {
     let submodule = outer.join("sub");
     let superproject_index = fs::canonicalize(outer.join(".git/index")).unwrap();
     let superproject_file = write(&outer.join("shadow.toml"), DIRTY);
+
     git(&outer, &["add", "shadow.toml"]);
+
     let unstaged = write(&submodule.join("shadow.toml"), DIRTY);
     let staged = write(&submodule.join("staged.toml"), DIRTY);
+
     git(&submodule, &["add", "staged.toml"]);
 
     let listed = formatter()
@@ -696,6 +755,7 @@ fn a_submodule_uses_its_own_index_when_the_hook_names_the_superproject_index() {
 #[test]
 fn restage_needs_staged_and_refuses_a_read_only_run() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY);
 
     formatter()
@@ -721,9 +781,11 @@ fn restage_needs_staged_and_refuses_a_read_only_run() {
 #[test]
 fn no_untracked_drops_the_files_no_ref_can_describe() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
+
     let untracked = write(&temp.path().join("untracked.toml"), DIRTY);
 
     formatter()
@@ -731,6 +793,7 @@ fn no_untracked_drops_the_files_no_ref_can_describe() {
         .args(["--since", "HEAD", "--no-untracked"])
         .assert()
         .success();
+
     assert_eq!(read(&untracked), DIRTY);
 
     formatter()
@@ -738,12 +801,14 @@ fn no_untracked_drops_the_files_no_ref_can_describe() {
         .args(["--since", "HEAD"])
         .assert()
         .success();
+
     assert_eq!(read(&untracked), CLEAN);
 }
 
 #[test]
 fn recurse_submodules_needs_a_git_scope_to_narrow() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY);
 
     formatter()
@@ -757,6 +822,7 @@ fn recurse_submodules_needs_a_git_scope_to_narrow() {
 #[test]
 fn no_untracked_only_applies_to_since() {
     let temp = tempdir().unwrap();
+
     formatter()
         .current_dir(temp.path())
         .args(["--staged", "--no-untracked"])
@@ -770,9 +836,11 @@ fn no_untracked_only_applies_to_since() {
 #[test]
 fn a_missing_merge_base_is_reported_rather_than_assumed() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
+
     let first = StdCommand::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(temp.path())
@@ -803,11 +871,14 @@ fn a_missing_merge_base_is_reported_rather_than_assumed() {
 #[test]
 fn a_type_change_is_a_change() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
     write(&temp.path().join("real.toml"), CLEAN);
+
     let swapped = temp.path().join("swapped.toml");
+
     std::os::unix::fs::symlink("real.toml", &swapped).unwrap();
     git(temp.path(), &["add", "-A"]);
     git(temp.path(), &["commit", "--quiet", "-m", "link"]);
@@ -821,6 +892,7 @@ fn a_type_change_is_a_change() {
         .arg("--staged")
         .assert()
         .success();
+
     assert_eq!(read(&swapped), CLEAN);
 }
 
@@ -829,10 +901,13 @@ fn a_type_change_is_a_change() {
 #[test]
 fn since_warns_when_a_selected_path_is_partially_staged() {
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }
+
     let drifted = write(&temp.path().join("drifted.toml"), DIRTY);
+
     git(temp.path(), &["add", "-A"]);
     write(&drifted, &format!("{DIRTY}bar={{path=\"y\"}}\n"));
 
@@ -855,6 +930,7 @@ fn workspace(root: &Path) {
     );
     for name in ["a", "b"] {
         let dir = root.join("crates").join(name);
+
         write(
             &dir.join("Cargo.toml"),
             &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
@@ -871,6 +947,7 @@ fn workspace(root: &Path) {
 #[test]
 fn a_named_subdirectory_does_not_widen_to_the_workspace() {
     let temp = tempdir().unwrap();
+
     workspace(temp.path());
 
     formatter()
@@ -889,6 +966,7 @@ fn a_named_subdirectory_does_not_widen_to_the_workspace() {
 #[test]
 fn a_named_directory_above_the_members_covers_only_what_it_holds() {
     let temp = tempdir().unwrap();
+
     workspace(temp.path());
     write(&temp.path().join("loose.toml"), DIRTY);
 
@@ -908,6 +986,7 @@ fn a_named_directory_above_the_members_covers_only_what_it_holds() {
 #[test]
 fn two_workspace_members_collapse_to_one_target() {
     let temp = tempdir().unwrap();
+
     workspace(temp.path());
 
     formatter()
@@ -922,6 +1001,7 @@ fn two_workspace_members_collapse_to_one_target() {
 #[test]
 fn a_named_package_still_covers_the_workspace_under_all() {
     let temp = tempdir().unwrap();
+
     workspace(temp.path());
 
     formatter()
@@ -929,21 +1009,25 @@ fn a_named_package_still_covers_the_workspace_under_all() {
         .args(["--toml-only", "crates/a"])
         .assert()
         .success();
+
     assert_eq!(read(&temp.path().join("crates/b/data.toml")), CLEAN);
 
     let temp = tempdir().unwrap();
+
     workspace(temp.path());
     formatter()
         .current_dir(temp.path())
         .args(["--toml-only", "--no-all", "crates/a"])
         .assert()
         .success();
+
     assert_eq!(read(&temp.path().join("crates/b/data.toml")), DIRTY);
 }
 
 #[test]
 fn list_files_union_of_language_flags_matches_the_default() {
     let temp = tempdir().unwrap();
+
     workspace(temp.path());
 
     let listed = |args: &[&str]| {
@@ -960,6 +1044,7 @@ fn list_files_union_of_language_flags_matches_the_default() {
             .lines()
             .map(str::to_string)
             .collect();
+
         lines.sort();
         lines
     };
@@ -968,9 +1053,11 @@ fn list_files_union_of_language_flags_matches_the_default() {
     let rust = listed(&["--list-files", "--rust-only"]);
     let toml = listed(&["--list-files", "--toml-only"]);
     let mut union = rust.clone();
+
     union.extend(toml.iter().cloned());
     union.sort();
     union.dedup();
+
     assert_eq!(both, union);
     assert!(!rust.is_empty(), "{rust:?}");
     assert!(!toml.is_empty(), "{toml:?}");
@@ -979,8 +1066,11 @@ fn list_files_union_of_language_flags_matches_the_default() {
 #[test]
 fn a_nested_non_member_is_out_of_a_package_run() {
     let temp = tempdir().unwrap();
+
     workspace(temp.path());
+
     let nested = temp.path().join("crates/a/nested");
+
     write(
         &nested.join("Cargo.toml"),
         "[package]\nname = \"nested\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
@@ -1001,8 +1091,11 @@ fn a_nested_non_member_is_out_of_a_package_run() {
 #[test]
 fn all_without_cargo_uses_one_member_scope() {
     let temp = tempdir().unwrap();
+
     workspace(temp.path());
+
     let local = temp.path().join("crates").join("local");
+
     write(
         &local.join("Cargo.toml"),
         "[package]\nname = \"local\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
@@ -1012,6 +1105,7 @@ fn all_without_cargo_uses_one_member_scope() {
     write(&temp.path().join("crates/b/src/lib.rs"), "pub fn f(  ){}\n");
 
     let empty = tempdir().unwrap();
+
     formatter()
         .env("PATH", empty.path())
         .env_remove("RUSTFMT")
@@ -1027,6 +1121,7 @@ fn all_without_cargo_uses_one_member_scope() {
     if !nightly_available() {
         return;
     }
+
     let rustfmt = StdCommand::new("rustup")
         .args(["which", "rustfmt", "--toolchain", "nightly"])
         .output()
@@ -1038,6 +1133,7 @@ fn all_without_cargo_uses_one_member_scope() {
         return;
     };
     let bin = empty.path().join("rustfmt");
+
     #[cfg(unix)]
     std::os::unix::fs::symlink(&rustfmt, &bin).unwrap();
     #[cfg(not(unix))]
@@ -1064,6 +1160,7 @@ fn all_without_cargo_uses_one_member_scope() {
 #[test]
 fn two_named_members_are_walked_once() {
     let temp = tempdir().unwrap();
+
     workspace(temp.path());
 
     formatter()
@@ -1098,6 +1195,7 @@ fn package(root: &Path) {
 #[test]
 fn two_named_subdirectories_of_one_package_are_both_checked() {
     let temp = tempdir().unwrap();
+
     package(temp.path());
 
     for order in [["src", "tests"], ["tests", "src"]] {
@@ -1113,6 +1211,7 @@ fn two_named_subdirectories_of_one_package_are_both_checked() {
 #[test]
 fn two_named_subdirectories_of_workspace_members_are_both_formatted() {
     let temp = tempdir().unwrap();
+
     workspace(temp.path());
 
     formatter()
@@ -1131,6 +1230,7 @@ fn two_named_subdirectories_of_workspace_members_are_both_formatted() {
 fn a_named_package_absorbs_a_named_subdirectory_in_either_order() {
     for order in [["crates/a/src", "crates/a"], ["crates/a", "crates/a/src"]] {
         let temp = tempdir().unwrap();
+
         workspace(temp.path());
 
         formatter()
@@ -1161,22 +1261,26 @@ fn exclude_drops_a_subtree_and_include_narrows_to_one() {
         .arg("vendored/**")
         .assert()
         .success();
+
     assert_eq!(read(&kept), CLEAN);
     assert_eq!(read(&dropped), DIRTY);
 
     let only = write(&temp.path().join("vendored/drop.toml"), DIRTY);
+
     formatter()
         .arg(temp.path())
         .arg("--include")
         .arg("vendored/**")
         .assert()
         .success();
+
     assert_eq!(read(&only), CLEAN);
 }
 
 #[test]
 fn a_glob_that_matches_nothing_exits_zero_and_says_nothing() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY);
 
     formatter()
@@ -1202,12 +1306,14 @@ fn excluding_a_named_file_selects_nothing_rather_than_failing() {
         .assert()
         .success()
         .code(0);
+
     assert_eq!(read(&path), DIRTY);
 }
 
 #[test]
 fn an_invalid_glob_is_reported_rather_than_ignored() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY);
 
     formatter()
@@ -1225,6 +1331,7 @@ fn an_invalid_glob_is_reported_rather_than_ignored() {
 #[test]
 fn rust_only_leaves_toml_alone() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let toml = write(&temp.path().join("a.toml"), DIRTY);
     let rust = write(&temp.path().join("a.rs"), "fn  a() {}\n");
@@ -1279,6 +1386,7 @@ fn hidden_walks_dot_directories_but_never_git() {
     let in_git = write(&temp.path().join(".git/config.toml"), DIRTY);
 
     formatter().arg(temp.path()).assert().success();
+
     assert_eq!(read(&visible), CLEAN);
     assert_eq!(read(&hidden), DIRTY, "hidden dirs are skipped by default");
 
@@ -1287,6 +1395,7 @@ fn hidden_walks_dot_directories_but_never_git() {
         .arg("--hidden")
         .assert()
         .success();
+
     assert_eq!(read(&hidden), CLEAN);
     assert_eq!(read(&in_git), DIRTY, ".git stays pruned under --hidden");
 }
@@ -1294,11 +1403,14 @@ fn hidden_walks_dot_directories_but_never_git() {
 #[test]
 fn no_ignore_reaches_gitignored_files() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join(".gitignore"), "ignored.toml\n");
+
     let ignored = write(&temp.path().join("ignored.toml"), DIRTY);
     let tracked = write(&temp.path().join("tracked.toml"), DIRTY);
 
     formatter().arg(temp.path()).assert().success();
+
     assert_eq!(read(&tracked), CLEAN);
     assert_eq!(read(&ignored), DIRTY);
 
@@ -1307,6 +1419,7 @@ fn no_ignore_reaches_gitignored_files() {
         .arg("--no-ignore")
         .assert()
         .success();
+
     assert_eq!(read(&ignored), CLEAN);
 }
 
@@ -1331,6 +1444,7 @@ fn ignore_path_applies_an_extra_pattern_file() {
 #[test]
 fn a_missing_ignore_path_is_a_tool_error() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY);
 
     formatter()
@@ -1368,6 +1482,7 @@ fn the_default_toml_skip_list_can_be_extended_and_cleared() {
     let plain = write(&temp.path().join("plain.toml"), DIRTY);
 
     formatter().arg(temp.path()).assert().success();
+
     assert_eq!(read(&clippy), DIRTY);
     assert_eq!(read(&plain), CLEAN);
 
@@ -1376,15 +1491,18 @@ fn the_default_toml_skip_list_can_be_extended_and_cleared() {
         .arg("--no-default-toml-skips")
         .assert()
         .success();
+
     assert_eq!(read(&clippy), CLEAN);
 
     let extra = write(&temp.path().join("generated.toml"), DIRTY);
+
     formatter()
         .arg(temp.path())
         .arg("--skip-toml")
         .arg("generated.toml")
         .assert()
         .success();
+
     assert_eq!(read(&extra), DIRTY);
 }
 
@@ -1395,11 +1513,14 @@ fn the_default_toml_skip_list_can_be_extended_and_cleared() {
 #[test]
 fn the_manifest_search_stops_at_the_repository_root() {
     let temp = tempdir().unwrap();
+
     write(
         &temp.path().join("Cargo.toml"),
         "[package]\nname = \"outer\"\nversion = \"0.1.0\"\n",
     );
+
     let inner = temp.path().join("inner");
+
     fs::create_dir_all(&inner).unwrap();
     if !git_repo(&inner) {
         return;
@@ -1417,7 +1538,9 @@ fn the_manifest_search_stops_at_the_repository_root() {
 #[test]
 fn a_manifest_inside_the_repository_is_still_found() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     if !git_repo(temp.path()) {
         return;
     }

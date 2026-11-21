@@ -33,7 +33,7 @@ const RECORD: usize = 16 + 16 + 16 + 4;
 const RETENTION: u64 = 30 * 24 * 60 * 60;
 
 /// Everything that decides whether one file is already formatted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fingerprint {
     path: u128,
     content: u128,
@@ -58,7 +58,7 @@ pub fn blob_key(bytes: &[u8]) -> u128 {
     xxh3_128(bytes)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Entry {
     print: Fingerprint,
     seen: u32,
@@ -77,6 +77,7 @@ impl Cache {
         if !enabled {
             return Self::default();
         }
+
         let Some(dir) = directory(env) else {
             return Self::default();
         };
@@ -107,9 +108,11 @@ impl Cache {
     /// time.
     pub fn store(mut self, fresh: Vec<Fingerprint>) {
         let Some(file) = self.file.take() else { return };
+
         if fresh.is_empty() && self.entries.is_empty() {
             return;
         }
+
         let now = now();
         let cutoff = now.saturating_sub(RETENTION.min(u64::from(u32::MAX)));
         let seen = u32::try_from(now).unwrap_or(u32::MAX);
@@ -120,6 +123,7 @@ impl Cache {
         self.entries.sort_by_key(|entry| entry.print.path);
         self.entries.dedup_by(|later, kept| {
             let same_path = later.print.path == kept.print.path;
+
             if same_path {
                 *kept = *later;
             }
@@ -131,6 +135,7 @@ impl Cache {
 
 fn directory(env: EnvLookup<'_>) -> Option<PathBuf> {
     let dir = location(env)?;
+
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir)
 }
@@ -182,11 +187,14 @@ fn now() -> u64 {
 fn read(file: &Path) -> Option<Vec<Entry>> {
     let bytes = std::fs::read(file).ok()?;
     let body = bytes.strip_prefix(MAGIC)?;
+
     if body.len() % RECORD != 0 {
         return None;
     }
+
     let (records, _) = body.as_chunks::<RECORD>();
     let mut entries = Vec::with_capacity(records.len());
+
     for record in records {
         entries.push(Entry {
             print: Fingerprint {
@@ -210,6 +218,7 @@ fn read(file: &Path) -> Option<Vec<Entry>> {
 
 fn write(file: &Path, entries: &[Entry]) {
     let mut bytes = Vec::with_capacity(MAGIC.len() + entries.len() * RECORD);
+
     bytes.extend_from_slice(MAGIC);
     for entry in entries {
         bytes.extend_from_slice(&entry.print.path.to_le_bytes());
@@ -217,6 +226,7 @@ fn write(file: &Path, entries: &[Entry]) {
         bytes.extend_from_slice(&entry.print.config.to_le_bytes());
         bytes.extend_from_slice(&entry.seen.to_le_bytes());
     }
+
     let _ = crate::runner::atomic_write(file, &bytes);
 }
 
@@ -226,7 +236,7 @@ fn write(file: &Path, entries: &[Entry]) {
 /// Two spawns -- `rustup which` and `--print-config default` -- are around
 /// half of a single-file `--check`, which is the latency a format-on-save
 /// keystroke waits on.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Toolchain {
     pub rustfmt: PathBuf,
     pub version: String,
@@ -240,16 +250,19 @@ pub fn read_toolchain(key: &str, enabled: bool, env: EnvLookup<'_>) -> Option<To
     if !enabled {
         return None;
     }
+
     let text = std::fs::read_to_string(toolchain_file(key, env)?).ok()?;
     let body = text.strip_prefix(TOOLCHAIN_MAGIC)?;
     let mut lines = body.lines();
 
     let mut head = lines.next()?.split('\t');
+
     let rustfmt = PathBuf::from(head.next()?);
     let size: u64 = head.next()?.parse().ok()?;
     let stamp: u64 = head.next()?.parse().ok()?;
     let unstable_cli = head.next()? == "1";
     let version = lines.next()?.to_string();
+
     if identity(&rustfmt)? != (size, stamp) {
         return None;
     }
@@ -266,6 +279,7 @@ pub fn write_toolchain(key: &str, found: &Toolchain, enabled: bool, env: EnvLook
     if !enabled {
         return;
     }
+
     let Some(file) = toolchain_file(key, env) else {
         return;
     };
@@ -273,30 +287,37 @@ pub fn write_toolchain(key: &str, found: &Toolchain, enabled: bool, env: EnvLook
         return;
     };
     let mut text = String::with_capacity(4096);
+
     text.push_str(TOOLCHAIN_MAGIC);
+
     let unstable = u8::from(found.unstable_cli);
     let path = found.rustfmt.display();
     // A version string with a newline in it would be read back as an option.
     let version = found.version.replace('\n', " ");
     let _ = writeln!(text, "{path}\t{size}\t{stamp}\t{unstable}\n{version}");
+
     for option in &found.options {
         text.push_str(option);
         text.push('\n');
     }
+
     let _ = crate::runner::atomic_write(&file, text.as_bytes());
 }
 
 fn toolchain_file(key: &str, env: EnvLookup<'_>) -> Option<PathBuf> {
     let dir = toolchain_location(env)?;
+
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join(format!("{:032x}", xxh3_128(key.as_bytes()))))
 }
 
 fn identity(path: &Path) -> Option<(u64, u64)> {
     let meta = std::fs::metadata(path).ok()?;
+
     if !meta.is_file() {
         return None;
     }
+
     let stamp = meta
         .modified()
         .ok()
@@ -335,7 +356,9 @@ mod tests {
         let one = print("/a.toml", b"a = 1\n", 7);
 
         let cache = Cache::load(Path::new("/root"), true, &env);
+
         assert!(!cache.contains(one));
+
         cache.store(vec![one]);
 
         assert!(Cache::load(Path::new("/root"), true, &env).contains(one));
@@ -346,9 +369,11 @@ mod tests {
     fn a_different_content_or_configuration_is_a_miss() {
         let temp = tempfile::tempdir().unwrap();
         let env = env_of(&[(CACHE_DIR_ENV, temp.path().to_str().unwrap())]);
+
         Cache::load(Path::new("/root"), true, &env).store(vec![print("/a.toml", b"a = 1\n", 7)]);
 
         let cache = Cache::load(Path::new("/root"), true, &env);
+
         assert!(cache.contains(print("/a.toml", b"a = 1\n", 7)));
         assert!(!cache.contains(print("/a.toml", b"a = 2\n", 7)));
         assert!(!cache.contains(print("/a.toml", b"a = 1\n", 8)));
@@ -362,7 +387,9 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let env = env_of(&[(CACHE_DIR_ENV, temp.path().to_str().unwrap())]);
         let one = print("/a.toml", b"a = 1\n", 7);
+
         Cache::load(Path::new("/one"), true, &env).store(vec![one]);
+
         assert!(!Cache::load(Path::new("/two"), true, &env).contains(one));
     }
 
@@ -372,7 +399,9 @@ mod tests {
         let moved = temp.path().join("moved");
         let env = env_of(&[(CACHE_DIR_ENV, moved.to_str().unwrap())]);
         let rustfmt = temp.path().join("rustfmt");
+
         std::fs::write(&rustfmt, b"binary").unwrap();
+
         let found = Toolchain {
             rustfmt,
             version: "rustfmt 1.0.0-nightly".to_string(),
@@ -395,7 +424,9 @@ mod tests {
             ("RUST_FORMATTER_CACHE", "0"),
         ]);
         let rustfmt = temp.path().join("rustfmt");
+
         std::fs::write(&rustfmt, b"binary").unwrap();
+
         let found = Toolchain {
             rustfmt,
             version: "rustfmt 1.0.0-nightly".to_string(),
@@ -404,6 +435,7 @@ mod tests {
         };
 
         let cache = Cache::load(Path::new("/root"), true, &env);
+
         write_toolchain("key", &found, true, &env);
 
         assert!(cache.enabled());
@@ -423,6 +455,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let env = env_of(&[(CACHE_DIR_ENV, temp.path().to_str().unwrap())]);
         let cache = Cache::load(Path::new("/root"), false, &env);
+
         assert!(!cache.enabled());
         assert!(!cache.contains(print("/a.toml", b"a = 1\n", 7)));
     }
@@ -434,6 +467,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let env = env_of(&[(CACHE_DIR_ENV, temp.path().to_str().unwrap())]);
         let one = print("/a.toml", b"a = 1\n", 7);
+
         Cache::load(Path::new("/root"), true, &env).store(vec![one]);
 
         let file = std::fs::read_dir(temp.path())
@@ -443,10 +477,13 @@ mod tests {
             .unwrap()
             .path();
         let bytes = std::fs::read(&file).unwrap();
+
         std::fs::write(&file, &bytes[..bytes.len() - 3]).unwrap();
+
         assert!(!Cache::load(Path::new("/root"), true, &env).contains(one));
 
         std::fs::write(&file, b"something else entirely").unwrap();
+
         assert!(!Cache::load(Path::new("/root"), true, &env).contains(one));
     }
 
@@ -454,10 +491,12 @@ mod tests {
     fn a_later_answer_replaces_an_earlier_one_for_the_same_file() {
         let temp = tempfile::tempdir().unwrap();
         let env = env_of(&[(CACHE_DIR_ENV, temp.path().to_str().unwrap())]);
+
         Cache::load(Path::new("/root"), true, &env).store(vec![print("/a.toml", b"a = 1\n", 7)]);
         Cache::load(Path::new("/root"), true, &env).store(vec![print("/a.toml", b"a = 2\n", 7)]);
 
         let cache = Cache::load(Path::new("/root"), true, &env);
+
         assert!(cache.contains(print("/a.toml", b"a = 2\n", 7)));
         assert!(!cache.contains(print("/a.toml", b"a = 1\n", 7)));
         assert_eq!(cache.entries.len(), 1);
@@ -470,6 +509,7 @@ mod tests {
         let held: Vec<Fingerprint> = (0..64)
             .map(|index| print(&format!("/held/{index}.rs"), b"old", 7))
             .collect();
+
         Cache::load(Path::new("/root"), true, &env).store(held.clone());
 
         let replaced = print("/held/3.rs", b"new", 7);
@@ -478,7 +518,9 @@ mod tests {
         let added: Vec<Fingerprint> = (0..64)
             .map(|index| print(&format!("/added/{index}.rs"), b"new", 7))
             .collect();
+
         let mut fresh = vec![replaced, first];
+
         fresh.extend(added.iter().copied());
         fresh.push(second);
         Cache::load(Path::new("/root"), true, &env).store(fresh);
@@ -486,6 +528,7 @@ mod tests {
         let cache = Cache::load(Path::new("/root"), true, &env);
         let paths: Vec<u128> = cache.entries.iter().map(|entry| entry.print.path).collect();
         let mut sorted = paths.clone();
+
         sorted.sort_unstable();
         sorted.dedup();
 
@@ -504,6 +547,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let env = env_of(&[(CACHE_DIR_ENV, temp.path().join("files").to_str().unwrap())]);
         let rustfmt = temp.path().join("rustfmt");
+
         std::fs::write(&rustfmt, b"binary").unwrap();
 
         let found = Toolchain {
@@ -512,7 +556,9 @@ mod tests {
             unstable_cli: true,
             options: vec!["group_imports".to_string(), "max_width".to_string()],
         };
+
         write_toolchain("key", &found, true, &env);
+
         assert_eq!(read_toolchain("key", true, &env).as_ref(), Some(&found));
         assert_eq!(read_toolchain("other", true, &env), None);
         assert_eq!(read_toolchain("key", false, &env), None);
@@ -521,9 +567,11 @@ mod tests {
         // differ; reporting the old one would be a wrong answer, not a stale
         // one.
         std::fs::write(&rustfmt, b"a different binary entirely").unwrap();
+
         assert_eq!(read_toolchain("key", true, &env), None);
 
         std::fs::remove_file(&rustfmt).unwrap();
+
         assert_eq!(read_toolchain("key", true, &env), None);
     }
 
@@ -531,6 +579,7 @@ mod tests {
     fn the_base_directory_follows_the_platform() {
         let env = env_of(&[("XDG_CACHE_HOME", "/xdg"), ("HOME", "/home/someone")]);
         let found = base_dir(&env).unwrap();
+
         assert!(found.ends_with("rust-formatter"), "{}", found.display());
         assert!(OsStr::new("x").is_empty() || found.is_absolute());
     }

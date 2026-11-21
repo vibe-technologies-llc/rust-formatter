@@ -29,6 +29,7 @@ pub(crate) fn version_cmp(a: &str, b: &str) -> Ordering {
         if x.is_ascii_digit() && y.is_ascii_digit() {
             let (x, x_rest) = split_digits(left);
             let (y, y_rest) = split_digits(right);
+
             match numeric_cmp(x, y) {
                 Ordering::Equal => {
                     if leading_zeroes == Ordering::Equal {
@@ -106,7 +107,9 @@ mod tests {
     #[test]
     fn the_style_guide_example_is_a_fixed_point() {
         let mut reversed: Vec<&str> = ORDERED.iter().copied().rev().collect();
+
         reversed.sort_by(|a, b| version_cmp(a, b));
+
         assert_eq!(reversed, ORDERED);
     }
 

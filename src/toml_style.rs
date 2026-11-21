@@ -89,7 +89,7 @@ pub const TABLE_ORDER: &[&str] = &[
 ];
 
 /// Which of the two published `[package]` orders `--sort-package` applies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PackageOrder {
     /// [`PACKAGE_ORDER`], the Cargo Book sequence.
@@ -105,7 +105,7 @@ const POOL_BYTES: usize = 64;
 
 /// One indentation unit plus the pools that let every nesting level up to
 /// [`POOL_BYTES`] be served as a slice instead of a fresh allocation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TomlIndent {
     unit: String,
     pool: String,
@@ -130,8 +130,10 @@ impl TomlIndent {
         };
         let pool = unit.repeat(pooled_levels);
         let mut newline_pool = String::with_capacity(pool.len() + 1);
+
         newline_pool.push('\n');
         newline_pool.push_str(&pool);
+
         let level_width = (!unit.contains('\t')).then(|| toml_width::width(unit, tab_width));
 
         Self {
@@ -200,7 +202,7 @@ pub const MAX_INDENT: usize = 16;
 /// The indent unit as it is written, before the tab width that gives it a column
 /// cost is known. The CLI and a configuration file both name it this way, so
 /// both reach [`TomlIndent`] through one parser.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IndentSpec {
     Tab,
     Spaces(usize),
@@ -289,7 +291,7 @@ impl<'de> Deserialize<'de> for IndentSpec {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ArrayStyle {
     /// An array the author wrote across lines stays across lines.
@@ -302,7 +304,7 @@ pub enum ArrayStyle {
 }
 
 /// Whether a one-line container pads the inside of its brackets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Spacing {
     /// `[a, b]`, `{a = 1}`.
@@ -312,7 +314,7 @@ pub enum Spacing {
     Spaced,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum InlineTableStyle {
     /// One line until the rendered form exceeds the width budget.
@@ -332,7 +334,7 @@ pub enum InlineTableStyle {
 }
 
 /// The TOML revision the output has to satisfy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum TomlVersion {
     /// Emit no 1.1 construct, and report the ones already in the document that
     /// cannot be removed without rewriting a value.
@@ -343,7 +345,7 @@ pub enum TomlVersion {
     V1_1,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TrailingComma {
     #[default]
@@ -353,7 +355,7 @@ pub enum TrailingComma {
     Multiline,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TomlStyle {
     pub indent: TomlIndent,
     pub max_width: usize,
@@ -479,9 +481,13 @@ mod tests {
     fn order_tables_have_no_duplicates() {
         for table in [PACKAGE_ORDER, DEP_ORDER, TABLE_ORDER] {
             let mut sorted = table.to_vec();
+
             sorted.sort_unstable();
+
             let before = sorted.len();
+
             sorted.dedup();
+
             assert_eq!(sorted.len(), before, "{table:?}");
         }
     }

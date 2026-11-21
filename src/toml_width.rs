@@ -10,6 +10,7 @@ pub const DEFAULT_TAB_WIDTH: usize = 4;
 pub fn advance_char(column: usize, ch: char, tab_width: usize) -> usize {
     if ch == '\t' {
         let unit = tab_width.max(1);
+
         return column + unit - column % unit;
     }
     column + ch.width().unwrap_or(0)

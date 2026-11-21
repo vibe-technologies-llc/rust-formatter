@@ -8,7 +8,7 @@ use crate::ids::{TeamId, UserId};
 
 /// A persisted user. `email` is optional on purpose; do not drop the
 /// `skip_serializing_if` or the field becomes required in the wire format.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct User {
     pub id: UserId,   // stable
     pub name: String, // display
@@ -18,7 +18,7 @@ pub struct User {
     pub teams: BTreeMap<TeamId, Role>, // membership
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
     Owner,  // full
@@ -53,11 +53,11 @@ impl User {
 
 pub mod ids {
     #[derive(
-        Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+        Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize,
     )]
     pub struct UserId(pub u64);
     #[derive(
-        Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+        Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize,
     )]
     pub struct TeamId(pub u64);
 }

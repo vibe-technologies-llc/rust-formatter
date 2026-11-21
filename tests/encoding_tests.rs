@@ -31,6 +31,7 @@ fn fixtures() -> Vec<(String, Vec<u8>)> {
             Some((stem, fs::read(&path).ok()?))
         })
         .collect();
+
     out.sort();
     out
 }
@@ -45,6 +46,7 @@ fn fixtures() -> Vec<(String, Vec<u8>)> {
 fn format_bytes(bytes: &[u8], check_first: bool) -> Option<Vec<u8>> {
     let temp = tempfile::tempdir().expect("tempdir");
     let file = temp.path().join("fixture.toml");
+
     fs::write(&file, bytes).expect("write fixture");
 
     if !matches!(
@@ -69,6 +71,7 @@ fn format_bytes(bytes: &[u8], check_first: bool) -> Option<Vec<u8>> {
             },
         )
         .expect("check run");
+
         assert!(
             checked.file_errors.is_empty(),
             "unexpected file errors: {:?}",
@@ -92,6 +95,7 @@ fn format_bytes(bytes: &[u8], check_first: bool) -> Option<Vec<u8>> {
 #[test]
 fn encoding_fixtures_survive_checkout() {
     let mut seen = BTreeSet::new();
+
     for (stem, bytes) in fixtures() {
         seen.insert(stem.clone());
         match stem.as_str() {
@@ -150,6 +154,7 @@ fn encoding_fixtures_match_their_goldens() {
             return;
         };
         let expected = root.join(format!("{stem}.out"));
+
         if let Some(detail) = golden::check(&expected, &written) {
             failures.push(format!("{stem}\n{detail}"));
         }
@@ -179,6 +184,7 @@ fn encoding_is_a_byte_level_fixed_point() {
             return;
         };
         let twice = format_bytes(&once, false).expect("second pass");
+
         assert_eq!(once, twice, "{stem} is not a byte-level fixed point");
     }
 }

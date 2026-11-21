@@ -10,6 +10,7 @@ use toolchain::{needs_nightly, nightly_available};
 
 fn formatter() -> Command {
     let mut cmd = Command::cargo_bin("rust-formatter").unwrap();
+
     cmd.env("RUST_FORMATTER_CACHE_DIR", cache_dir());
     cmd
 }
@@ -42,8 +43,10 @@ fn jobs_settings_agree_on_the_result() {
         .collect();
 
     let mut outputs = Vec::new();
+
     for jobs in ["1", "2", "7"] {
         let temp = tempdir().unwrap();
+
         for (index, body) in bodies.iter().enumerate() {
             fs::write(temp.path().join(format!("f{index}.toml")), body).unwrap();
         }
@@ -59,6 +62,7 @@ fn jobs_settings_agree_on_the_result() {
         let mut formatted: Vec<String> = (0..bodies.len())
             .map(|index| fs::read_to_string(temp.path().join(format!("f{index}.toml"))).unwrap())
             .collect();
+
         formatted.sort();
         outputs.push(formatted);
     }
@@ -73,6 +77,7 @@ fn jobs_settings_agree_on_the_result() {
 #[test]
 fn every_shard_is_formatted() {
     let temp = tempdir().unwrap();
+
     for index in 0..20 {
         fs::write(
             temp.path().join(format!("f{index}.toml")),
@@ -91,6 +96,7 @@ fn every_shard_is_formatted() {
 
     for index in 0..20 {
         let body = fs::read_to_string(temp.path().join(format!("f{index}.toml"))).unwrap();
+
         assert_eq!(body, format!("k{index}.path = \"x\"\n"), "shard {index}");
     }
 }
@@ -98,6 +104,7 @@ fn every_shard_is_formatted() {
 #[test]
 fn jobs_rejects_zero() {
     let temp = tempdir().unwrap();
+
     fs::write(temp.path().join("a.toml"), "a = 1\n").unwrap();
 
     formatter()
@@ -117,7 +124,9 @@ fn jobs_rejects_zero() {
 #[test]
 fn rustfmt_chunk_boundaries_format_every_file() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     for index in 0..1001 {
         fs::write(
             temp.path().join(format!("f{index}.rs")),
@@ -136,6 +145,7 @@ fn rustfmt_chunk_boundaries_format_every_file() {
 
     for index in 0..1001 {
         let body = fs::read_to_string(temp.path().join(format!("f{index}.rs"))).unwrap();
+
         assert_eq!(body, "pub fn f() {}\n", "file {index} was not formatted");
     }
 }
@@ -145,12 +155,15 @@ fn rustfmt_chunk_boundaries_format_every_file() {
 #[test]
 fn extra_args_reach_rustfmt() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let file = temp.path().join("wide.rs");
     let source = "pub fn f(first_parameter: String, second_parameter: usize, third: u8) -> usize {\n    0\n}\n";
+
     fs::write(&file, source).unwrap();
 
     formatter().arg(&file).assert().success().code(0);
+
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
         source,
@@ -167,6 +180,7 @@ fn extra_args_reach_rustfmt() {
         .code(0);
 
     let narrow = fs::read_to_string(&file).unwrap();
+
     assert!(narrow.contains("pub fn f(\n"), "{narrow}");
 }
 
@@ -174,6 +188,7 @@ fn extra_args_reach_rustfmt() {
 fn a_rejected_extra_arg_is_a_tool_error() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("a.rs");
+
     fs::write(&file, "fn main() {}\n").unwrap();
 
     formatter()
@@ -193,7 +208,9 @@ fn a_rejected_extra_arg_is_a_tool_error() {
 #[test]
 fn workspace_members_are_formatted_at_their_own_edition() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     fs::write(
         temp.path().join("Cargo.toml"),
         "[workspace]\nmembers = [\"old\", \"new\"]\nresolver = \"2\"\n",
@@ -202,6 +219,7 @@ fn workspace_members_are_formatted_at_their_own_edition() {
 
     let old_lib = "pub fn f() {\n    let dyn = 1;\n    let _ = dyn;\n}\n";
     let new_lib = "pub async fn g() {}\n";
+
     write_package(&temp.path().join("old"), "old", "2015", old_lib);
     write_package(&temp.path().join("new"), "new", "2021", new_lib);
 
@@ -220,6 +238,7 @@ fn workspace_members_are_formatted_at_their_own_edition() {
 #[test]
 fn cli_edition_overrides_every_member() {
     let temp = tempdir().unwrap();
+
     fs::write(
         temp.path().join("Cargo.toml"),
         "[workspace]\nmembers = [\"new\"]\nresolver = \"2\"\n",
@@ -249,7 +268,9 @@ fn cli_edition_overrides_every_member() {
 #[test]
 fn a_standalone_package_survives_cargo_metadata_failing() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     fs::create_dir_all(temp.path().join("src")).unwrap();
     fs::write(
         temp.path().join("Cargo.toml"),
@@ -257,7 +278,9 @@ fn a_standalone_package_survives_cargo_metadata_failing() {
          [dependencies]\nmissing = { path = \"does-not-exist\" }\n",
     )
     .unwrap();
+
     let lib = temp.path().join("src").join("lib.rs");
+
     fs::write(&lib, "pub fn  f( ) {  }\n").unwrap();
 
     formatter().arg(temp.path()).assert().success().code(0);
@@ -276,6 +299,7 @@ fn gitignore_is_respected_inside_a_real_repository() {
         .current_dir(temp.path())
         .status()
         .is_ok_and(|status| status.success());
+
     if !ok {
         eprintln!("SKIP: git is unavailable");
         return;
@@ -287,6 +311,7 @@ fn gitignore_is_respected_inside_a_real_repository() {
     fs::write(temp.path().join("nested").join(".gitignore"), "deep.toml\n").unwrap();
 
     let dirty = "foo={path=\"x\"}\n";
+
     for path in [
         "top.toml",
         "ignored/inside.toml",
@@ -305,6 +330,7 @@ fn gitignore_is_respected_inside_a_real_repository() {
             "{path} should have been ignored"
         );
     }
+
     assert_eq!(
         fs::read_to_string(temp.path().join("nested").join("kept.toml")).unwrap(),
         "foo.path = \"x\"\n"
@@ -315,6 +341,7 @@ fn gitignore_is_respected_inside_a_real_repository() {
 fn cargo_config_files_are_formatted() {
     let temp = tempdir().unwrap();
     let cargo_dir = temp.path().join(".cargo");
+
     fs::create_dir_all(&cargo_dir).unwrap();
     fs::write(
         cargo_dir.join("config.toml"),
@@ -327,6 +354,7 @@ fn cargo_config_files_are_formatted() {
     formatter().arg(temp.path()).assert().success().code(0);
 
     let with_extension = fs::read_to_string(cargo_dir.join("config.toml")).unwrap();
+
     assert!(
         with_extension.contains("rustflags = [\"-C\", \"target-cpu=native\"]"),
         "{with_extension}"
@@ -347,6 +375,7 @@ fn a_loose_file_with_no_manifest_is_formatted_at_a_modern_edition() {
 
     let temp = tempdir().unwrap();
     let script = temp.path().join("script.rs");
+
     fs::write(&script, "async fn f() {}\n").unwrap();
 
     formatter()
@@ -369,6 +398,7 @@ fn each_target_is_formatted_at_its_own_edition() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     fs::write(
         temp.path().join("Cargo.toml"),
         "[package]\nname = \"pt\"\nversion = \"0.1.0\"\nedition = \"2015\"\n\n\
@@ -376,8 +406,10 @@ fn each_target_is_formatted_at_its_own_edition() {
     )
     .unwrap();
     fs::create_dir_all(temp.path().join("src").join("bin")).unwrap();
+
     let lib = "pub fn f() {\n    let dyn = 1;\n    let _ = dyn;\n}\n";
     let bin = "pub async fn g() {}\nfn main() {}\n";
+
     fs::write(temp.path().join("src").join("lib.rs"), lib).unwrap();
     fs::write(temp.path().join("src").join("bin").join("tool.rs"), bin).unwrap();
 
@@ -387,6 +419,7 @@ fn each_target_is_formatted_at_its_own_edition() {
         .assert()
         .success()
         .code(0);
+
     assert_eq!(
         fs::read_to_string(temp.path().join("src").join("lib.rs")).unwrap(),
         lib
@@ -404,6 +437,7 @@ fn a_project_rustfmt_toml_keeps_the_last_word_on_edition() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     write_package(temp.path(), "p", "2015", "pub fn f() {}\n");
     fs::write(temp.path().join("rustfmt.toml"), "edition = \"2021\"\n").unwrap();
     fs::write(
@@ -428,7 +462,9 @@ fn a_project_rustfmt_toml_keeps_the_last_word_on_edition() {
 #[test]
 fn an_edition_in_config_is_reconciled_with_the_flag() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     fs::write(temp.path().join("a.rs"), "fn main() {}\n").unwrap();
 
     formatter()
@@ -462,6 +498,7 @@ fn a_virtual_workspace_root_formats_its_loose_files() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     fs::write(
         temp.path().join("Cargo.toml"),
         "[workspace]\nmembers = [\"member\"]\nresolver = \"2\"\n",
@@ -473,10 +510,13 @@ fn a_virtual_workspace_root_formats_its_loose_files() {
         "2021",
         "pub fn f() {}\n",
     );
+
     let loose = temp.path().join("build.rs");
+
     fs::write(&loose, "fn  main( ){}\n").unwrap();
 
     formatter().arg(temp.path()).assert().success();
+
     assert_eq!(fs::read_to_string(&loose).unwrap(), "fn main() {}\n");
 }
 
@@ -488,6 +528,7 @@ fn a_workspace_run_leaves_non_member_packages_alone() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     fs::write(
         temp.path().join("Cargo.toml"),
         "[package]\nname = \"root\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
@@ -500,6 +541,7 @@ fn a_workspace_run_leaves_non_member_packages_alone() {
     // Deliberately unformatted: a run that reached either package would report
     // it under `--check` and rewrite it without one.
     let outside = "pub fn  f( ){}\n";
+
     for name in ["excluded", "nested"] {
         write_package(&temp.path().join(name), name, "2015", outside);
     }
@@ -530,13 +572,16 @@ fn a_path_attribute_module_outside_the_package_is_reached() {
 
     let temp = tempdir().unwrap();
     let package = temp.path().join("package");
+
     write_package(&package, "p", "2021", "");
     fs::write(
         package.join("src").join("lib.rs"),
         "#[path = \"../../shared/out.rs\"]\nmod out;\npub fn f() {}\n",
     )
     .unwrap();
+
     let outside = temp.path().join("shared").join("out.rs");
+
     fs::create_dir_all(outside.parent().unwrap()).unwrap();
     fs::write(&outside, "pub fn  outside( ){}\n").unwrap();
 
@@ -560,6 +605,7 @@ fn a_path_attribute_module_outside_the_package_is_reached() {
         .code(0);
 
     formatter().arg(&package).assert().success();
+
     assert_eq!(
         fs::read_to_string(&outside).unwrap(),
         "pub fn outside() {}\n"
@@ -572,13 +618,16 @@ fn a_path_attribute_with_space_after_the_hash_is_reached() {
 
     let temp = tempdir().unwrap();
     let package = temp.path().join("package");
+
     write_package(&package, "p", "2021", "");
     fs::write(
         package.join("src").join("lib.rs"),
         "#[ path = \"../../shared/out.rs\"]\nmod out;\npub fn f() {}\n",
     )
     .unwrap();
+
     let outside = temp.path().join("shared").join("out.rs");
+
     fs::create_dir_all(outside.parent().unwrap()).unwrap();
     fs::write(&outside, "pub fn  outside( ){}\n").unwrap();
 
@@ -598,6 +647,7 @@ fn a_tree_without_the_attribute_runs_no_discovery_pass() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     write_package(temp.path(), "p", "2021", "pub fn f() {}\n");
 
     formatter()
@@ -619,6 +669,7 @@ fn shim(dir: &Path, name: &str, body: &str) -> std::path::PathBuf {
     use std::os::unix::fs::PermissionsExt;
 
     let path = dir.join(name);
+
     fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     path
@@ -647,8 +698,11 @@ fn a_pinned_toolchain_is_asked_for_by_name() {
     };
     let temp = tempdir().unwrap();
     let bin = temp.path().join("bin");
+
     fs::create_dir_all(&bin).unwrap();
+
     let log = temp.path().join("asked.txt");
+
     shim(
         &bin,
         "rustup",
@@ -661,6 +715,7 @@ fn a_pinned_toolchain_is_asked_for_by_name() {
     );
 
     let file = temp.path().join("main.rs");
+
     fs::write(&file, "fn  main(){}\n").unwrap();
 
     formatter()
@@ -672,6 +727,7 @@ fn a_pinned_toolchain_is_asked_for_by_name() {
         .success();
 
     let asked = fs::read_to_string(&log).unwrap();
+
     assert!(
         asked.contains("which rustfmt --toolchain nightly-2026-06-01"),
         "{asked}"
@@ -690,8 +746,11 @@ fn auto_asks_for_nightly_first() {
     };
     let temp = tempdir().unwrap();
     let bin = temp.path().join("bin");
+
     fs::create_dir_all(&bin).unwrap();
+
     let log = temp.path().join("asked.txt");
+
     shim(
         &bin,
         "rustup",
@@ -704,6 +763,7 @@ fn auto_asks_for_nightly_first() {
     );
 
     let file = temp.path().join("main.rs");
+
     fs::write(&file, "fn  main(){}\n").unwrap();
     formatter()
         .env("PATH", &bin)
@@ -713,6 +773,7 @@ fn auto_asks_for_nightly_first() {
         .success();
 
     let asked = fs::read_to_string(&log).unwrap();
+
     assert_eq!(
         asked.lines().next(),
         Some("which rustfmt --toolchain nightly")
@@ -730,10 +791,12 @@ fn a_rustfmt_on_path_is_used_without_rustup() {
     };
     let temp = tempdir().unwrap();
     let bin = temp.path().join("bin");
+
     fs::create_dir_all(&bin).unwrap();
     shim(&bin, "rustfmt", &format!("exec {rustfmt} \"$@\""));
 
     let file = temp.path().join("main.rs");
+
     fs::write(&file, "fn  main(){}\n").unwrap();
     formatter()
         .env("PATH", &bin)
@@ -741,6 +804,7 @@ fn a_rustfmt_on_path_is_used_without_rustup() {
         .arg(&file)
         .assert()
         .success();
+
     assert_eq!(fs::read_to_string(&file).unwrap(), "fn main() {}\n");
 }
 
@@ -757,6 +821,7 @@ fn a_rustfmt_without_unstable_features_still_formats() {
     };
     let temp = tempdir().unwrap();
     let bin = temp.path().join("bin");
+
     fs::create_dir_all(&bin).unwrap();
     shim(
         &bin,
@@ -771,6 +836,7 @@ fn a_rustfmt_without_unstable_features_still_formats() {
     );
 
     let file = temp.path().join("main.rs");
+
     fs::write(
         &file,
         "use std::io::Write;\nuse std::io::Read;\nfn main(){}\n",
@@ -793,6 +859,7 @@ fn a_rustfmt_without_unstable_features_still_formats() {
         .arg(&file)
         .assert()
         .success();
+
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
         "use std::io::{Read, Write};\nfn main() {}\n"
@@ -809,6 +876,7 @@ fn a_warm_run_says_exactly_what_a_cold_one_says() {
 
     let temp = tempdir().unwrap();
     let store = temp.path().join("store");
+
     write_package(temp.path(), "p", "2021", "pub fn f() {}\n");
     fs::write(temp.path().join("dirty.toml"), "a=1\nb   =   2\n").unwrap();
     fs::write(temp.path().join("src").join("dirty.rs"), "pub fn g(  ){}\n").unwrap();
@@ -825,6 +893,7 @@ fn a_warm_run_says_exactly_what_a_cold_one_says() {
 
     let cold = run();
     let warm = run();
+
     assert_eq!(cold, warm);
     assert!(warm.contains("dirty.toml"), "{warm}");
     assert!(warm.contains("dirty.rs"), "{warm}");
@@ -838,9 +907,12 @@ fn an_edit_is_never_hidden_by_the_cache() {
 
     let temp = tempdir().unwrap();
     let store = temp.path().join("store");
+
     write_package(temp.path(), "p", "2021", "pub fn f() {}\n");
+
     let toml = temp.path().join("clean.toml");
     let rust = temp.path().join("src").join("clean.rs");
+
     fs::write(&toml, "a = 1\n").unwrap();
     fs::write(&rust, "pub fn g() {}\n").unwrap();
 
@@ -850,6 +922,7 @@ fn an_edit_is_never_hidden_by_the_cache() {
             .args(["--check", temp.path().to_str().unwrap()])
             .assert()
     };
+
     check().success();
     check().success();
 
@@ -869,6 +942,7 @@ fn a_changed_setting_is_a_miss() {
     let temp = tempdir().unwrap();
     let store = temp.path().join("store");
     let file = temp.path().join("wide.toml");
+
     fs::write(
         &file,
         "k = [\"aaaaaaaaaaaaaaaa\", \"bbbbbbbbbbbbbbbb\", \"cccccccccccc\"]\n",
@@ -883,6 +957,7 @@ fn a_changed_setting_is_a_miss() {
             .arg(&file)
             .assert()
     };
+
     check(&[]).success();
     check(&[]).success();
     check(&["--toml-max-width", "20"]).failure().code(1);
@@ -894,6 +969,7 @@ fn no_cache_writes_nothing() {
     let temp = tempdir().unwrap();
     let store = temp.path().join("store");
     let file = temp.path().join("a.toml");
+
     fs::write(&file, "a = 1\n").unwrap();
 
     for args in [
@@ -908,6 +984,7 @@ fn no_cache_writes_nothing() {
             .arg(&file)
             .assert()
             .success();
+
         assert!(!store.exists(), "{args:?} wrote {}", store.display());
     }
 
@@ -918,6 +995,7 @@ fn no_cache_writes_nothing() {
         .arg(&file)
         .assert()
         .success();
+
     assert!(!store.exists());
 }
 
@@ -926,6 +1004,7 @@ fn an_explicit_cache_flag_outranks_the_environment() {
     let temp = tempdir().unwrap();
     let store = temp.path().join("store");
     let file = temp.path().join("a.toml");
+
     fs::write(&file, "a = 1\n").unwrap();
 
     formatter()
@@ -943,6 +1022,7 @@ fn an_explicit_cache_flag_outranks_the_environment() {
 fn a_relative_cache_dir_is_taken_from_the_working_directory() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("a.toml");
+
     fs::write(&file, "a = 1\n").unwrap();
 
     formatter()
@@ -962,6 +1042,7 @@ fn a_write_run_remembers_what_it_wrote() {
     let temp = tempdir().unwrap();
     let store = temp.path().join("store");
     let file = temp.path().join("a.toml");
+
     fs::write(&file, "a   =   1\n").unwrap();
 
     formatter()
@@ -970,6 +1051,7 @@ fn a_write_run_remembers_what_it_wrote() {
         .arg(&file)
         .assert()
         .success();
+
     assert_eq!(fs::read_to_string(&file).unwrap(), "a = 1\n");
 
     formatter()
@@ -978,6 +1060,7 @@ fn a_write_run_remembers_what_it_wrote() {
         .arg(&file)
         .assert()
         .success();
+
     assert!(store.exists());
 }
 
@@ -988,6 +1071,7 @@ fn a_damaged_cache_file_is_only_a_slower_run() {
     let temp = tempdir().unwrap();
     let store = temp.path().join("store");
     let file = temp.path().join("a.toml");
+
     fs::write(&file, "a = 1\n").unwrap();
 
     let check = || {
@@ -997,6 +1081,7 @@ fn a_damaged_cache_file_is_only_a_slower_run() {
             .arg(&file)
             .assert()
     };
+
     check().success();
 
     for entry in fs::read_dir(&store).unwrap() {
@@ -1011,6 +1096,7 @@ fn a_project_rustfmt_toml_is_part_of_the_cache_key() {
 
     let temp = tempdir().unwrap();
     let store = temp.path().join("store");
+
     write_package(
         temp.path(),
         "p",
@@ -1030,6 +1116,7 @@ fn a_project_rustfmt_toml_is_part_of_the_cache_key() {
             .args(["--check", "--rust-only", temp.path().to_str().unwrap()])
             .assert()
     };
+
     check().success();
 
     fs::write(temp.path().join("rustfmt.toml"), "max_width = 20\n").unwrap();
@@ -1061,6 +1148,7 @@ fn a_user_level_rustfmt_toml_is_part_of_the_cache_key() {
     let config = temp.path().join("config");
     let global = config.join("rustfmt").join("rustfmt.toml");
     let tree = temp.path().join("tree");
+
     fs::create_dir_all(&home).unwrap();
     fs::create_dir_all(global.parent().unwrap()).unwrap();
     fs::create_dir_all(&tree).unwrap();
@@ -1073,6 +1161,7 @@ fn a_user_level_rustfmt_toml_is_part_of_the_cache_key() {
 
     let check = |extra: &[&str]| {
         let mut cmd = formatter();
+
         with_user_config_dir(&mut cmd, &home, &config);
         cmd.env("RUST_FORMATTER_CACHE_DIR", &store)
             .arg("--check")
@@ -1098,6 +1187,7 @@ fn a_rustfmt_failure_no_file_is_blamed_for_caches_nothing() {
     let temp = tempdir().unwrap();
     let store = temp.path().join("store");
     let tree = temp.path().join("tree");
+
     fs::create_dir_all(&tree).unwrap();
     fs::write(tree.join("a.rs"), "fn  main(){}\n").unwrap();
     fs::write(tree.join("rustfmt.toml"), "max_width = \n").unwrap();
@@ -1119,6 +1209,7 @@ fn a_range_run_is_not_cached_as_a_full_file() {
 
     let temp = tempdir().unwrap();
     let store = temp.path().join("store");
+
     write_package(temp.path(), "p", "2021", "fn a() {}\nfn  b(){}\n");
 
     formatter()
@@ -1161,7 +1252,9 @@ fn install_toolchain_runs_the_command_it_would_have_printed() {
     };
     let temp = tempdir().unwrap();
     let bin = temp.path().join("bin");
+
     fs::create_dir_all(&bin).unwrap();
+
     let log = temp.path().join("asked.txt");
     let installed = temp.path().join("installed");
 
@@ -1184,6 +1277,7 @@ fn install_toolchain_runs_the_command_it_would_have_printed() {
     );
 
     let file = temp.path().join("main.rs");
+
     fs::write(&file, "fn  main(){}\n").unwrap();
 
     // Without the flag it is refused, and the command is named rather than run.
@@ -1196,6 +1290,7 @@ fn install_toolchain_runs_the_command_it_would_have_printed() {
         .failure()
         .code(2)
         .stderr(predicates::str::contains("rustup toolchain install"));
+
     assert!(!installed.exists());
 
     formatter()
@@ -1205,10 +1300,12 @@ fn install_toolchain_runs_the_command_it_would_have_printed() {
         .arg(&file)
         .assert()
         .success();
+
     assert!(installed.exists());
     assert_eq!(fs::read_to_string(&file).unwrap(), "fn main() {}\n");
 
     let asked = fs::read_to_string(&log).unwrap();
+
     assert!(
         asked.contains("toolchain install nightly-2026-06-01 --component rustfmt"),
         "{asked}"

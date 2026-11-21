@@ -19,6 +19,7 @@ pub mod registry;
 pub mod registry_http;
 pub mod report;
 pub mod runner;
+mod rust_pass;
 pub mod rustfmt_config;
 pub mod selection;
 pub mod semver;
@@ -79,6 +80,7 @@ pub fn format(options: &FormatterOptions) -> Result<FormatResult> {
 /// Resolve what `options` selects without formatting anything.
 pub fn plan(options: &FormatterOptions, selector: &Selector) -> Result<Plan> {
     let mut plan = selection::resolve(&options.targets, &options.source, options.all, selector)?;
+
     runner::bind_workspaces(&mut plan, options);
     Ok(plan)
 }
@@ -97,6 +99,7 @@ pub fn run(options: &FormatterOptions, streams: &Streams<'_>) -> i32 {
 /// would otherwise chase its own writes forever.
 pub fn run_reporting(options: &FormatterOptions, streams: &Streams<'_>) -> (i32, Vec<PathBuf>) {
     let mut written = Vec::new();
+
     let code = match execute(options, streams, &mut written) {
         Ok(code) => code,
         Err(err) => report_fatal(err, options, streams),
@@ -111,6 +114,7 @@ pub fn report_fatal(err: Error, options: &FormatterOptions, streams: &Streams<'_
     if options.message_format == MessageFormat::Json {
         return report_failure(err, run_mode(options), streams);
     }
+
     let _ = streams.paint_note(|out| paint_error(&err, out));
     2
 }
@@ -138,6 +142,7 @@ fn execute(
     if options.print_config {
         let probe = options.targets.first().map(PathBuf::as_path);
         let config = runner::print_config(options, probe)?;
+
         if json {
             return report(
                 streams,
@@ -160,6 +165,7 @@ fn execute(
 
     if options.list == ListMode::Files {
         let files = runner::collect_files(&mut plan, options, &selector, streams)?;
+
         if json {
             return report(
                 streams,
@@ -192,6 +198,7 @@ fn execute(
 
     if options.verbose && !options.quiet && !json {
         let preamble = verbose_preamble(&plan.targets, options);
+
         emitted(streams.paint_note(|out| paint_verbose(&preamble, out)))?;
     }
 
@@ -199,6 +206,7 @@ fn execute(
     let git = plan.git.clone();
     let mut warnings = plan.warnings.clone();
     let mut result = runner::run_format_plan(plan, options, &selector, streams)?;
+
     written.extend(result.changed_paths().map(Path::to_path_buf));
 
     if options.restage
@@ -233,6 +241,7 @@ pub(crate) fn report_run(
 ) -> Result<i32> {
     if options.message_format == MessageFormat::Json {
         let mut envelope = Report::from_result(run_mode(options), result, warnings);
+
         if let Some(preview) = &result.preview {
             envelope.files = vec![ReportFile {
                 path: &preview.path,
@@ -256,6 +265,7 @@ pub(crate) fn report_run(
     // hook run over a commit that touched no Rust must succeed quietly; a plain
     // path that filtered down to nothing says so instead.
     let vacuous = result.files == 0 && (explicit || result.targets.is_empty());
+
     if vacuous
         && !explicit
         && !options.quiet
@@ -291,10 +301,12 @@ pub(crate) fn report_run(
     }
 
     let worth_saying = !quiet_when_unchanged || result.changed() > 0 || result.exit_code != 0;
+
     if !options.quiet && !vacuous && worth_saying && result.file_errors.is_empty() {
         let line = summary_line(result, options.check);
         let changed = result.changed();
         let previewing = result.preview.is_some();
+
         emitted(streams.paint_note(|out| {
             paint_summary(
                 &line,
@@ -334,6 +346,7 @@ fn report(streams: &Streams<'_>, envelope: &Report<'_>) -> Result<i32> {
 
 fn run_stdin(options: &FormatterOptions, streams: &Streams<'_>) -> Result<i32> {
     let mut bytes = Vec::new();
+
     std::io::stdin()
         .read_to_end(&mut bytes)
         .map_err(|err| Error::io("<stdin>", err))?;
@@ -360,13 +373,18 @@ fn run_stdin(options: &FormatterOptions, streams: &Streams<'_>) -> Result<i32> {
     let mut warnings = Vec::new();
 
     let mut source = runner::decode_source(&bytes, name)?;
+
     if language == Kind::Rust {
         source = source.with_newline_style(runner::stdin_newline_style(&resolved));
     }
+
     let output = runner::format_stdin(&source.text, language, &resolved)?;
+
     warnings.extend(output.warnings);
+
     let versions = output.versions;
     let formatted = output.text;
+
     if language == Kind::Toml && resolved.toml_style.toml_version == TomlVersion::V1_0 {
         warnings.extend(toml_1_0_issues(&formatted).into_iter().map(|issue| {
             format!(
@@ -378,6 +396,7 @@ fn run_stdin(options: &FormatterOptions, streams: &Streams<'_>) -> Result<i32> {
             )
         }));
     }
+
     let product = match language {
         Kind::Toml => runner::encode_toml_source(&formatted, &source, &resolved.toml_style),
         Kind::Rust => runner::encode_source(&formatted, &source),
@@ -391,6 +410,7 @@ fn run_stdin(options: &FormatterOptions, streams: &Streams<'_>) -> Result<i32> {
     if options.message_format == MessageFormat::Json {
         let diff = (options.check && changed)
             .then(|| unified_diff(name, &original, &formatted, options.diff_context));
+
         return report(
             streams,
             &Report {

@@ -14,7 +14,7 @@ const ON: &[&str] = &["fmt:on", "taplo:fmt-on", "rust-formatter:fmt-on"];
 
 /// The byte ranges a document asked to be left alone, each covering whole lines
 /// from the `off` marker through the `on` marker that closes it.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Regions(Vec<Range<usize>>);
 
 impl Regions {
@@ -36,6 +36,7 @@ impl Regions {
 
         for (split, _, comment) in toml_scan::lines(text) {
             let end = offset + split.raw.len();
+
             if let Some(at) = comment {
                 match (marker(&split.content[at + 1..]), open) {
                     (Some(Marker::Off), None) => open = Some(offset),
@@ -85,8 +86,10 @@ impl Regions {
             if span.start >= region.end || region.start >= span.end {
                 continue;
             }
+
             let from = region.start.saturating_sub(span.start);
             let to = region.end.min(span.end) - span.start;
+
             bounds = Some(match bounds {
                 Some((seen, was)) => (seen.min(from), was.max(to)),
                 None => (from, to),
@@ -120,7 +123,7 @@ impl Regions {
 }
 
 /// The stretch of one decor run that a directive covers.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Cover {
     /// Offsets into the run. Everything outside them is still the formatter's.
     pub(crate) from: usize,
@@ -147,11 +150,13 @@ enum Marker {
 /// second pass than on the first.
 fn marker(body: &str) -> Option<Marker> {
     let body = body.trim();
+
     if body.is_empty() || body.len() > MAX_MARKER {
         return None;
     }
 
     let mut squeezed = String::with_capacity(body.len());
+
     for ch in body.chars().filter(|ch| !ch.is_whitespace()) {
         squeezed.extend(ch.to_lowercase());
     }
@@ -308,6 +313,7 @@ fn children_of(table: &Table, regions: &Regions) -> Built {
         };
 
         let keyed = nodes.iter().any(|node| node.keyed);
+
         any |= keyed;
         if writes_a_header(item) {
             headers |= keyed;
@@ -421,10 +427,12 @@ mod tests {
     fn every_spelling_is_recognised() {
         for off in OFF {
             let text = format!("# {off}\na = 1\n");
+
             assert_eq!(regions(&text).len(), 1, "{off}");
         }
         for (off, on) in OFF.iter().zip(ON) {
             let text = format!("# {off}\na = 1\n# {on}\nb = 2\n");
+
             assert_eq!(regions(&text), [format!("# {off}\na = 1\n# {on}\n")]);
         }
     }
@@ -483,6 +491,7 @@ mod tests {
     #[test]
     fn a_long_comment_is_never_a_marker() {
         let text = format!("# fmt: off{}\na = 1\n", "!".repeat(MAX_MARKER));
+
         assert_eq!(regions(&text), Vec::<&str>::new());
     }
 
@@ -494,6 +503,7 @@ mod tests {
     fn a_marker_is_capped_at_the_documented_length() {
         let padded = |extra: usize| {
             let body = format!("taplo: fm{}t-off", " ".repeat(extra));
+
             assert_eq!(body.len(), 14 + extra);
             format!("# {body}\na = 1\n# taplo: fmt-on\n")
         };

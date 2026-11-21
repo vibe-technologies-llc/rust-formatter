@@ -15,14 +15,14 @@ use crate::{
 
 /// A dependency requirement found in a manifest, with the crate name already
 /// resolved through a `package = "…"` rename.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DepRequest<'a> {
     pub name: &'a str,
     pub req: &'a str,
 }
 
 /// Why a dependency was left as it was written.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SkipReason {
     WorkspaceInherited,
     PathSource,
@@ -124,7 +124,7 @@ impl fmt::Display for SkipReason {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Resolution {
     Pinned(String),
     Unchanged,
@@ -132,7 +132,7 @@ pub enum Resolution {
 }
 
 /// What one dependency's requirement did during a run, for reporting.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VersionRecord {
     pub crate_name: String,
     pub section: String,
@@ -158,14 +158,14 @@ pub trait VersionLookup: Sync {
 
 /// cargo-edit's vocabulary: an upgrade is compatible unless told otherwise, and
 /// an `=` requirement is left alone unless named.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct UpgradePolicy {
     pub enabled: bool,
     pub incompatible: bool,
     pub pinned: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct LookupPolicy {
     pub upgrade: UpgradePolicy,
     pub allow_yanked: bool,
@@ -244,6 +244,7 @@ impl RegistryLookup {
     ) -> Resolution {
         let incompatible = self.policy.upgrade.enabled && self.policy.upgrade.incompatible;
         let lower_bound = req.lower_bound();
+
         let considered: Vec<&IndexEntry> = entries
             .iter()
             .filter(|entry| {
@@ -254,9 +255,11 @@ impl RegistryLookup {
                 }
             })
             .collect();
+
         if considered.is_empty() {
             let all_prerelease =
                 !entries.is_empty() && entries.iter().all(|e| !e.version.pre.is_empty());
+
             return Resolution::Skipped(if all_prerelease {
                 SkipReason::AllPrerelease
             } else {
@@ -269,6 +272,7 @@ impl RegistryLookup {
         } else {
             considered.into_iter().filter(|e| !e.yanked).collect()
         };
+
         if released.is_empty() {
             return Resolution::Skipped(SkipReason::AllYanked);
         }
@@ -312,6 +316,7 @@ impl VersionLookup for RegistryLookup {
             Ok(req) => req,
             Err(why) => return Resolution::Skipped(SkipReason::Unpinnable(why)),
         };
+
         if !self.wants(&req) {
             return Resolution::Skipped(if req.is_complete() && req.is_pinned() {
                 SkipReason::Pinned
@@ -335,6 +340,7 @@ impl VersionLookup for RegistryLookup {
     /// is not serialised behind the registry.
     fn prewarm(&self, requests: &[DepRequest<'_>]) {
         let pending = self.pending(requests);
+
         if pending.len() < 2 {
             for name in &pending {
                 self.warm_one(name);
@@ -344,6 +350,7 @@ impl VersionLookup for RegistryLookup {
 
         let next = AtomicUsize::new(0);
         let workers = pending.len().min(self.concurrency);
+
         std::thread::scope(|scope| {
             for _ in 0..workers {
                 scope.spawn(|| {
@@ -352,6 +359,7 @@ impl VersionLookup for RegistryLookup {
                         let Some(name) = pending.get(index) else {
                             return;
                         };
+
                         self.warm_one(name);
                     }
                 });
@@ -380,6 +388,7 @@ impl RegistryLookup {
         let cells = lock(&self.cells);
         let mut seen = AHashSet::with_capacity(requests.len());
         let mut pending = Vec::new();
+
         for request in requests {
             if !Requirement::parse(request.req).is_ok_and(|req| self.wants(&req)) {
                 continue;
@@ -448,6 +457,7 @@ mod tests {
             entry("1.2.0", false, None),
             entry("1.9.0", false, None),
         ];
+
         assert_eq!(
             select(LookupPolicy::default(), "1", &entries),
             Resolution::Pinned("1.10.0".to_owned())
@@ -457,6 +467,7 @@ mod tests {
     #[test]
     fn yanked_releases_are_reported_rather_than_ignored() {
         let entries = [entry("1.0.0", true, None), entry("1.1.0", true, None)];
+
         assert_eq!(
             select(LookupPolicy::default(), "1", &entries),
             Resolution::Skipped(SkipReason::AllYanked)
@@ -466,6 +477,7 @@ mod tests {
             allow_yanked: true,
             ..LookupPolicy::default()
         };
+
         assert_eq!(
             select(allow, "1", &entries),
             Resolution::Pinned("1.1.0".to_owned())
@@ -475,6 +487,7 @@ mod tests {
     #[test]
     fn a_prerelease_only_crate_is_reported() {
         let entries = [entry("1.0.0-rc.1", false, None)];
+
         assert_eq!(
             select(LookupPolicy::default(), "1", &entries),
             Resolution::Skipped(SkipReason::AllPrerelease)
@@ -484,6 +497,7 @@ mod tests {
     #[test]
     fn a_requirement_no_release_satisfies_is_reported() {
         let entries = [entry("1.0.0", false, None)];
+
         assert_eq!(
             select(LookupPolicy::default(), "2", &entries),
             Resolution::Skipped(SkipReason::NoMatchingRelease)
@@ -513,6 +527,7 @@ mod tests {
         );
 
         let entries = [entry("1.0.0", false, Some("1.80"))];
+
         assert!(matches!(
             lookup.select(&req, &entries, PartialVersion::parse("1.63")),
             Resolution::Skipped(SkipReason::BelowRustVersion(_))
@@ -522,6 +537,7 @@ mod tests {
             ignore_rust_version: true,
             ..LookupPolicy::default()
         });
+
         assert_eq!(
             ignoring.select(&req, &entries, PartialVersion::parse("1.63")),
             Resolution::Pinned("1.0.0".to_owned())
@@ -537,6 +553,7 @@ mod tests {
         };
 
         let plain = make_lookup(LookupPolicy::default());
+
         assert_eq!(
             plain.resolve(request, None),
             Resolution::Skipped(SkipReason::AlreadyComplete)
@@ -550,6 +567,7 @@ mod tests {
             ..LookupPolicy::default()
         });
         let req = Requirement::parse("1.0.0").unwrap();
+
         assert_eq!(
             upgrading.select(&req, &entries, None),
             Resolution::Pinned("1.7.3".to_owned())
@@ -570,6 +588,7 @@ mod tests {
             },
             ..LookupPolicy::default()
         };
+
         assert_eq!(
             select(compatible, "^1.0.0", &entries),
             Resolution::Pinned("^1.7.3".to_owned())
@@ -583,6 +602,7 @@ mod tests {
             },
             ..LookupPolicy::default()
         };
+
         assert_eq!(
             select(incompatible, "^1.0.0", &entries),
             Resolution::Pinned("^2.0.1".to_owned())
@@ -649,6 +669,7 @@ mod tests {
             },
             ..LookupPolicy::default()
         });
+
         assert_eq!(
             upgrading.resolve(request, None),
             Resolution::Skipped(SkipReason::Pinned)
@@ -662,12 +683,14 @@ mod tests {
             },
             ..LookupPolicy::default()
         });
+
         assert!(with_pinned.wants(&Requirement::parse("=1.0.0").unwrap()));
     }
 
     #[test]
     fn an_incomplete_pinned_requirement_is_completed_without_any_upgrade_flag() {
         let plain = make_lookup(LookupPolicy::default());
+
         assert!(plain.wants(&Requirement::parse("=4.6").unwrap()));
         assert!(!plain.wants(&Requirement::parse("=4.6.6").unwrap()));
     }
@@ -704,6 +727,7 @@ mod tests {
             },
             None,
         );
+
         assert_eq!(resolution, Resolution::Skipped(SkipReason::Offline));
         assert_eq!(plain.take_error(), None);
     }
@@ -733,6 +757,7 @@ mod tests {
                 req: "*",
             },
         ]);
+
         assert_eq!(pending, vec!["serde", "clap"]);
     }
 
@@ -771,7 +796,9 @@ mod tests {
                 concurrency: 1,
             },
         );
+
         options.source = RegistrySource::Replaced("vendored".to_owned());
+
         let lookup = RegistryLookup::new(options, LookupPolicy::default(), 1).unwrap();
 
         assert_eq!(

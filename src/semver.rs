@@ -4,7 +4,7 @@ use semver::{Op, Prerelease, Version, VersionReq};
 
 /// The operator as it was written, which `semver::Op` cannot express: cargo's
 /// `1.2` and `^1.2` are the same requirement but must be rewritten differently.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Operator {
     Implicit,
     Caret,
@@ -25,7 +25,7 @@ impl Operator {
 }
 
 /// Why a requirement cannot be completed to `x.y.z`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unpinnable {
     Empty,
     Malformed,
@@ -55,7 +55,7 @@ impl fmt::Display for Unpinnable {
 
 /// A cargo dependency requirement this tool may rewrite: exactly one comparator,
 /// an operator that anchors rather than bounds, and no pre-release.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Requirement {
     req: VersionReq,
     operator: Operator,
@@ -67,6 +67,7 @@ pub struct Requirement {
 impl Requirement {
     pub fn parse(raw: &str) -> Result<Self, Unpinnable> {
         let trimmed = raw.trim();
+
         if trimmed.is_empty() {
             return Err(Unpinnable::Empty);
         }
@@ -88,6 +89,7 @@ impl Requirement {
             Op::Wildcard => Operator::Wildcard,
             _ => return Err(Unpinnable::Inequality),
         };
+
         if comparator.pre != Prerelease::EMPTY {
             return Err(Unpinnable::Prerelease);
         }
@@ -95,6 +97,7 @@ impl Requirement {
         let names_minor = comparator.minor.is_some();
         let names_patch = comparator.patch.is_some();
         let bounds_whole_zero_major = comparator.major == 0 && !names_minor;
+
         if bounds_whole_zero_major && operator != Operator::Exact {
             return Err(Unpinnable::WholeZeroMajor);
         }
@@ -165,7 +168,7 @@ pub fn best_match<'a>(
 
 /// A `rust-version` as cargo writes it: `1`, `1.63` or `1.63.0`, where an absent
 /// component means zero rather than "any".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PartialVersion {
     major: u64,
     minor: u64,
@@ -181,9 +184,11 @@ impl PartialVersion {
 
     pub fn parse(raw: &str) -> Option<Self> {
         let mut parts = raw.trim().split('.');
+
         let major = parse_component(parts.next()?)?;
         let minor = parts.next().map_or(Some(0), parse_component)?;
         let patch = parts.next().map_or(Some(0), parse_component)?;
+
         if parts.next().is_some() {
             return None;
         }
@@ -220,9 +225,11 @@ mod tests {
 
     fn complete(current: &str, available: &[&str]) -> Option<String> {
         let req = Requirement::parse(current).ok()?;
+
         if req.is_complete() {
             return None;
         }
+
         let list = versions(available);
         best_match(&req, &list).map(|version| req.render(version))
     }
@@ -230,6 +237,7 @@ mod tests {
     #[test]
     fn completes_a_partial_requirement() {
         let avail = ["4.5.0", "4.6.1", "4.6.6", "5.0.0"];
+
         assert_eq!(complete("4.6", &avail).as_deref(), Some("4.6.6"));
         assert_eq!(complete("4.6.6", &avail), None);
         assert_eq!(complete("4", &avail).as_deref(), Some("4.6.6"));
@@ -238,6 +246,7 @@ mod tests {
     #[test]
     fn caret_admits_a_higher_minor() {
         let avail = ["1.0.100", "1.0.230", "1.1.0"];
+
         assert_eq!(complete("^1.0", &avail).as_deref(), Some("^1.1.0"));
         assert_eq!(complete("1.0", &avail).as_deref(), Some("1.1.0"));
         assert_eq!(complete("1", &avail).as_deref(), Some("1.1.0"));
@@ -246,6 +255,7 @@ mod tests {
     #[test]
     fn tilde_stays_inside_its_minor() {
         let avail = ["1.0.100", "1.0.230", "1.1.0"];
+
         assert_eq!(complete("~1.0", &avail).as_deref(), Some("~1.0.230"));
     }
 
@@ -263,6 +273,7 @@ mod tests {
     #[test]
     fn a_zero_zero_caret_keeps_every_patch_of_its_minor() {
         let avail = ["0.0.3", "0.0.7", "0.1.0"];
+
         for raw in ["0.0", "^0.0"] {
             let written = complete(raw, &avail).unwrap();
             let rewritten = Requirement::parse(&written).unwrap();
@@ -277,6 +288,7 @@ mod tests {
                 "{raw}"
             );
         }
+
         assert_eq!(complete("~0.0", &avail).as_deref(), Some("~0.0.7"));
         assert_eq!(complete("0.0.*", &avail).as_deref(), Some("~0.0.7"));
     }
@@ -284,6 +296,7 @@ mod tests {
     #[test]
     fn exact_keeps_its_operator_and_narrows() {
         let avail = ["4.6.1", "4.6.6", "4.7.0"];
+
         assert_eq!(complete("=4.6", &avail).as_deref(), Some("=4.6.6"));
         assert_eq!(complete("=4", &avail).as_deref(), Some("=4.7.0"));
     }
@@ -291,6 +304,7 @@ mod tests {
     #[test]
     fn wildcards_complete_like_a_bare_requirement() {
         let avail = ["1.0.100", "1.2.9", "1.7.3", "2.0.0"];
+
         assert_eq!(complete("1.*", &avail).as_deref(), Some("1.7.3"));
         assert_eq!(complete("1.x", &avail).as_deref(), Some("1.7.3"));
         assert_eq!(complete("1.2.*", &avail).as_deref(), Some("~1.2.9"));
@@ -300,18 +314,21 @@ mod tests {
     #[test]
     fn build_metadata_is_dropped_from_the_completion() {
         let avail = ["0.25.12", "0.25.13+spec-1.1.0"];
+
         assert_eq!(complete("0.25", &avail).as_deref(), Some("0.25.13"));
     }
 
     #[test]
     fn prereleases_are_not_selected() {
         let avail = ["1.0.0", "1.1.0-rc.1"];
+
         assert_eq!(complete("1", &avail).as_deref(), Some("1.0.0"));
     }
 
     #[test]
     fn zero_major_caret_stays_inside_its_minor() {
         let avail = ["0.4.33", "0.5.0"];
+
         assert_eq!(complete("0.4", &avail).as_deref(), Some("0.4.33"));
         assert_eq!(complete("^0.4", &avail).as_deref(), Some("^0.4.33"));
     }
@@ -325,6 +342,7 @@ mod tests {
                 "{raw}"
             );
         }
+
         assert!(Requirement::parse("=0").is_ok());
     }
 
@@ -368,6 +386,7 @@ mod tests {
     #[test]
     fn an_upgrade_moves_the_operator_with_the_version() {
         let target = Version::parse("2.0.1").unwrap();
+
         assert_eq!(
             Requirement::parse("^1.2").unwrap().render(&target),
             "^2.0.1"

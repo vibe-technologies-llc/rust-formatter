@@ -15,6 +15,7 @@ fn assert_no_rustfmt_configs(dir: &Path) {
     for entry in walkdir::WalkDir::new(dir) {
         let entry = entry.unwrap();
         let name = entry.file_name().to_string_lossy();
+
         assert_ne!(
             name,
             "rustfmt.toml",
@@ -33,11 +34,13 @@ fn assert_no_rustfmt_configs(dir: &Path) {
 #[test]
 fn test_cargo_project_formatting_preserves_toolchain_and_no_config() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let project_dir = temp.path();
 
     // Create Cargo.toml
     let cargo_toml = project_dir.join("Cargo.toml");
+
     fs::write(
         &cargo_toml,
         r#"[package]
@@ -52,12 +55,16 @@ edition = "2021"
 
     // Explicitly pin to stable in rust-toolchain.toml
     let toolchain_file = project_dir.join("rust-toolchain.toml");
+
     fs::write(&toolchain_file, "[toolchain]\nchannel = \"stable\"\n").unwrap();
 
     // Create src/main.rs with unformatted/unsorted imports
     let src_dir = project_dir.join("src");
+
     fs::create_dir(&src_dir).unwrap();
+
     let main_rs = src_dir.join("main.rs");
+
     fs::write(
         &main_rs,
         r#"use std::path::Path;
@@ -77,6 +84,7 @@ println!("hello");
 
     // Run rust-formatter on the project directory
     let mut cmd = formatter();
+
     cmd.arg(project_dir).assert().success();
 
     // Verify formatted content
@@ -92,10 +100,12 @@ fn main() {
     println!("hello");
 }
 "#;
+
     assert_eq!(formatted, expected);
 
     // rust-toolchain.toml is formatted in place (already canonical here)
     let toolchain_content = fs::read_to_string(&toolchain_file).unwrap();
+
     assert_eq!(toolchain_content, "[toolchain]\nchannel = \"stable\"\n");
 
     // Verify no rustfmt.toml was created
@@ -105,8 +115,10 @@ fn main() {
 #[test]
 fn test_three_tier_import_grouping() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let file = temp.path().join("imports.rs");
+
     fs::write(
         &file,
         r"use crate::z;
@@ -120,6 +132,7 @@ use std::fs;
     .unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(&file).assert().success();
 
     let formatted = fs::read_to_string(&file).unwrap();
@@ -130,16 +143,19 @@ use tempfile::tempdir;
 
 use crate::{a, z};
 ";
+
     assert_eq!(formatted, expected);
 }
 
 #[test]
 fn test_loose_rs_files_formatting() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let loose_dir = temp.path();
 
     let file1 = loose_dir.join("loose1.rs");
+
     fs::write(
         &file1,
         r"use std::path::Path;
@@ -151,8 +167,11 @@ use crate::a;
     .unwrap();
 
     let sub_dir = loose_dir.join("sub");
+
     fs::create_dir(&sub_dir).unwrap();
+
     let file2 = sub_dir.join("loose2.rs");
+
     fs::write(
         &file2,
         r"use crate::z;
@@ -164,6 +183,7 @@ use crate::y;
 
     // Run rust-formatter on the loose directory
     let mut cmd = formatter();
+
     cmd.arg(loose_dir).assert().success();
 
     let formatted1 = fs::read_to_string(&file1).unwrap();
@@ -171,6 +191,7 @@ use crate::y;
 
 use crate::{a, b};
 ";
+
     assert_eq!(formatted1, expected1);
 
     let formatted2 = fs::read_to_string(&file2).unwrap();
@@ -178,6 +199,7 @@ use crate::{a, b};
 
 use crate::{y, z};
 ";
+
     assert_eq!(formatted2, expected2);
 
     assert_no_rustfmt_configs(loose_dir);
@@ -186,10 +208,12 @@ use crate::{y, z};
 #[test]
 fn test_check_mode_failure_and_success() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let project_dir = temp.path();
 
     let cargo_toml = project_dir.join("Cargo.toml");
+
     fs::write(
         &cargo_toml,
         r#"[package]
@@ -201,8 +225,11 @@ edition = "2021"
     .unwrap();
 
     let src_dir = project_dir.join("src");
+
     fs::create_dir(&src_dir).unwrap();
+
     let main_rs = src_dir.join("main.rs");
+
     fs::write(
         &main_rs,
         r"use std::path::Path;
@@ -215,6 +242,7 @@ fn main() {}
 
     // Check mode should fail because it is unformatted (missing blank line between std and crate)
     let mut check_cmd = formatter();
+
     check_cmd
         .arg("--check")
         .arg(project_dir)
@@ -224,10 +252,12 @@ fn main() {}
 
     // Run formatter to fix it
     let mut fmt_cmd = formatter();
+
     fmt_cmd.arg(project_dir).assert().success();
 
     // Now check mode should succeed
     let mut check_again = formatter();
+
     check_again
         .arg("--check")
         .arg(project_dir)
@@ -238,8 +268,10 @@ fn main() {}
 #[test]
 fn test_single_file_target() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let file = temp.path().join("single.rs");
+
     fs::write(
         &file,
         r"use std::sync::Arc;
@@ -251,6 +283,7 @@ use crate::foo;
     .unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(&file).assert().success();
 
     let formatted = fs::read_to_string(&file).unwrap();
@@ -258,14 +291,17 @@ use crate::foo;
 
 use crate::{bar, foo};
 ";
+
     assert_eq!(formatted, expected);
 }
 
 #[test]
 fn test_single_file_uses_package_edition() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let project_dir = temp.path();
+
     fs::write(
         project_dir.join("Cargo.toml"),
         r#"[package]
@@ -275,12 +311,17 @@ edition = "2021"
 "#,
     )
     .unwrap();
+
     let src = project_dir.join("src");
+
     fs::create_dir(&src).unwrap();
+
     let lib_rs = src.join("lib.rs");
+
     fs::write(&lib_rs, "async fn f() {}\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(&lib_rs).assert().success();
 
     assert_eq!(fs::read_to_string(&lib_rs).unwrap(), "async fn f() {}\n");
@@ -289,8 +330,10 @@ edition = "2021"
 #[test]
 fn test_cli_edition_overrides_manifest() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let project_dir = temp.path();
+
     fs::write(
         project_dir.join("Cargo.toml"),
         r#"[package]
@@ -300,9 +343,13 @@ edition = "2021"
 "#,
     )
     .unwrap();
+
     let src = project_dir.join("src");
+
     fs::create_dir(&src).unwrap();
+
     let lib_rs = src.join("lib.rs");
+
     fs::write(&lib_rs, "async fn f() {}\n").unwrap();
 
     let mut cmd = formatter();
@@ -324,6 +371,7 @@ edition = "2021"
 #[test]
 fn test_subdirectory_in_cargo_project() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let project_dir = temp.path();
 
@@ -338,8 +386,11 @@ edition = "2021"
     .unwrap();
 
     let src_dir = project_dir.join("src");
+
     fs::create_dir(&src_dir).unwrap();
+
     let main_rs = src_dir.join("main.rs");
+
     fs::write(
         &main_rs,
         r"use std::io;
@@ -354,6 +405,7 @@ mod b {}
 
     // Pass the `src` subdirectory as the target
     let mut cmd = formatter();
+
     cmd.arg(&src_dir).assert().success();
 
     let formatted = fs::read_to_string(&main_rs).unwrap();
@@ -364,14 +416,17 @@ use crate::{a, b};
 mod a {}
 mod b {}
 ";
+
     assert_eq!(formatted, expected);
 }
 
 #[test]
 fn test_custom_config_override() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let file = temp.path().join("wrap.rs");
+
     fs::write(
         &file,
         r"fn test_long_function_name(first_parameter_is_long: String, second_parameter_is_long: usize) {
@@ -382,6 +437,7 @@ fn test_custom_config_override() {
 
     // Pass max_width=40 to force wrap
     let mut cmd = formatter();
+
     cmd.arg(&file)
         .arg("--config")
         .arg("max_width=40")
@@ -389,17 +445,21 @@ fn test_custom_config_override() {
         .success();
 
     let formatted = fs::read_to_string(&file).unwrap();
+
     assert!(formatted.contains("fn test_long_function_name(\n"));
 }
 
 #[test]
 fn test_color_always_paints_success() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let file = temp.path().join("color.rs");
+
     fs::write(&file, "fn main() {}\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg("--color")
         .arg("always")
         .arg(&file)
@@ -412,11 +472,14 @@ fn test_color_always_paints_success() {
 #[test]
 fn test_color_never_is_plain() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let file = temp.path().join("plain.rs");
+
     fs::write(&file, "fn main() {}\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg("--color")
         .arg("never")
         .arg(&file)
@@ -429,8 +492,10 @@ fn test_color_never_is_plain() {
 #[test]
 fn test_success_prints_summary_for_single_file() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let file = temp.path().join("summary.rs");
+
     fs::write(
         &file,
         r"use std::sync::Arc;
@@ -442,6 +507,7 @@ use crate::foo;
     .unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(&file)
         .assert()
         .success()
@@ -451,11 +517,14 @@ use crate::foo;
 #[test]
 fn test_quiet_suppresses_summary() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let file = temp.path().join("quiet.rs");
+
     fs::write(&file, "fn main() {}\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg("-q")
         .arg(&file)
         .assert()
@@ -466,8 +535,10 @@ fn test_quiet_suppresses_summary() {
 #[test]
 fn test_check_success_summary() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let file = temp.path().join("already.rs");
+
     fs::write(
         &file,
         r"use std::sync::{Arc, Mutex};
@@ -478,6 +549,7 @@ use crate::{bar, foo};
     .unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg("--check")
         .arg(&file)
         .assert()
@@ -488,8 +560,10 @@ use crate::{bar, foo};
 #[test]
 fn test_check_failure_summary() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let file = temp.path().join("needs.rs");
+
     fs::write(
         &file,
         r"use std::path::Path;
@@ -499,6 +573,7 @@ use crate::foo;
     .unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg("--check")
         .arg(&file)
         .assert()
@@ -510,11 +585,14 @@ use crate::foo;
 #[test]
 fn test_verbose_reports_target_before_rustfmt() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let file = temp.path().join("verbose.rs");
+
     fs::write(&file, "fn main() {}\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg("--verbose")
         .arg("--check")
         .arg(&file)
@@ -528,6 +606,7 @@ fn test_verbose_reports_target_before_rustfmt() {
 fn test_toml_formatting_dotted_and_multiline() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("deps.toml");
+
     fs::write(
         &file,
         r##"clap = { version = "4.6.6", features = ["derive"] }
@@ -538,9 +617,11 @@ key="v"#note
     .unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(&file).assert().success();
 
     let formatted = fs::read_to_string(&file).unwrap();
+
     assert_eq!(
         formatted,
         r#"clap = { version = "4.6.6", features = ["derive"] }
@@ -554,9 +635,11 @@ key = "v" # note
 fn test_toml_check_mode() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("check.toml");
+
     fs::write(&file, "foo={path=\"x\"}\n").unwrap();
 
     let mut check_cmd = formatter();
+
     check_cmd
         .arg("--check")
         .arg(&file)
@@ -566,9 +649,11 @@ fn test_toml_check_mode() {
         .stderr(predicates::str::contains("needs formatting"));
 
     let mut fmt_cmd = formatter();
+
     fmt_cmd.arg(&file).assert().success();
 
     let mut check_again = formatter();
+
     check_again.arg("--check").arg(&file).assert().success();
 }
 
@@ -576,9 +661,11 @@ fn test_toml_check_mode() {
 fn test_quiet_toml_check_has_empty_stderr() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("quiet-check.toml");
+
     fs::write(&file, "foo={path=\"x\"}\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg("-q")
         .arg("--check")
         .arg(&file)
@@ -593,10 +680,12 @@ fn test_cargo_lock_not_formatted() {
     let temp = tempdir().unwrap();
     let lock = temp.path().join("Cargo.lock");
     let original = "version = 3\n\n\n[[package]]\nname = \"foo\"\n";
+
     fs::write(&lock, original).unwrap();
     fs::write(temp.path().join("extra.toml"), "a=1\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(temp.path()).assert().success();
 
     assert_eq!(fs::read_to_string(&lock).unwrap(), original);
@@ -612,10 +701,12 @@ fn test_clippy_toml_not_formatted() {
     let clippy = temp.path().join("clippy.toml");
     let original =
         "disallowed-types = [{ path = \"std::sync::Mutex\", reason = \"use parking_lot\" }]\n";
+
     fs::write(&clippy, original).unwrap();
     fs::write(temp.path().join("extra.toml"), "a=1\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(temp.path()).assert().success();
 
     assert_eq!(fs::read_to_string(&clippy).unwrap(), original);
@@ -625,7 +716,9 @@ fn test_clippy_toml_not_formatted() {
     );
 
     let mut single = formatter();
+
     single.arg(&clippy).assert().success();
+
     assert_eq!(fs::read_to_string(&clippy).unwrap(), original);
 }
 
@@ -634,10 +727,12 @@ fn test_rustfmt_toml_not_formatted() {
     let temp = tempdir().unwrap();
     let rustfmt = temp.path().join("rustfmt.toml");
     let original = "max_width=80\nfoo = { path = \"x\" }\n";
+
     fs::write(&rustfmt, original).unwrap();
     fs::write(temp.path().join("extra.toml"), "a=1\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(temp.path()).assert().success();
 
     assert_eq!(fs::read_to_string(&rustfmt).unwrap(), original);
@@ -647,7 +742,9 @@ fn test_rustfmt_toml_not_formatted() {
     );
 
     let mut single = formatter();
+
     single.arg(&rustfmt).assert().success();
+
     assert_eq!(fs::read_to_string(&rustfmt).unwrap(), original);
 }
 
@@ -655,9 +752,11 @@ fn test_rustfmt_toml_not_formatted() {
 fn test_toml_only_directory() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("only.toml");
+
     fs::write(&file, "foo = { path = \"x\" }\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(temp.path()).assert().success();
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "foo.path = \"x\"\n");
@@ -666,8 +765,10 @@ fn test_toml_only_directory() {
 #[test]
 fn test_cargo_toml_in_project_is_formatted() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let project_dir = temp.path();
+
     fs::write(
         project_dir.join("Cargo.toml"),
         r#"[package]
@@ -681,14 +782,18 @@ local = { path = "../local" }
 "#,
     )
     .unwrap();
+
     let src = project_dir.join("src");
+
     fs::create_dir(&src).unwrap();
     fs::write(src.join("lib.rs"), "pub fn f() {}\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(project_dir).assert().success();
 
     let cargo = fs::read_to_string(project_dir.join("Cargo.toml")).unwrap();
+
     assert!(cargo.contains("clap = {"));
     assert!(cargo.contains("version = \"4.6.6\""));
     assert!(cargo.contains("features = [\"derive\"]"));
@@ -698,8 +803,10 @@ local = { path = "../local" }
 #[test]
 fn test_full_versions_is_opt_in() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let project_dir = temp.path();
+
     fs::write(
         project_dir.join("Cargo.toml"),
         r#"[package]
@@ -712,14 +819,18 @@ ignore = "0.4"
 "#,
     )
     .unwrap();
+
     let src = project_dir.join("src");
+
     fs::create_dir(&src).unwrap();
     fs::write(src.join("lib.rs"), "").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(project_dir).assert().success();
 
     let formatted = fs::read_to_string(project_dir.join("Cargo.toml")).unwrap();
+
     assert!(formatted.contains("ignore = \"0.4\""));
     assert!(!formatted.contains("ignore = \"0.4.33\""));
 }
@@ -727,6 +838,7 @@ ignore = "0.4"
 #[test]
 fn test_check_rust_clean_toml_dirty() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let project_dir = temp.path();
 
@@ -739,13 +851,16 @@ edition = "2021"
 [dependencies]
 local = { path = "../local" }
 "#;
+
     fs::write(&cargo_toml, dirty_cargo).unwrap();
 
     let src_dir = project_dir.join("src");
+
     fs::create_dir(&src_dir).unwrap();
     fs::write(src_dir.join("lib.rs"), "pub fn f() {}\n").unwrap();
 
     let mut check_cmd = formatter();
+
     check_cmd
         .arg("--check")
         .arg(project_dir)
@@ -763,6 +878,7 @@ local = { path = "../local" }
 #[test]
 fn test_check_rust_dirty_toml_clean() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let project_dir = temp.path();
 
@@ -780,6 +896,7 @@ local.path = "../local"
     .unwrap();
 
     let src_dir = project_dir.join("src");
+
     fs::create_dir(&src_dir).unwrap();
     fs::write(
         src_dir.join("lib.rs"),
@@ -791,6 +908,7 @@ mod foo {}
     .unwrap();
 
     let mut check_cmd = formatter();
+
     check_cmd
         .arg("--check")
         .arg(project_dir)
@@ -809,6 +927,7 @@ fn test_parallel_toml_formats_five_files() {
     }
 
     let mut cmd = formatter();
+
     cmd.arg(dir).assert().success();
 
     for name in ["a.toml", "b.toml", "c.toml", "d.toml", "e.toml"] {
@@ -829,12 +948,15 @@ fn test_parallel_toml_check() {
     }
 
     let mut check_cmd = formatter();
+
     check_cmd.arg("--check").arg(dir).assert().failure().code(1);
 
     let mut fmt_cmd = formatter();
+
     fmt_cmd.arg(dir).assert().success();
 
     let mut check_again = formatter();
+
     check_again.arg("--check").arg(dir).assert().success();
 }
 
@@ -842,6 +964,7 @@ fn test_parallel_toml_check() {
 fn test_missing_rustup_reports_error() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("main.rs");
+
     fs::write(&file, "fn main() {}\n").unwrap();
 
     let mut cmd = formatter();
@@ -864,9 +987,11 @@ fn test_missing_rustup_reports_error() {
 fn test_a_named_toolchain_without_rustup_names_rustup() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("main.rs");
+
     fs::write(&file, "fn main() {}\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.current_dir(temp.path())
         .env("PATH", temp.path())
         .env_remove("RUSTFMT")
@@ -883,6 +1008,7 @@ fn test_a_named_toolchain_without_rustup_names_rustup() {
 #[test]
 fn test_the_rustfmt_variable_is_used_when_rustup_is_absent() {
     needs_nightly!();
+
     let Ok(resolved) = Command::new("rustup")
         .args(["which", "rustfmt", "--toolchain", "nightly"])
         .output()
@@ -893,15 +1019,18 @@ fn test_the_rustfmt_variable_is_used_when_rustup_is_absent() {
 
     let temp = tempdir().unwrap();
     let file = temp.path().join("main.rs");
+
     fs::write(&file, "fn  main(){}\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.current_dir(temp.path())
         .env("PATH", temp.path())
         .env("RUSTFMT", rustfmt.trim())
         .arg(&file)
         .assert()
         .success();
+
     assert_eq!(fs::read_to_string(&file).unwrap(), "fn main() {}\n");
 }
 
@@ -909,9 +1038,11 @@ fn test_the_rustfmt_variable_is_used_when_rustup_is_absent() {
 fn test_missing_toolchain_reports_error() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("main.rs");
+
     fs::write(&file, "fn main() {}\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg("--toolchain")
         .arg("rust-formatter-does-not-exist-toolchain")
         .arg(&file)
@@ -928,9 +1059,11 @@ fn test_missing_toolchain_reports_error() {
 fn test_unsupported_file_reports_unsupported() {
     let temp = tempdir().unwrap();
     let readme = temp.path().join("README.md");
+
     fs::write(&readme, "# hi\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(&readme)
         .assert()
         .failure()
@@ -944,9 +1077,11 @@ fn test_cargo_lock_as_target_is_unsupported() {
     let temp = tempdir().unwrap();
     let lock = temp.path().join("Cargo.lock");
     let original = "version = 3\n\n\n[[package]]\nname = \"foo\"\n";
+
     fs::write(&lock, original).unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(&lock)
         .assert()
         .failure()
@@ -962,6 +1097,7 @@ fn test_missing_path_is_path_not_found() {
     let missing = temp.path().join("does-not-exist.rs");
 
     let mut cmd = formatter();
+
     cmd.arg(&missing)
         .assert()
         .failure()
@@ -974,6 +1110,7 @@ fn test_empty_dir_reports_no_formattable_files() {
     let temp = tempdir().unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(temp.path())
         .assert()
         .failure()
@@ -994,15 +1131,19 @@ fn test_check_fails_on_unreadable_subdirectory() {
     }
 
     let temp = tempdir().unwrap();
+
     fs::write(temp.path().join("keep.rs"), "fn main() {}\n").unwrap();
 
     let blocked = temp.path().join("blocked");
+
     fs::create_dir(&blocked).unwrap();
     fs::write(blocked.join("dirty.rs"), "fn dirty(){}\n").unwrap();
     fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
+
     let _guard = Restore(blocked);
 
     let mut cmd = formatter();
+
     cmd.arg("--check")
         .arg(temp.path())
         .assert()
@@ -1023,6 +1164,7 @@ local = { path = "crates/local" }
     .unwrap();
 
     let local_dir = root.join("crates").join("local");
+
     fs::create_dir_all(local_dir.join("src")).unwrap();
     fs::write(
         local_dir.join("Cargo.toml"),
@@ -1037,6 +1179,7 @@ edition = "2021"
 
     for member in ["foo", "bar"] {
         let crate_dir = root.join("crates").join(member);
+
         fs::create_dir_all(crate_dir.join("src")).unwrap();
         fs::write(
             crate_dir.join("Cargo.toml"),
@@ -1059,53 +1202,68 @@ local = {{ path = "../local" }}
 #[test]
 fn test_workspace_member_formats_sibling_toml() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let root = temp.path();
+
     make_workspace_fixture(root);
 
     let foo_dir = root.join("crates").join("foo");
     let mut cmd = formatter();
+
     cmd.arg(&foo_dir).assert().success();
 
     let foo_cargo = fs::read_to_string(foo_dir.join("Cargo.toml")).unwrap();
+
     assert!(foo_cargo.contains("local.path = \"../local\""));
 
     let bar_cargo = fs::read_to_string(root.join("crates").join("bar").join("Cargo.toml")).unwrap();
+
     assert!(bar_cargo.contains("local.path = \"../local\""));
 
     let root_cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
+
     assert!(root_cargo.contains("local.path = \"crates/local\""));
 }
 
 #[test]
 fn test_no_all_does_not_format_sibling_toml() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let root = temp.path();
+
     make_workspace_fixture(root);
 
     let foo_dir = root.join("crates").join("foo");
     let mut cmd = formatter();
+
     cmd.arg("--no-all").arg(&foo_dir).assert().success();
 
     let foo_cargo = fs::read_to_string(foo_dir.join("Cargo.toml")).unwrap();
+
     assert!(foo_cargo.contains("local.path = \"../local\""));
 
     let bar_cargo = fs::read_to_string(root.join("crates").join("bar").join("Cargo.toml")).unwrap();
+
     assert!(bar_cargo.contains("local = { path = \"../local\" }"));
 
     let root_cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
+
     assert!(root_cargo.contains("local = { path = \"crates/local\" }"));
 }
 
 #[test]
 fn test_non_member_scratch_does_not_format_workspace_toml() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let root = temp.path();
+
     make_workspace_fixture(root);
 
     let scratch_dir = root.join("scratch");
+
     fs::create_dir_all(scratch_dir.join("src")).unwrap();
     fs::write(
         scratch_dir.join("Cargo.toml"),
@@ -1126,9 +1284,11 @@ local = { path = "../crates/local" }
     let _ = cmd.arg(&scratch_dir).output().unwrap();
 
     let scratch_cargo = fs::read_to_string(scratch_dir.join("Cargo.toml")).unwrap();
+
     assert!(scratch_cargo.contains("local.path = \"../crates/local\""));
 
     let root_cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
+
     assert!(root_cargo.contains("local = { path = \"crates/local\" }"));
 }
 
@@ -1136,9 +1296,11 @@ local = { path = "../crates/local" }
 fn test_exit_code_unparseable_toml_is_tool_error() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("bad.toml");
+
     fs::write(&file, "key =\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(&file)
         .assert()
         .failure()
@@ -1154,10 +1316,12 @@ fn test_fail_fast_stops_after_first_bad_toml() {
     let temp = tempdir().unwrap();
     let a = temp.path().join("a.toml");
     let b = temp.path().join("b.toml");
+
     fs::write(&a, "key =\n").unwrap();
     fs::write(&b, "other =\n").unwrap();
 
     let mut all = formatter();
+
     all.arg(temp.path())
         .assert()
         .failure()
@@ -1171,11 +1335,14 @@ fn test_fail_fast_stops_after_first_bad_toml() {
         .arg(temp.path())
         .output()
         .unwrap();
+
     assert!(!fail_fast.status.success());
     assert_eq!(fail_fast.status.code(), Some(2));
+
     let stderr = String::from_utf8_lossy(&fail_fast.stderr);
     let mentioned_a = stderr.contains("a.toml");
     let mentioned_b = stderr.contains("b.toml");
+
     assert!(
         mentioned_a ^ mentioned_b,
         "fail-fast should report exactly one file, got {stderr}"
@@ -1188,6 +1355,7 @@ fn test_fail_fast_stops_after_first_bad_toml() {
 #[test]
 fn test_fail_fast_does_not_cost_parallelism() {
     let temp = tempdir().unwrap();
+
     for index in 0..400 {
         fs::write(temp.path().join(format!("{index:03}.toml")), "key =\n").unwrap();
     }
@@ -1199,6 +1367,7 @@ fn test_fail_fast_does_not_cost_parallelism() {
             .arg(temp.path())
             .output()
             .unwrap();
+
         assert_eq!(out.status.code(), Some(2));
         String::from_utf8_lossy(&out.stderr)
             .matches("Failed to parse TOML file")
@@ -1206,7 +1375,9 @@ fn test_fail_fast_does_not_cost_parallelism() {
     };
 
     assert_eq!(count(&["-j", "8"]), 400);
+
     let stopped = count(&["--fail-fast", "-j", "8"]);
+
     assert!(stopped < 400, "fail-fast reported {stopped} of 400");
 }
 
@@ -1215,7 +1386,9 @@ fn test_fail_fast_does_not_cost_parallelism() {
 #[test]
 fn test_fail_fast_reaches_the_rust_half() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     for index in 0..400 {
         fs::write(temp.path().join(format!("{index:03}.rs")), "fn broken( {\n").unwrap();
     }
@@ -1227,6 +1400,7 @@ fn test_fail_fast_reaches_the_rust_half() {
             .arg(temp.path())
             .output()
             .unwrap();
+
         assert_eq!(out.status.code(), Some(2));
         String::from_utf8_lossy(&out.stderr)
             .matches("unclosed delimiter")
@@ -1235,13 +1409,16 @@ fn test_fail_fast_reaches_the_rust_half() {
 
     let all = count(&["-j", "8"]);
     let stopped = count(&["--fail-fast", "-j", "8"]);
+
     assert!(stopped < all, "fail-fast reported {stopped} of {all}");
 }
 
 #[test]
 fn test_missing_workspace_member_does_not_dump_rustfmt_help() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     fs::write(
         temp.path().join("Cargo.toml"),
         "[workspace]\nmembers = [\"missing\"]\n",
@@ -1249,6 +1426,7 @@ fn test_missing_workspace_member_does_not_dump_rustfmt_help() {
     .unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(temp.path())
         .assert()
         .failure()
@@ -1261,7 +1439,9 @@ fn test_missing_workspace_member_does_not_dump_rustfmt_help() {
 #[test]
 fn test_package_without_targets_does_not_dump_help() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     fs::write(
         temp.path().join("Cargo.toml"),
         "[package]\nname = \"empty\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
@@ -1269,6 +1449,7 @@ fn test_package_without_targets_does_not_dump_help() {
     .unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(temp.path())
         .assert()
         .success()
@@ -1280,21 +1461,29 @@ fn test_package_without_targets_does_not_dump_help() {
 fn test_vendor_tree_is_not_rewritten() {
     let temp = tempdir().unwrap();
     let keep = temp.path().join("keep.toml");
+
     fs::write(&keep, "foo={path=\"x\"}\n").unwrap();
 
     let vendor = temp.path().join("vendor").join("foo");
+
     fs::create_dir_all(&vendor).unwrap();
     fs::write(vendor.join(".cargo-checksum.json"), "{}").unwrap();
+
     let vendored = vendor.join("Cargo.toml");
+
     fs::write(&vendored, "x=1\n").unwrap();
 
     let renamed = temp.path().join("third-party").join("bar");
+
     fs::create_dir_all(&renamed).unwrap();
     fs::write(renamed.join(".cargo-checksum.json"), "{}").unwrap();
+
     let renamed_manifest = renamed.join("Cargo.toml");
+
     fs::write(&renamed_manifest, "y=1\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(temp.path()).assert().success();
 
     assert_eq!(fs::read_to_string(&keep).unwrap(), "foo.path = \"x\"\n");
@@ -1307,16 +1496,20 @@ fn test_hidden_config_toml_is_formatted() {
     let temp = tempdir().unwrap();
     let cargo_dir = temp.path().join(".cargo");
     let config_dir = temp.path().join(".config");
+
     fs::create_dir(&cargo_dir).unwrap();
     fs::create_dir(&config_dir).unwrap();
+
     let cargo_toml = cargo_dir.join("config.toml");
     let nextest = config_dir.join("nextest.toml");
     let secret = temp.path().join(".secret.toml");
+
     fs::write(&cargo_toml, "foo={path=\"x\"}\n").unwrap();
     fs::write(&nextest, "foo={path=\"y\"}\n").unwrap();
     fs::write(&secret, "foo={path=\"z\"}\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(temp.path()).assert().success();
 
     assert_eq!(
@@ -1330,13 +1523,17 @@ fn test_hidden_config_toml_is_formatted() {
 #[test]
 fn test_gitignore_without_git_is_respected() {
     let temp = tempdir().unwrap();
+
     fs::write(temp.path().join(".gitignore"), "skip.toml\n").unwrap();
+
     let keep = temp.path().join("keep.toml");
     let skip = temp.path().join("skip.toml");
+
     fs::write(&keep, "foo={path=\"x\"}\n").unwrap();
     fs::write(&skip, "foo={path=\"y\"}\n").unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(temp.path()).assert().success();
 
     assert_eq!(fs::read_to_string(&keep).unwrap(), "foo.path = \"x\"\n");
@@ -1346,8 +1543,10 @@ fn test_gitignore_without_git_is_respected() {
 #[test]
 fn test_excluded_path_dep_toml_not_rewritten_from_workspace() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let root = temp.path();
+
     fs::write(
         root.join("Cargo.toml"),
         r#"[workspace]
@@ -1358,6 +1557,7 @@ exclude = ["crates/local"]
     .unwrap();
 
     let foo = root.join("crates").join("foo");
+
     fs::create_dir_all(foo.join("src")).unwrap();
     fs::write(
         foo.join("Cargo.toml"),
@@ -1367,6 +1567,7 @@ exclude = ["crates/local"]
     fs::write(foo.join("src").join("lib.rs"), "pub fn f() {}\n").unwrap();
 
     let local = root.join("crates").join("local");
+
     fs::create_dir_all(local.join("src")).unwrap();
     fs::write(
         local.join("Cargo.toml"),
@@ -1376,6 +1577,7 @@ exclude = ["crates/local"]
     fs::write(local.join("src").join("lib.rs"), "pub fn g() {}\n").unwrap();
 
     let mut from_root = formatter();
+
     from_root.arg(root).assert().success();
 
     assert!(
@@ -1391,7 +1593,9 @@ exclude = ["crates/local"]
     );
 
     let mut from_local = formatter();
+
     from_local.arg(&local).assert().success();
+
     assert!(
         fs::read_to_string(local.join("Cargo.toml"))
             .unwrap()
@@ -1404,18 +1608,24 @@ fn test_preserves_toml_bom_and_crlf() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("win.toml");
     let mut bytes = b"\xEF\xBB\xBF".to_vec();
+
     bytes.extend_from_slice(b"foo={path=\"x\"}\r\n");
     fs::write(&file, &bytes).unwrap();
 
     let mut fmt = formatter();
+
     fmt.arg(&file).assert().success();
 
     let written = fs::read(&file).unwrap();
+
     assert!(written.starts_with(b"\xEF\xBB\xBF"));
+
     let body = &written[3..];
+
     assert_eq!(body, b"foo.path = \"x\"\r\n");
 
     let mut check = formatter();
+
     check.arg("--check").arg(&file).assert().success().code(0);
 }
 
@@ -1423,9 +1633,11 @@ fn test_preserves_toml_bom_and_crlf() {
 fn test_io_error_includes_path() {
     let temp = tempdir().unwrap();
     let file = temp.path().join("bad-utf8.toml");
+
     fs::write(&file, [0xff, 0xfe, b'a', b'=', b'1', b'\n']).unwrap();
 
     let mut cmd = formatter();
+
     cmd.arg(&file)
         .assert()
         .failure()
@@ -1447,6 +1659,7 @@ fn test_a_stable_toolchain_formats_and_says_so() {
 
     let temp = tempdir().unwrap();
     let file = temp.path().join("main.rs");
+
     fs::write(
         &file,
         "use std::io::Write;\nuse std::io::Read;\nfn main(){}\n",
@@ -1477,6 +1690,7 @@ fn test_check_agrees_between_stable_and_nightly() {
 
     let temp = tempdir().unwrap();
     let file = temp.path().join("main.rs");
+
     fs::write(
         &file,
         "use std::io::Write;\nuse std::io::Read;\nfn main(){ let _ = 1; }\n",
@@ -1493,6 +1707,7 @@ fn test_check_agrees_between_stable_and_nightly() {
             .code(1);
         String::from_utf8(assert.get_output().stdout.clone()).unwrap()
     };
+
     assert_eq!(of("nightly"), of("stable"));
 }
 
@@ -1505,6 +1720,7 @@ fn test_range_names_the_toolchain_it_needs() {
 
     let temp = tempdir().unwrap();
     let file = temp.path().join("main.rs");
+
     fs::write(&file, "fn  main(){}\n").unwrap();
 
     Command::cargo_bin("rust-formatter")
@@ -1532,9 +1748,11 @@ fn test_unreadable_toml_is_reported_without_stopping_the_run() {
     let temp = tempdir().unwrap();
     let locked = temp.path().join("locked.toml");
     let dirty = temp.path().join("dirty.toml");
+
     fs::write(&locked, "a=1\n").unwrap();
     fs::write(&dirty, "b=2\n").unwrap();
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
     let _guard = Restore(locked);
 
     Command::cargo_bin("rust-formatter")
@@ -1563,6 +1781,7 @@ fn test_non_utf8_toml_is_reported_without_stopping_the_run() {
     let temp = tempdir().unwrap();
     let broken = temp.path().join("broken.toml");
     let dirty = temp.path().join("dirty.toml");
+
     fs::write(&broken, [0xff, 0xfe, b'\n']).unwrap();
     fs::write(&dirty, "b=2\n").unwrap();
 
@@ -1593,10 +1812,14 @@ fn cargo_project(dir: &Path, name: &str) {
 #[test]
 fn a_write_run_leaves_a_tree_its_own_check_accepts() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let project = temp.path();
+
     cargo_project(project, "converge");
+
     let lib = project.join("src").join("lib.rs");
+
     fs::write(
         &lib,
         "use a::c;\n// foo\nuse a::b;\nuse a::d;\n\npub fn f() {}\n",
@@ -1628,8 +1851,10 @@ fn a_write_run_leaves_a_tree_its_own_check_accepts() {
 #[test]
 fn a_rust_parse_error_is_a_tool_error_in_every_mode() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let project = temp.path();
+
     cargo_project(project, "unparseable");
     fs::write(project.join("src").join("lib.rs"), "fn broken( {\n").unwrap();
 
@@ -1656,6 +1881,7 @@ fn a_rust_parse_error_is_a_tool_error_in_every_mode() {
 fn toml_only_honours_the_same_workspace_scope_as_a_full_run() {
     let temp = tempdir().unwrap();
     let root = temp.path();
+
     fs::write(
         root.join("Cargo.toml"),
         "[workspace]\nmembers = [\"member\"]\nexclude = [\"excluded\"]\nresolver = \"2\"\n",
@@ -1663,6 +1889,7 @@ fn toml_only_honours_the_same_workspace_scope_as_a_full_run() {
     .unwrap();
     for name in ["member", "excluded"] {
         let dir = root.join(name);
+
         fs::create_dir_all(dir.join("src")).unwrap();
         fs::write(
             dir.join("Cargo.toml"),
@@ -1682,6 +1909,7 @@ fn toml_only_honours_the_same_workspace_scope_as_a_full_run() {
         .stdout
         .clone();
     let listed = String::from_utf8(listed).unwrap();
+
     assert!(listed.contains("member"), "{listed}");
     assert!(!listed.contains("excluded"), "{listed}");
 
@@ -1712,11 +1940,13 @@ fn a_symlinked_toml_is_formatted_through_the_link() {
     let temp = tempdir().unwrap();
     let outside = temp.path().join("outside");
     let tree = temp.path().join("tree");
+
     fs::create_dir_all(&outside).unwrap();
     fs::create_dir_all(&tree).unwrap();
 
     let real = outside.join("real.toml");
     let link = tree.join("link.toml");
+
     fs::write(&real, "foo={path=\"x\"}\n").unwrap();
     std::os::unix::fs::symlink(&real, &link).unwrap();
 
@@ -1735,7 +1965,9 @@ fn a_symlinked_toml_is_formatted_through_the_link() {
     assert_eq!(fs::read_to_string(&real).unwrap(), "foo.path = \"x\"\n");
 
     fs::write(&real, "foo={path=\"x\"}\n").unwrap();
+
     let local = tree.join("local.toml");
+
     fs::write(&local, "foo={path=\"x\"}\n").unwrap();
     Command::cargo_bin("rust-formatter")
         .unwrap()
@@ -1760,6 +1992,7 @@ fn fail_fast_still_reports_what_it_wrote() {
     let temp = tempdir().unwrap();
     let good = temp.path().join("a_good.toml");
     let bad = temp.path().join("b_bad.toml");
+
     fs::write(&good, "foo={path=\"x\"}\n").unwrap();
     fs::write(&bad, "this is not = = toml\n").unwrap();
 
@@ -1779,6 +2012,7 @@ fn fail_fast_still_reports_what_it_wrote() {
     assert_eq!(fs::read_to_string(&good).unwrap(), "foo.path = \"x\"\n");
 
     let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+
     assert_eq!(report["summary"]["changed"], 1);
     assert_eq!(report["summary"]["errors"], 1);
     assert_eq!(report["exit_code"], 2);
@@ -1788,6 +2022,7 @@ fn fail_fast_still_reports_what_it_wrote() {
 
 fn formatter() -> Command {
     let mut cmd = Command::cargo_bin("rust-formatter").unwrap();
+
     cmd.env("RUST_FORMATTER_CACHE_DIR", cache_dir());
     cmd
 }
@@ -1809,6 +2044,7 @@ fn test_a_project_rustfmt_toml_reports_what_stable_dropped() {
     needs_stable!();
 
     let temp = tempdir().unwrap();
+
     cargo_project(temp.path(), "p");
     fs::create_dir_all(temp.path().join("src")).unwrap();
     fs::write(
@@ -1850,11 +2086,13 @@ fn a_comment_shaped_like_a_header_writes_no_other_file() {
         let root = temp.path().canonicalize().unwrap();
         let tree = root.join("tree");
         let victim = root.join("victim").join("v.rs");
+
         fs::create_dir_all(&tree).unwrap();
         fs::create_dir_all(victim.parent().unwrap()).unwrap();
 
         let carrier = tree.join("c.rs");
         let sibling = tree.join("d.rs");
+
         fs::write(&victim, "fn keep() {}\n").unwrap();
         fs::write(&carrier, forged_comment(&victim, "fn  injected() {}")).unwrap();
         fs::write(&sibling, "fn  d(){}\n").unwrap();
@@ -1890,6 +2128,7 @@ fn a_string_naming_a_sibling_keeps_both_files_their_own_text() {
 
         let carrier = root.join("a.rs");
         let sibling = root.join("b.rs");
+
         fs::write(&carrier, forged_string(&sibling, "fn  a(){}")).unwrap();
         fs::write(&sibling, "fn  b(){}\n").unwrap();
 
@@ -1917,6 +2156,7 @@ fn a_single_file_still_formats_its_child_modules_without_following_forged_header
         let src = root.join("src");
         let shared = root.join("shared");
         let victim = root.join("victim.rs");
+
         fs::create_dir_all(&src).unwrap();
         fs::create_dir_all(&shared).unwrap();
 
@@ -1924,6 +2164,7 @@ fn a_single_file_still_formats_its_child_modules_without_following_forged_header
         let carrier = src.join("c.rs");
         let child = src.join("d.rs");
         let outside = shared.join("e.rs");
+
         fs::write(&victim, "fn keep() {}\n").unwrap();
         fs::write(
             &main,
@@ -1962,6 +2203,7 @@ fn quiet_still_rewrites_a_dirty_file() {
         let file = temp.path().join("a.rs");
         let tree = temp.path().join("tree");
         let walked = tree.join("b.rs");
+
         fs::create_dir_all(&tree).unwrap();
         fs::write(&file, "fn  main(){}\n").unwrap();
         fs::write(&walked, "fn  b(){}\n").unwrap();
@@ -1992,6 +2234,7 @@ fn quiet_stable_check_still_fails_a_dirty_file() {
 
     let temp = tempdir().unwrap();
     let file = temp.path().join("b.rs");
+
     fs::write(&file, "fn  main(){}\n").unwrap();
 
     formatter()
@@ -2016,10 +2259,12 @@ fn stable_check_of_a_single_file_reports_its_dirty_child_module() {
 
     let temp = tempdir().unwrap();
     let src = temp.path().join("src");
+
     fs::create_dir_all(&src).unwrap();
 
     let main = src.join("main.rs");
     let child = src.join("foo.rs");
+
     fs::write(&main, "mod foo;\nfn main() {}\n").unwrap();
     fs::write(&child, "fn  x(){}\n").unwrap();
 
@@ -2050,15 +2295,18 @@ fn a_failed_write_still_formats_and_reports_the_rest_of_the_chunk() {
         let temp = tempdir().unwrap();
         let root = temp.path().canonicalize().unwrap();
         let locked_dir = root.join("b_locked");
+
         fs::create_dir(&locked_dir).unwrap();
 
         let before = root.join("a.rs");
         let locked = locked_dir.join("b.rs");
         let after = root.join("c.rs");
+
         for path in [&before, &locked, &after] {
             fs::write(path, "fn  x(){}\n").unwrap();
         }
         fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o555)).unwrap();
+
         let _guard = Restore(locked_dir.clone());
 
         if fs::write(locked_dir.join("probe"), "").is_ok() {
@@ -2095,6 +2343,7 @@ fn a_failed_write_still_formats_and_reports_the_rest_of_the_chunk() {
                 .find(|file| file["path"] == path.display().to_string())
                 .map(|file| file["status"].clone())
         };
+
         assert_eq!(report["exit_code"], 2, "{toolchain}: {report}");
         assert_eq!(report["summary"]["errors"], 1, "{report}");
         assert_eq!(report["errors"][0]["path"], locked.display().to_string());
@@ -2110,6 +2359,7 @@ fn newline_style_decides_the_line_endings_written() {
         let crlf = temp.path().join("crlf.rs");
         let lf_tree = temp.path().join("windows");
         let lf = lf_tree.join("lf.rs");
+
         fs::create_dir_all(&lf_tree).unwrap();
         fs::write(&crlf, "fn main() {}\r\n").unwrap();
         fs::write(&lf, "fn main() {}\n").unwrap();
@@ -2121,6 +2371,7 @@ fn newline_style_decides_the_line_endings_written() {
 
         let run = |args: &[&str]| {
             let mut cmd = formatter();
+
             cmd.args(["--toolchain", toolchain]).args(args);
             cmd
         };

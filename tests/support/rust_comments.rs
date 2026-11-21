@@ -19,6 +19,7 @@ pub fn comments(src: &str) -> Vec<String> {
             match bytes[i + 1] {
                 b'/' => {
                     let start = i;
+
                     while i < bytes.len() && bytes[i] != b'\n' {
                         i += 1;
                     }
@@ -27,7 +28,9 @@ pub fn comments(src: &str) -> Vec<String> {
                 }
                 b'*' => {
                     let (end, closed) = skip_block(bytes, i);
+
                     let inner = if closed { &src[i..end] } else { &src[i..] };
+
                     out.push(block_body(inner, closed));
                     i = end;
                     continue;
@@ -112,6 +115,7 @@ fn block_body(text: &str, closed: bool) -> String {
     } else {
         &text[2..]
     };
+
     if closed {
         inner = inner.strip_suffix("*/").unwrap_or(inner);
     }
@@ -120,6 +124,7 @@ fn block_body(text: &str, closed: bool) -> String {
 
 fn normalize_body(body: &str) -> String {
     let mut parts = Vec::new();
+
     for line in body.lines() {
         let trimmed = line.trim();
         let stripped = trimmed.strip_prefix('*').map_or(trimmed, str::trim_start);
@@ -160,10 +165,12 @@ fn skip_literal(bytes: &[u8], i: usize) -> Option<usize> {
     }
 
     let rest = &bytes[i..];
+
     if let Some(after) = strip_raw_prefix(rest)
         && (after.first() == Some(&b'"') || after.first() == Some(&b'#'))
     {
         let start = i + (rest.len() - after.len());
+
         return Some(skip_raw(bytes, start));
     }
     if rest.first() == Some(&b'b') || rest.first() == Some(&b'c') {
@@ -194,8 +201,10 @@ fn strip_raw_prefix(rest: &[u8]) -> Option<&[u8]> {
 fn skip_cooked(bytes: &[u8], open: usize) -> usize {
     let mut i = open + 1;
     let mut escaped = false;
+
     while i < bytes.len() {
         let byte = bytes[i];
+
         if escaped {
             escaped = false;
             i += 1;
@@ -217,6 +226,7 @@ fn skip_cooked(bytes: &[u8], open: usize) -> usize {
 fn skip_raw(bytes: &[u8], i: usize) -> usize {
     let mut hashes = 0;
     let mut j = i;
+
     while j < bytes.len() && bytes[j] == b'#' {
         hashes += 1;
         j += 1;
@@ -228,6 +238,7 @@ fn skip_raw(bytes: &[u8], i: usize) -> usize {
     while j < bytes.len() {
         if bytes[j] == b'"' {
             let mut k = 0;
+
             while j + 1 + k < bytes.len() && bytes[j + 1 + k] == b'#' && k < hashes {
                 k += 1;
             }
@@ -242,6 +253,7 @@ fn skip_raw(bytes: &[u8], i: usize) -> usize {
 
 fn skip_char_or_lifetime(bytes: &[u8], open: usize) -> usize {
     let mut i = open + 1;
+
     if i >= bytes.len() {
         return bytes.len();
     }
@@ -266,7 +278,9 @@ fn skip_char_or_lifetime(bytes: &[u8], open: usize) -> usize {
         }
         return i;
     }
+
     let next = i + utf8_len(bytes[i]);
+
     if next < bytes.len() && bytes[next] == b'\'' {
         return next + 1;
     }
@@ -288,6 +302,7 @@ fn utf8_len(first: u8) -> usize {
 fn skip_block(bytes: &[u8], open: usize) -> (usize, bool) {
     let mut i = open + 2;
     let mut depth = 1usize;
+
     while i + 1 < bytes.len() {
         if bytes[i] == b'/' && bytes[i + 1] == b'*' {
             depth += 1;
@@ -310,6 +325,7 @@ fn skip_block(bytes: &[u8], open: usize) -> (usize, bool) {
 fn skip_comment(bytes: &[u8], i: usize) -> usize {
     if bytes[i + 1] == b'/' {
         let mut j = i + 2;
+
         while j < bytes.len() && bytes[j] != b'\n' {
             j += 1;
         }
@@ -322,7 +338,9 @@ fn attribute_at(bytes: &[u8], i: usize) -> Option<(&str, usize)> {
     if bytes[i] != b'#' {
         return None;
     }
+
     let mut j = i + 1;
+
     if j < bytes.len() && bytes[j] == b'!' {
         j += 1;
     }
@@ -330,8 +348,10 @@ fn attribute_at(bytes: &[u8], i: usize) -> Option<(&str, usize)> {
     if j >= bytes.len() || bytes[j] != b'[' {
         return None;
     }
+
     let inner_start = j + 1;
     let mut depth = 1usize;
+
     j += 1;
     while j < bytes.len() {
         if let Some(next) = skip_literal(bytes, j) {
@@ -344,6 +364,7 @@ fn attribute_at(bytes: &[u8], i: usize) -> Option<(&str, usize)> {
                 depth -= 1;
                 if depth == 0 {
                     let inner = std::str::from_utf8(&bytes[inner_start..j]).ok()?;
+
                     return Some((inner, j + 1));
                 }
             }
@@ -391,6 +412,7 @@ fn item_end(bytes: &[u8], start: usize) -> Option<usize> {
     if start >= bytes.len() {
         return None;
     }
+
     let mut i = start;
     let mut round = 0usize;
     let mut square = 0usize;

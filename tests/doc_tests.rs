@@ -16,6 +16,7 @@ fn documents() -> Vec<PathBuf> {
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|extension| extension == "md"))
         .collect();
+
     docs.sort();
     files.extend(docs);
     files
@@ -64,6 +65,7 @@ fn toml_blocks(file: &Path) -> Vec<Block> {
         // indentation here is what keeps such a block executable rather than
         // silently skipped.
         let mut body = String::new();
+
         for (_, line) in lines.by_ref() {
             if line.trim_start().starts_with("```") {
                 break;
@@ -94,11 +96,14 @@ fn cache_dir() -> &'static Path {
 /// are themselves under test: a renamed option breaks the example that names it.
 fn format(source: &str, flags: &str) -> Result<String, String> {
     let mut cmd = Command::cargo_bin("rust-formatter").unwrap();
+
     cmd.env("RUST_FORMATTER_CACHE_DIR", cache_dir())
         .args(["--stdin", "--stdin-filepath", "doc.toml"])
         .args(flags.split_whitespace())
         .write_stdin(source.to_owned());
+
     let output = cmd.output().expect("run the binary");
+
     if !output.status.success() {
         return Err(format!(
             "exit {:?}: {}",
@@ -120,6 +125,7 @@ fn ends_with_newline(text: &str) -> String {
 fn check_fixed_point(source: &str, flags: &str) -> Result<(), String> {
     let expected = ends_with_newline(source);
     let actual = format(&expected, flags)?;
+
     if actual == expected {
         return Ok(());
     }
@@ -134,6 +140,7 @@ fn check_fixed_point(source: &str, flags: &str) -> Result<(), String> {
 fn check_before_after(body: &str) -> Result<(), String> {
     let lines: Vec<&str> = body.lines().collect();
     let first = lines.first().ok_or("an empty before/after block")?;
+
     if !first
         .trim_start_matches('#')
         .trim()
@@ -143,6 +150,7 @@ fn check_before_after(body: &str) -> Result<(), String> {
             "a before/after block has to open with `# before`, not {first:?}"
         ));
     }
+
     let split = lines
         .iter()
         .position(|line| {
@@ -161,6 +169,7 @@ fn check_before_after(body: &str) -> Result<(), String> {
     let expected = ends_with_newline(lines[split + 1..].join("\n").trim_end());
 
     let actual = format(&input, flags)?;
+
     if actual == expected {
         return Ok(());
     }
@@ -176,6 +185,7 @@ fn check_pair(before: &str, after: &str, flags: &str) -> Result<(), String> {
     let input = ends_with_newline(before.trim_end());
     let expected = ends_with_newline(after.trim_end());
     let actual = format(&input, flags)?;
+
     if actual == expected {
         return Ok(());
     }
@@ -191,6 +201,7 @@ fn check_pair(before: &str, after: &str, flags: &str) -> Result<(), String> {
 fn check_fixed_point_parts(body: &str, flags: &str) -> Result<(), String> {
     let mut parts = Vec::new();
     let mut current = String::new();
+
     for line in body.lines() {
         if line.trim().is_empty() {
             if !current.trim().is_empty() {
@@ -230,6 +241,7 @@ fn check_fixed_point_parts(body: &str, flags: &str) -> Result<(), String> {
 #[test]
 fn every_toml_example_is_annotated() {
     let mut missing = Vec::new();
+
     for file in documents() {
         for block in toml_blocks(&file) {
             match block.annotation() {
@@ -254,6 +266,7 @@ fn every_toml_example_is_annotated() {
             }
         }
     }
+
     assert!(
         missing.is_empty(),
         "{} TOML examples are unaccounted for:\n{}",
@@ -285,6 +298,7 @@ fn every_annotated_toml_example_is_what_the_formatter_writes() {
                 },
                 _ => continue,
             };
+
             executed += 1;
             if let Err(detail) = result {
                 failures.push(format!("{}\n{detail}", block.at()));

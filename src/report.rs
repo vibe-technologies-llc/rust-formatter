@@ -45,10 +45,12 @@ fn push_target_details(out: &mut String, target: &TargetKind) {
     match target {
         TargetKind::CargoProject { manifest_path, .. } => {
             out.push_str("target: cargo project\n");
+
             let _ = writeln!(out, "manifest: {}", manifest_path.display());
         }
         TargetKind::SingleFile(path) => {
             out.push_str("target: file\n");
+
             let _ = writeln!(out, "path: {}", path.display());
         }
         TargetKind::FileList {
@@ -56,7 +58,9 @@ fn push_target_details(out: &mut String, target: &TargetKind) {
             toml_files,
         } => {
             out.push_str("target: file list\n");
+
             let _ = writeln!(out, "files: {}", rust_files.len());
+
             if !toml_files.is_empty() {
                 let _ = writeln!(out, "toml files: {}", toml_files.len());
             }
@@ -68,8 +72,10 @@ fn push_target_details(out: &mut String, target: &TargetKind) {
             toml_files,
         } => {
             out.push_str("target: loose directory\n");
+
             let _ = writeln!(out, "root: {}", root_dir.display());
             let _ = writeln!(out, "files: {}", files.len());
+
             if !toml_files.is_empty() {
                 let _ = writeln!(out, "toml files: {}", toml_files.len());
             }
@@ -160,7 +166,7 @@ pub fn paint_verbose(text: &str, out: &mut impl Write) -> io::Result<()> {
 
 /// What a run was asked to do, which is what tells a consumer how to read the
 /// rest of the envelope.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReportMode {
     Write,
     Check,
@@ -185,7 +191,7 @@ impl ReportMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
     Formatted,
     NeedsFormatting,
@@ -508,6 +514,7 @@ pub fn unified_diff(path: &Path, before: &str, after: &str, context: usize) -> S
 
 pub fn paint_diff(body: &str) -> String {
     let mut out = String::with_capacity(body.len() + 64);
+
     for line in body.split_inclusive('\n') {
         let style = if line.starts_with("+++") || line.starts_with("---") {
             KEY
@@ -525,6 +532,7 @@ pub fn paint_diff(body: &str) -> String {
             out.push_str(line);
             continue;
         }
+
         let (text, newline) = match line.strip_suffix('\n') {
             Some(text) => (text, "\n"),
             None => (line, ""),
@@ -550,6 +558,7 @@ fn push_result_label(out: &mut String, result: &FormatResult, check: bool) {
 
     if acted {
         let _ = write!(out, "{}", count(changed, "file"));
+
         return;
     }
 
@@ -680,6 +689,7 @@ mod tests {
     #[test]
     fn a_write_run_that_changed_nothing_says_so() {
         let result = result(0, cargo_target());
+
         assert_eq!(
             summary_line(&result, false),
             "Already formatted: Cargo project /tmp/foo\n"
@@ -689,41 +699,51 @@ mod tests {
     #[test]
     fn a_preview_does_not_claim_the_file_was_already_formatted() {
         let mut result = result(0, file_target());
+
         result.preview = Some(Preview {
             path: PathBuf::from("/tmp/foo.rs"),
             language: Kind::Rust,
             content: b"fn main() {}\n".to_vec(),
         });
+
         let line = summary_line(&result, false);
+
         assert_eq!(line, "Previewed: /tmp/foo.rs\n");
 
         let mut buf = Vec::new();
+
         paint_summary(&line, false, true, 0, 0, &mut buf).unwrap();
+
         let out = String::from_utf8(buf).unwrap();
+
         assert!(out.contains('\x1b'), "{out}");
     }
 
     #[test]
     fn a_write_run_counts_only_the_files_it_wrote() {
         let result = changed_result(0, loose_target(9), 2);
+
         assert_eq!(summary_line(&result, false), "Formatted 2 files\n");
     }
 
     #[test]
     fn a_single_written_file_is_singular() {
         let result = changed_result(0, loose_target(9), 1);
+
         assert_eq!(summary_line(&result, false), "Formatted 1 file\n");
     }
 
     #[test]
     fn summary_formats_single_file() {
         let result = changed_result(0, file_target(), 1);
+
         assert_eq!(summary_line(&result, false), "Formatted 1 file\n");
     }
 
     #[test]
     fn summary_check_ok_cargo_project() {
         let result = result(0, cargo_target());
+
         assert_eq!(
             summary_line(&result, true),
             "Already formatted: Cargo project /tmp/foo\n"
@@ -733,6 +753,7 @@ mod tests {
     #[test]
     fn summary_check_ok_single_file() {
         let result = result(0, file_target());
+
         assert_eq!(
             summary_line(&result, true),
             "Already formatted: /tmp/foo.rs\n"
@@ -742,6 +763,7 @@ mod tests {
     #[test]
     fn summary_check_ok_loose_dir() {
         let result = result(0, loose_target(2));
+
         assert_eq!(
             summary_line(&result, true),
             "Already formatted: 2 files in /tmp/loose\n"
@@ -751,12 +773,14 @@ mod tests {
     #[test]
     fn summary_format_failed_single_file() {
         let result = result(1, file_target());
+
         assert_eq!(summary_line(&result, false), "Format failed: /tmp/foo.rs\n");
     }
 
     #[test]
     fn summary_format_failed_cargo_project() {
         let result = result(1, cargo_target());
+
         assert_eq!(
             summary_line(&result, false),
             "Format failed: Cargo project /tmp/foo\n"
@@ -766,6 +790,7 @@ mod tests {
     #[test]
     fn summary_check_failed_counts_the_mismatches() {
         let result = changed_result(1, cargo_target(), 3);
+
         assert_eq!(
             summary_line(&result, true),
             "Check failed: 3 files need formatting\n"
@@ -775,6 +800,7 @@ mod tests {
     #[test]
     fn summary_check_failed_one_file_is_singular() {
         let result = changed_result(1, loose_target(2), 1);
+
         assert_eq!(
             summary_line(&result, true),
             "Check failed: 1 file needs formatting\n"
@@ -791,6 +817,7 @@ mod tests {
             root_dir: PathBuf::from("/ws"),
             workspace_root: PathBuf::from("/ws"),
         };
+
         assert_eq!(
             summary_line(&result(0, target), true),
             "Already formatted: Cargo project /ws\n"
@@ -800,6 +827,7 @@ mod tests {
     #[test]
     fn verbose_preamble_contains_core_fields() {
         let text = verbose_preamble(&[cargo_target()], &options(true));
+
         assert!(text.contains("target: cargo project\n"));
         assert!(text.contains("manifest: /tmp/foo/Cargo.toml\n"));
         assert!(text.contains("toolchain: auto\n"));
@@ -810,6 +838,7 @@ mod tests {
     #[test]
     fn verbose_preamble_truncates_file_list() {
         let text = verbose_preamble(&[loose_target(21)], &options(false));
+
         assert!(text.contains("target: loose directory\n"));
         assert!(text.contains("files: 21\n"));
         assert!(text.contains("  /tmp/loose/0.rs\n"));
@@ -835,8 +864,11 @@ mod tests {
     #[test]
     fn paint_summary_styles_formatted_prefix() {
         let mut buf = Vec::new();
+
         paint_summary("Formatted /tmp/foo.rs\n", false, false, 0, 1, &mut buf).unwrap();
+
         let out = String::from_utf8(buf).unwrap();
+
         assert!(out.contains("Formatted"));
         assert!(out.contains("/tmp/foo.rs"));
         assert!(out.contains('\x1b'));
@@ -846,8 +878,11 @@ mod tests {
     #[test]
     fn paint_summary_styles_format_failed_prefix() {
         let mut buf = Vec::new();
+
         paint_summary("Format failed: /tmp/foo.rs\n", false, false, 1, 0, &mut buf).unwrap();
+
         let out = String::from_utf8(buf).unwrap();
+
         assert!(out.contains("Format failed:"));
         assert!(out.contains("/tmp/foo.rs"));
         assert!(out.contains('\x1b'));
@@ -856,20 +891,28 @@ mod tests {
     #[test]
     fn paint_verbose_styles_keys_not_file_rows() {
         let mut buf = Vec::new();
+
         paint_verbose("target: file\n  /tmp/foo.rs\n", &mut buf).unwrap();
+
         let out = String::from_utf8(buf).unwrap();
+
         assert!(out.contains("target:"));
         assert!(out.contains('\x1b'));
         assert!(out.contains("  /tmp/foo.rs\n"));
+
         let file_row = out.split('\n').nth(1).unwrap();
+
         assert!(!file_row.contains('\x1b'));
     }
 
     #[test]
     fn paint_error_styles_label() {
         let mut buf = Vec::new();
+
         paint_error(&"boom", &mut buf).unwrap();
+
         let out = String::from_utf8(buf).unwrap();
+
         assert!(out.contains("Error:"));
         assert!(out.contains("boom"));
         assert!(out.contains('\x1b'));

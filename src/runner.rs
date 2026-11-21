@@ -25,6 +25,7 @@ use crate::{
     output::{ColorChoice, Emit, ListMode, MessageFormat, Streams},
     pool,
     registry::{RegistryCli, RegistryOptions},
+    rust_pass::Pass,
     selection::{self, FileSource, Kind, Languages, Plan, SelectionOptions, Selector},
     semver::PartialVersion,
     toml_directive::Regions,
@@ -63,7 +64,7 @@ pub const DEFAULT_EDITION: &str = "2024";
 const MAX_RUSTFMT_PASSES: usize = 3;
 const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct FormatterOptions {
     pub targets: Vec<PathBuf>,
     pub source: FileSource,
@@ -101,6 +102,8 @@ pub struct FormatterOptions {
     /// are dropped with a warning instead of failing the run.
     pub lenient_keys: std::collections::BTreeSet<String>,
     pub toml_style: TomlStyle,
+    pub paragraphs: bool,
+    pub sort_attributes: bool,
     pub extra_args: Vec<String>,
     pub full_versions: bool,
     pub upgrade: UpgradePolicy,
@@ -158,6 +161,8 @@ impl Default for FormatterOptions {
             config_sources: Vec::new(),
             lenient_keys: std::collections::BTreeSet::new(),
             toml_style: TomlStyle::default(),
+            paragraphs: true,
+            sort_attributes: true,
             extra_args: Vec::new(),
             full_versions: false,
             upgrade: UpgradePolicy::default(),
@@ -218,6 +223,7 @@ impl FormatterOptions {
         if !self.full_versions {
             return Ok(None);
         }
+
         let start = self
             .targets
             .first()
@@ -242,13 +248,13 @@ impl FormatterOptions {
 }
 
 /// A 1-based, inclusive range of lines, as rustfmt's `--file-lines` counts them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LineRange {
     pub start: usize,
     pub end: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileStatus {
     /// Rewritten on disk by this run.
     Formatted,
@@ -259,7 +265,7 @@ pub enum FileStatus {
 /// One file the run reached a definite verdict about. Only files that actually
 /// differ appear here, which is what separates an honest count from the number
 /// of files merely handed to a formatter.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct FileOutcome {
     pub path: PathBuf,
     pub language: Kind,
@@ -351,7 +357,7 @@ impl SourceText {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum NewlineStyle {
     Auto,
     Unix,
@@ -373,6 +379,7 @@ impl NewlineStyle {
     fn named(value: &str) -> Self {
         let value = value.trim().trim_matches('"').to_ascii_lowercase();
         let native = if cfg!(windows) { "windows" } else { "unix" };
+
         let resolved = if value == "native" {
             native
         } else {
@@ -404,7 +411,7 @@ struct RustBatch {
     files: Vec<PathBuf>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct BatchArgs<'a> {
     edition: Option<&'a str>,
     config_path: Option<&'a Path>,
@@ -445,6 +452,7 @@ impl RustfmtCapabilities {
     /// This probe, as something a later run can read back.
     fn remember(&self) -> cache::Toolchain {
         let mut options: Vec<String> = self.options.iter().cloned().collect();
+
         options.sort_unstable();
         cache::Toolchain {
             rustfmt: self.rustfmt.clone(),
@@ -488,7 +496,9 @@ impl RustfmtCapabilities {
     fn probe(rustfmt: &Path) -> Result<Self> {
         let dump = NamedTempFile::with_suffix(".toml").map_err(|err| Error::io("<probe>", err))?;
         let mut unstable_cli = true;
+
         let mut printed = Self::dump(rustfmt, dump.path(), unstable_cli)?;
+
         if !printed.success() {
             unstable_cli = false;
             printed = Self::dump(rustfmt, dump.path(), unstable_cli)?;
@@ -507,6 +517,7 @@ impl RustfmtCapabilities {
             .filter_map(|line| line.split_once('=').map(|(key, _)| key.trim().to_owned()))
             .filter(|key| !key.is_empty())
             .collect();
+
         if options.is_empty() {
             return Err(Error::ToolFailed {
                 command: "rustfmt --print-config default".to_string(),
@@ -525,6 +536,7 @@ impl RustfmtCapabilities {
 
     fn dump(rustfmt: &Path, out: &Path, unstable: bool) -> Result<std::process::ExitStatus> {
         let mut cmd = Command::new(rustfmt);
+
         if unstable {
             cmd.arg("--unstable-features");
         }
@@ -549,6 +561,7 @@ static CAPABILITIES: OnceLock<Mutex<HashMap<PathBuf, Arc<RustfmtCapabilities>>>>
 
 pub fn capabilities(rustfmt: &Path) -> Result<Arc<RustfmtCapabilities>> {
     let cache = CAPABILITIES.get_or_init(|| Mutex::new(HashMap::new()));
+
     if let Some(found) = cache
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -556,7 +569,9 @@ pub fn capabilities(rustfmt: &Path) -> Result<Arc<RustfmtCapabilities>> {
     {
         return Ok(Arc::clone(found));
     }
+
     let probed = Arc::new(RustfmtCapabilities::probe(rustfmt)?);
+
     cache
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -571,7 +586,7 @@ pub fn capabilities(rustfmt: &Path) -> Result<Arc<RustfmtCapabilities>> {
 /// `--unstable-features`, no `--emit json`, no `--skip-children` and no
 /// `--file-lines`, while accepting through `--config` every option this tool
 /// actually sets.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Rustfmt {
     path: PathBuf,
     capabilities: Arc<RustfmtCapabilities>,
@@ -609,10 +624,12 @@ fn resolve_toolchain(
 ) -> Result<(Resolved, Arc<RustfmtCapabilities>)> {
     let env: crate::cargo_config::EnvLookup<'_> = &crate::cargo_config::process_env;
     let key = toolchain::resolution_key(toolchain, env);
+
     if let Some(key) = &key
         && let Some(held) = cache::read_toolchain(key, cache, env)
     {
         let rustfmt = held.rustfmt.clone();
+
         return Ok((
             Resolved {
                 rustfmt,
@@ -651,6 +668,7 @@ fn remembered(held: cache::Toolchain) -> Arc<RustfmtCapabilities> {
         version: OnceLock::from(held.version),
         unstable_cli: held.unstable_cli,
     });
+
     CAPABILITIES
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
@@ -676,6 +694,7 @@ fn resolve_for_one_off(toolchain: &str, cache: bool) -> Result<Rustfmt> {
 /// `--file-lines`, so a channel switch is never left unsaid.
 fn toolchain_notes(resolved: &Resolved, capabilities: &RustfmtCapabilities) -> Vec<String> {
     let mut notes = resolved.warnings.clone();
+
     if !capabilities.unstable_cli() {
         notes.push(format!(
             "warning: {} is not a nightly rustfmt ({}), so --range is unavailable",
@@ -700,6 +719,7 @@ pub fn run_format_to(
         targets: vec![target],
         ..Plan::default()
     };
+
     bind_workspaces(&mut plan, options);
     run_format_plan(plan, options, &selector, streams)
 }
@@ -729,15 +749,18 @@ pub fn run_format_plan(
 
     let mut options = std::borrow::Cow::Borrowed(options);
     let mut preflight = Vec::new();
+
     if let Some((resolved, capabilities)) = &rustfmt {
         preflight = toolchain_notes(resolved, capabilities);
         preflight.extend(reconcile_with_rustfmt(options.to_mut(), capabilities)?);
     }
+
     let options = options.as_ref();
     let rustfmt = rustfmt.map(|(resolved, capabilities)| Rustfmt {
         path: resolved.rustfmt,
         capabilities,
     });
+
     if let Some(rustfmt) = &rustfmt
         && !rustfmt.unstable_cli()
         && !options.ranges.is_empty()
@@ -787,6 +810,7 @@ pub fn run_format_plan(
         rustfmt.as_ref(),
         streams,
     )?;
+
     for (target, metadata) in scoped {
         let outcome = match run_one_target(
             &target,
@@ -805,6 +829,7 @@ pub fn run_format_plan(
                 break;
             }
         };
+
         if outcome.code != 0 {
             rust_code = outcome.code;
         }
@@ -840,7 +865,9 @@ pub fn run_format_plan(
         left.cmp(right)
             .then((one.line, one.column).cmp(&(other.line, other.column)))
     });
+
     let mut warnings: Vec<String> = findings.iter().map(issue_warning).collect();
+
     walk_warnings.sort_unstable();
     walk_warnings.dedup();
     warnings.extend(walk_warnings);
@@ -927,6 +954,7 @@ fn version_warnings(
     }
 
     let skipped: usize = counts.iter().map(|(_, count)| count).sum();
+
     if completed == 0 && skipped == 0 {
         return out;
     }
@@ -937,6 +965,7 @@ fn version_warnings(
         .collect::<Vec<_>>()
         .join(", ");
     let mut line = format!("--full-versions: {completed} completed, {skipped} left alone");
+
     if !breakdown.is_empty() {
         let _ = write!(line, " ({breakdown})");
     }
@@ -989,6 +1018,7 @@ fn preview_one_file(
     let metadata = metadata.as_deref();
     let mut findings: Vec<(PathBuf, TomlIssue)> = Vec::new();
     let mut records: Vec<(PathBuf, VersionRecord)> = Vec::new();
+
     let content = match language {
         Kind::Toml => preview_toml(path, options, lookup, metadata, &mut findings, &mut records)?,
         Kind::Rust => {
@@ -1004,6 +1034,7 @@ fn preview_one_file(
     };
 
     let mut errors = plan.errors;
+
     if let Some(lookup) = &lookup
         && let Some((crate_name, details)) = lookup.take_error()
     {
@@ -1014,6 +1045,7 @@ fn preview_one_file(
     }
 
     let mut warnings: Vec<String> = findings.iter().map(issue_warning).collect();
+
     warnings.extend(
         lookup
             .map_or_default(RegistryLookup::warnings)
@@ -1070,6 +1102,7 @@ fn preview_toml(
         Some(meta) => read_workspace_rust_version(&meta.workspace_root),
         None => workspace_context_from_path(path),
     };
+
     let formatted = match version_lookup {
         Some(lookup) => {
             format_toml_with_versions(&source.text, &options.toml_style, lookup, &context)
@@ -1087,6 +1120,7 @@ fn preview_toml(
             .into_iter()
             .map(|record| (path.to_path_buf(), record)),
     );
+
     let formatted = formatted.text;
 
     if options.toml_style.toml_version == TomlVersion::V1_0 {
@@ -1106,6 +1140,7 @@ fn preview_rust(
     metadata: Option<&CargoMetadata>,
 ) -> Result<Vec<u8>> {
     let mut resolver = EditionResolver::new(options, metadata);
+
     let edition = resolver.edition(path);
     let project = resolver.project_config(path);
     let newline_style = NewlineStyle::effective(options, project.as_deref());
@@ -1134,14 +1169,16 @@ fn preview_rust(
     let bytes = fs::read(path).map_err(|err| Error::io(path, err))?;
     let source = decode_source(&bytes, path)?.with_newline_style(newline_style);
     let mut text = first_pass(path, &source.text, options, rustfmt, args)?;
+
     for _ in 1..rustfmt_passes(options) {
         let next = normalize_formatted_rust(&rustfmt_stdin(&text, options, rustfmt, args)?);
+
         if next == text {
             break;
         }
         text = next;
     }
-    Ok(encode_source(&text, &source))
+    Ok(encode_source(&finish_rust(text, options), &source))
 }
 
 /// The first pass of a preview, taken from the file rather than from the
@@ -1157,23 +1194,28 @@ fn first_pass(
 ) -> Result<String> {
     if !rustfmt.unstable_cli() {
         let pass = rustfmt_stdout_pass(&[path], options, rustfmt, args)?;
+
         if let Some(err) = pass.errors.into_iter().next() {
             return Err(err);
         }
+
         let text = pass
             .split
             .into_texts()
             .into_iter()
             .find(|(found, _)| found == path)
             .map_or_else(|| source.to_string(), |(_, text)| text);
+
         return Ok(normalize_formatted_rust(&text));
     }
 
     let files = [path.to_path_buf()];
     let reported = rustfmt_json(&files, options, rustfmt, args)?;
+
     if let Some(err) = reported.errors.into_iter().next() {
         return Err(err);
     }
+
     let Some(file) = reported
         .files
         .into_iter()
@@ -1212,16 +1254,19 @@ fn scoped_targets(
     streams: &Streams<'_>,
 ) -> Result<Vec<(TargetKind, Option<Arc<CargoMetadata>>)>> {
     cache.begin_stage();
+
     let mut resolved = Vec::with_capacity(targets.len());
     let mut covered: Vec<PathBuf> = Vec::new();
 
     for target in targets {
         let metadata = cache.get(&target, options, rustfmt, streams)?;
+
         if options.all
             && named_scope(&target).is_none()
             && let Some(meta) = &metadata
         {
             let root = canonicalize_path(&meta.workspace_root);
+
             if covered.contains(&root) {
                 continue;
             }
@@ -1271,6 +1316,7 @@ fn run_one_target(
     let prewarmed = match lookup {
         Some(lookup) => {
             let warmed = prewarm_manifest_versions(&toml_files, options, lookup);
+
             if let Some((crate_name, details)) = lookup.take_error() {
                 return Err(Error::RegistryLookup {
                     crate_name,
@@ -1299,6 +1345,7 @@ fn run_one_target(
     };
     let probe_path_attr = plan.skip_children && metadata.is_some();
     let mut jobs: Vec<pool::Job<'_, WorkerState>> = Vec::new();
+
     enqueue_rust(&mut jobs, &plan, options, streams, &cache, probe_path_attr);
     for path in &toml_files {
         jobs.push(Box::new(
@@ -1326,6 +1373,7 @@ fn run_one_target(
     }
 
     let (states, panics) = pool::run(jobs, options.worker_threads(), WorkerState::default);
+
     errors.extend(
         panics
             .into_iter()
@@ -1340,6 +1388,7 @@ fn run_one_target(
     };
     let mut toml = TomlOutcome::default();
     let mut saw_path_attr = false;
+
     for state in states {
         if state.rust.code != 0 {
             rust.code = state.rust.code;
@@ -1356,6 +1405,7 @@ fn run_one_target(
     }
 
     let format_failed = !rust.errors.is_empty() || !toml.errors.is_empty() || !errors.is_empty();
+
     if saw_path_attr
         && !(options.fail_fast && format_failed)
         && let (Some(rustfmt), Some(metadata)) = (plan.rustfmt.as_ref(), metadata)
@@ -1376,8 +1426,11 @@ fn run_one_target(
                 rustfmt,
                 streams,
             )?;
+
             rust.files += extra_plan.files;
+
             let mut extra_jobs = Vec::new();
+
             enqueue_rust(
                 &mut extra_jobs,
                 &extra_plan,
@@ -1386,8 +1439,10 @@ fn run_one_target(
                 &cache,
                 false,
             );
+
             let (extra_states, extra_panics) =
                 pool::run(extra_jobs, options.worker_threads(), WorkerState::default);
+
             errors.extend(
                 extra_panics
                     .into_iter()
@@ -1420,16 +1475,8 @@ fn run_one_target(
     })
 }
 
-/// Everything that can change what formatting a file produces, as one string
-/// to hash.
-///
-/// Written by destructuring `FormatterOptions` without `..`, so a new setting
-/// cannot be added without someone deciding whether it belongs here. That
-/// decision is the whole safety argument for the cache: a setting that escaped
-/// this key would let a stale entry hide a file that needs formatting.
 fn cache_identity(options: &FormatterOptions) -> String {
     let FormatterOptions {
-        // In the key: everything that decides what the formatted bytes are.
         config,
         unset_configs,
         toml_style,
@@ -1441,10 +1488,8 @@ fn cache_identity(options: &FormatterOptions) -> String {
         upgrade,
         allow_yanked,
         ignore_rust_version,
-        // Out of it: what the run *does*, which cannot change whether a file
-        // is a fixed point. The same bytes are clean whether they are checked,
-        // listed or rewritten, and a diff is only rendered for a file that is
-        // not one.
+        paragraphs,
+        sort_attributes,
         targets: _,
         source: _,
         selection: _,
@@ -1478,7 +1523,7 @@ fn cache_identity(options: &FormatterOptions) -> String {
         "1\x1f{}\x1f{unset_configs:?}\x1f{toml_style:?}\x1f{extra_args:?}\
          \x1f{edition:?}\x1f{edition_fallback:?}\x1f{style_edition:?}\
          \x1f{full_versions:?}\x1f{upgrade:?}\x1f{allow_yanked:?}\
-         \x1f{ignore_rust_version:?}",
+         \x1f{ignore_rust_version:?}\x1f{paragraphs:?}\x1f{sort_attributes:?}",
         config.to_config_arg(),
     )
 }
@@ -1655,6 +1700,7 @@ impl RustPlan<'_> {
                     .map(move |chunk| (batch, chunk.as_slice()))
             })
             .collect();
+
         work.sort_by_key(|(_, chunk)| std::cmp::Reverse(chunk.len()));
         work
     }
@@ -1699,6 +1745,7 @@ fn prepare_rust_plan<'a>(
     streams: &Streams<'_>,
 ) -> Result<RustPlan<'a>> {
     let mut resolver = EditionResolver::new(options, metadata);
+
     let batches = batch_rust_files(files, options, &mut resolver);
 
     // Nothing is written into the project: the merged configuration lives in a
@@ -1714,13 +1761,16 @@ fn prepare_rust_plan<'a>(
     let total: usize = batches.iter().map(|batch| batch.files.len()).sum();
     let mut prepared = Vec::with_capacity(batches.len());
     let mut counted = 0;
+
     for (index, batch) in batches.into_iter().enumerate() {
         if batch.files.is_empty() {
             continue;
         }
+
         let config_path = match &scratch {
             Some(dir) => {
                 let group = dir.path().join(index.to_string());
+
                 fs::create_dir_all(&group).map_err(|err| Error::io(&group, err))?;
                 Some(crate::rustfmt_config::materialize(
                     &group,
@@ -1743,7 +1793,9 @@ fn prepare_rust_plan<'a>(
         }
 
         counted += batch.files.len();
+
         let share = share_of(options.worker_threads(), batch.files.len(), total);
+
         prepared.push(PreparedBatch {
             edition: batch.edition,
             config_path,
@@ -1777,6 +1829,7 @@ fn enqueue_rust<'a>(
         // files this chunk never named and a per-file verdict would be a lie.
         let key = (batch.skip_children && cache.enabled() && options.ranges.is_empty())
             .then(|| rust_cache_key(options, rustfmt, batch));
+
         jobs.push(Box::new(
             move |state: &mut WorkerState, control: &pool::Control| {
                 let args = BatchArgs {
@@ -1786,6 +1839,7 @@ fn enqueue_rust<'a>(
                     newline_style: batch.newline_style,
                 };
                 let known = split_cached(chunk, cache, key, probe_path_attr, &mut state.fresh);
+
                 state.saw_path_attr |= known.saw_path_attr;
                 if known.pending.is_empty() {
                     return;
@@ -1795,7 +1849,9 @@ fn enqueue_rust<'a>(
                         if part.code != 0 {
                             state.rust.code = part.code;
                         }
+
                         let failed = !part.errors.is_empty();
+
                         record_clean(&known, &part, key, &mut state.fresh);
                         state.rust.changed.extend(part.changed);
                         state.rust.errors.extend(part.errors);
@@ -1852,6 +1908,7 @@ fn split_cached(
         candidates: Vec::with_capacity(chunk.len()),
         saw_path_attr: false,
     };
+
     for path in chunk {
         // A file that cannot be read is handed to rustfmt anyway, so the
         // failure is reported the way it always was rather than by the cache.
@@ -1859,14 +1916,17 @@ fn split_cached(
             known.pending.push(path.clone());
             continue;
         };
+
         if probe_path_attr {
             known.saw_path_attr |= mentions_path_attribute_bytes(&bytes);
         }
+
         let Some(key) = key else {
             known.pending.push(path.clone());
             continue;
         };
         let print = cache::fingerprint(path, &bytes, key);
+
         if cache.contains(print) {
             fresh.push(print);
             continue;
@@ -1884,6 +1944,7 @@ fn record_clean(
     fresh: &mut Vec<Fingerprint>,
 ) {
     let Some(key) = key else { return };
+
     if has_unattributed_failure(outcome) {
         return;
     }
@@ -1916,6 +1977,7 @@ fn record_clean(
         .iter()
         .map(|path| simplify_path(path.clone()))
         .collect();
+
     if !named.iter().all(|path| known_names.contains(path)) {
         return;
     }
@@ -1989,20 +2051,24 @@ fn chunk_rust_files(
     } else {
         RUSTFMT_CHUNK_SIZE
     };
+
     if bins <= 1 {
         return split_to_budget(files, cap, &cost);
     }
 
     let mut files = files;
+
     largest_first(&mut files);
 
     let mut loads: Vec<(u64, Vec<PathBuf>)> = (0..bins).map(|_| (0, Vec::new())).collect();
+
     for path in files {
         let size = file_size(&path);
         let lightest = loads
             .iter_mut()
             .min_by_key(|(load, files)| (*load, files.len()))
             .expect("bins is at least one");
+
         lightest.0 += size;
         lightest.1.push(path);
     }
@@ -2025,8 +2091,10 @@ fn split_to_budget(
     let mut out = Vec::new();
     let mut chunk: Vec<PathBuf> = Vec::new();
     let mut bytes = 0;
+
     for path in files {
         let len = cost(&path);
+
         if !chunk.is_empty() && (chunk.len() >= cap || bytes + len > budget) {
             out.push(std::mem::take(&mut chunk));
             bytes = 0;
@@ -2097,6 +2165,7 @@ fn path_attribute_modules(
         .map(|target| canonicalize_path(&target.src_path))
         .filter(|root| root.is_file())
         .collect();
+
     if roots.is_empty() {
         return Ok(Vec::new());
     }
@@ -2105,6 +2174,7 @@ fn path_attribute_modules(
     let target_dir = canonicalize_path(&metadata.target_directory);
     let mut resolver = EditionResolver::new(options, Some(metadata));
     let mut found = Vec::new();
+
     for batch in batch_rust_files(roots, options, &mut resolver) {
         let args = BatchArgs {
             edition: batch.edition.as_deref(),
@@ -2117,13 +2187,16 @@ fn path_attribute_modules(
             // the walk produces canonical paths; without normalizing, a file
             // already selected would be added a second time.
             let path = canonicalize_path(&name);
+
             if known.contains(path.as_path())
                 || found.contains(&path)
                 || path.starts_with(&target_dir)
             {
                 continue;
             }
+
             let root = path.parent().unwrap_or(Path::new("."));
+
             if selector.filter_for(root)?.classify(&path).is_none() {
                 continue;
             }
@@ -2146,10 +2219,13 @@ fn contains_slice(haystack: &[u8], needle: &[u8]) -> bool {
     let Some((first, rest)) = needle.split_first() else {
         return true;
     };
+
     if rest.is_empty() {
         return haystack.contains(first);
     }
+
     let mut haystack = haystack;
+
     while let Some(at) = haystack.iter().position(|byte| *byte == *first) {
         haystack = &haystack[at..];
         if haystack.starts_with(needle) {
@@ -2195,6 +2271,7 @@ impl<'a> EditionResolver<'a> {
     fn new(options: &'a FormatterOptions, metadata: Option<&CargoMetadata>) -> Self {
         let mut by_src_path = HashMap::new();
         let mut by_package_dir = HashMap::new();
+
         if let Some(meta) = metadata {
             for pkg in &meta.packages {
                 if let Some(dir) = pkg.manifest_path.parent() {
@@ -2239,6 +2316,7 @@ impl<'a> EditionResolver<'a> {
 
     fn owning_manifest_edition(&mut self, file: &Path) -> Option<String> {
         let shared_by_siblings = file.parent().filter(|_| file.is_file());
+
         if let Some(dir) = shared_by_siblings
             && let Some(known) = self.by_file_dir.get(dir)
         {
@@ -2246,6 +2324,7 @@ impl<'a> EditionResolver<'a> {
         }
 
         let found = self.find_owning_manifest_edition(file);
+
         if let Some(dir) = shared_by_siblings {
             self.by_file_dir.insert(dir.to_path_buf(), found.clone());
         }
@@ -2254,6 +2333,7 @@ impl<'a> EditionResolver<'a> {
 
     fn find_owning_manifest_edition(&mut self, file: &Path) -> Option<String> {
         let manifest = find_cargo_manifest(file)?;
+
         if let Some(dir) = manifest.parent()
             && let Some(edition) = self.by_package_dir.get(&canonicalize_path(dir))
         {
@@ -2285,9 +2365,11 @@ fn batch_rust_files(
     }
 
     let mut grouped: BTreeMap<(Option<String>, Option<PathBuf>), Vec<PathBuf>> = BTreeMap::new();
+
     for file in files {
         let edition = resolver.edition(&file);
         let config = resolver.project_config(&file);
+
         grouped.entry((edition, config)).or_default().push(file);
     }
 
@@ -2319,7 +2401,7 @@ fn describe_edition(batch: &RustBatch) -> String {
 /// took a heuristic over its stderr to tell apart; `--emit json` exits 1 only for
 /// the second, and names each file and hunk instead of printing a diff that is
 /// not unified and cannot be applied.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RustfmtMode {
     /// Report what differs, write nothing.
     Check,
@@ -2345,6 +2427,7 @@ fn run_rustfmt_chunks(
     args: BatchArgs<'_>,
 ) -> Result<RustOutcome> {
     let mode = RustfmtMode::of(options);
+
     if mode == RustfmtMode::Check && rustfmt.unstable_cli() {
         return check_chunks(files, options, rustfmt, args);
     }
@@ -2367,11 +2450,13 @@ fn with_child_modules(
     args: BatchArgs<'_>,
 ) -> Result<Vec<PathBuf>> {
     let mut all = files.to_vec();
+
     if args.skip_children || !options.ranges.is_empty() {
         return Ok(all);
     }
 
     let mut seen: HashSet<PathBuf> = files.iter().map(|path| canonicalize_path(path)).collect();
+
     for module in rustfmt_would_touch(files, options, rustfmt, args)? {
         if seen.insert(canonicalize_path(&module)) {
             all.push(module);
@@ -2387,6 +2472,7 @@ fn check_chunks(
     args: BatchArgs<'_>,
 ) -> Result<RustOutcome> {
     let mut outcome = RustOutcome::default();
+
     for chunk in files.chunks(RUSTFMT_CHUNK_SIZE) {
         let reported = rustfmt_json(chunk, options, rustfmt, args)?;
         let mut examined: HashSet<PathBuf> = reported
@@ -2394,17 +2480,19 @@ fn check_chunks(
             .iter()
             .filter_map(|err| err.diagnostic().path.map(Path::to_path_buf))
             .collect();
+
         outcome.errors.extend(reported.errors);
 
         for file in reported.files {
             let path = simplify_path(PathBuf::from(&file.name));
+
             outcome
                 .changed
                 .extend(check_one(&path, &file.mismatches, options, args));
             examined.insert(path);
         }
 
-        if args.newline_style == NewlineStyle::Auto {
+        if args.newline_style == NewlineStyle::Auto && rust_pass(options).is_none() {
             continue;
         }
         for path in chunk {
@@ -2432,10 +2520,15 @@ fn check_one(
     };
 
     let source = source.with_newline_style(args.newline_style);
-    let formatted = normalize_formatted_rust(&apply_mismatches(&source.text, mismatches));
+    let formatted = finish_rust(
+        normalize_formatted_rust(&apply_mismatches(&source.text, mismatches)),
+        options,
+    );
+
     if encode_source(&formatted, &source) == bytes {
         return None;
     }
+
     let diff = options
         .wants_diff()
         .then(|| crate::report::unified_diff(path, &source.text, &formatted, options.diff_context));
@@ -2449,9 +2542,11 @@ fn check_chunks_by_text(
     args: BatchArgs<'_>,
 ) -> Result<RustOutcome> {
     let mut outcome = RustOutcome::default();
+
     for chunk in files.chunks(RUSTFMT_CHUNK_SIZE) {
         let sources = read_sources(chunk, args.newline_style);
         let emitted = emit_stdout_texts(chunk, &source_texts(&sources), options, rustfmt, args)?;
+
         outcome.errors.extend(emitted.errors);
         outcome.warnings.extend(emitted.warnings);
 
@@ -2463,14 +2558,17 @@ fn check_chunks_by_text(
                 outcome.unconfirmed.push(path.clone());
                 continue;
             };
-            let after = normalize_formatted_rust(after);
+            let after = finish_rust(normalize_formatted_rust(after), options);
+
             if encode_source(&after, source) == *bytes {
                 continue;
             }
+
             let shown = simplify_path(path.clone());
             let diff = options.wants_diff().then(|| {
                 crate::report::unified_diff(&shown, &source.text, &after, options.diff_context)
             });
+
             outcome
                 .changed
                 .push(rust_outcome(&shown, FileStatus::NeedsFormatting, diff));
@@ -2506,6 +2604,7 @@ fn partition_for_emit_stdout<'a>(
 ) -> (Vec<&'a Path>, Vec<Vec<&'a Path>>) {
     let mut together = Vec::with_capacity(chunk.len());
     let mut alone = Vec::new();
+
     for (path, source) in chunk.iter().zip(sources) {
         if source.is_none_or(|text| text.contains(".rs:")) {
             alone.push(vec![path.as_path()]);
@@ -2544,11 +2643,14 @@ fn emit_stdout_texts(
         errors: Vec::new(),
         warnings: Vec::new(),
     };
+
     for group in std::iter::once(together).chain(alone) {
         if group.is_empty() {
             continue;
         }
+
         let pass = rustfmt_stdout_pass(&group, options, rustfmt, args)?;
+
         if !matches!(pass.split, Split::Ambiguous) {
             emitted.absorb(pass);
             continue;
@@ -2587,15 +2689,19 @@ fn rustfmt_stdout_pass(
     args: BatchArgs<'_>,
 ) -> Result<TextPass> {
     let mut cmd = Command::new(rustfmt.path());
+
     cmd.args(["--emit", "stdout"]);
     push_rustfmt_args(&mut cmd, options, rustfmt, args);
+
     let owned: Vec<PathBuf> = files.iter().map(|path| path.to_path_buf()).collect();
+
     push_file_lines(&mut cmd, options, &owned);
     cmd.args(files);
 
     let output = capture_command(cmd, "rustfmt")?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
+
     let (errors, warnings) = sort_diagnostics(&stderr, output.code);
     Ok(TextPass {
         split: split_emit_stdout(&stdout, files),
@@ -2614,11 +2720,14 @@ fn rustfmt_stdout_pass(
 /// this tool passes its own through `--config` instead.
 fn sort_diagnostics(stderr: &str, code: i32) -> (Vec<Error>, Vec<String>) {
     let reported = rustfmt_diagnostics(stderr, code);
+
     if code != 0 {
         return (reported, Vec::new());
     }
+
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
+
     for error in reported {
         match error {
             Error::ToolFailed { details, .. } => warnings.extend(
@@ -2636,6 +2745,7 @@ fn sort_diagnostics(stderr: &str, code: i32) -> (Vec<Error>, Vec<String>) {
 
 fn split_emit_stdout(stdout: &str, files: &[&Path]) -> Split {
     let stdout = normalize_source_newlines(stdout);
+
     if let [only] = files {
         return Split::Texts(sole_text(&stdout, only).into_iter().collect());
     }
@@ -2652,9 +2762,11 @@ fn split_emit_stdout(stdout: &str, files: &[&Path]) -> Split {
 
     let mut headers: Vec<(usize, usize, usize)> = Vec::new();
     let mut search = 0;
+
     while let Some(found) = stdout[search..].find(":\n\n") {
         let colon = search + found;
         let line_start = stdout[..colon].rfind('\n').map_or(0, |at| at + 1);
+
         if let Some(&index) = order.get(&stdout[line_start..colon]) {
             if headers
                 .last()
@@ -2670,6 +2782,7 @@ fn split_emit_stdout(stdout: &str, files: &[&Path]) -> Split {
     let opens_on_a_header = headers
         .first()
         .map_or(stdout.is_empty(), |&(_, start, _)| start == 0);
+
     if !opens_on_a_header {
         return Split::Ambiguous;
     }
@@ -2698,6 +2811,7 @@ fn sole_text(stdout: &str, path: &Path) -> Option<(PathBuf, String)> {
 
 fn header_spellings(path: &Path) -> Vec<String> {
     let mut spellings = vec![path.display().to_string()];
+
     if let Ok(canonical) = fs::canonicalize(path) {
         spellings.push(canonical.display().to_string());
         spellings.push(simplify_path(canonical).display().to_string());
@@ -2718,11 +2832,13 @@ fn apply_mismatches(original: &str, mismatches: &[RustfmtJsonMismatch]) -> Strin
     if mismatches.is_empty() {
         return original.to_string();
     }
+
     let original = original.strip_prefix('\u{feff}').unwrap_or(original);
     let lines: Vec<&str> = original.split_inclusive('\n').collect();
 
     let mut out = String::with_capacity(original.len());
     let mut next = 0;
+
     for hunk in mismatches {
         let begin = hunk
             .original_begin_line
@@ -2730,6 +2846,7 @@ fn apply_mismatches(original: &str, mismatches: &[RustfmtJsonMismatch]) -> Strin
             .min(lines.len())
             .max(next);
         let end = (begin + hunk.original.split_inclusive('\n').count()).min(lines.len());
+
         for line in &lines[next..begin] {
             out.push_str(line);
         }
@@ -2750,8 +2867,10 @@ fn write_chunks(
     args: BatchArgs<'_>,
 ) -> Result<RustOutcome> {
     let mut outcome = RustOutcome::default();
+
     for chunk in files.chunks(RUSTFMT_CHUNK_SIZE) {
         let part = write_chunk(chunk, options, rustfmt, args)?;
+
         if part.code != 0 {
             outcome.code = part.code;
         }
@@ -2798,6 +2917,7 @@ fn write_chunk(
         unsettled: Vec::new(),
         unconfirmed: Vec::new(),
     };
+
     for (path, origin) in files.iter().zip(&origins) {
         let Some((bytes, source)) = origin else {
             continue;
@@ -2806,6 +2926,7 @@ fn write_chunk(
             outcome.unconfirmed.push(path.clone());
             continue;
         };
+
         let written = write_formatted_rust(
             path,
             bytes,
@@ -2836,10 +2957,13 @@ fn write_formatted_rust(
     outcome: &mut WriteChunk,
 ) -> Result<()> {
     let mut text = normalize_formatted_rust(after);
+
     let mut settled = text == source.text || rustfmt_passes(options) == 1;
+
     if !settled {
         for _ in 1..rustfmt_passes(options) {
             let next = normalize_formatted_rust(&rustfmt_stdin(&text, options, rustfmt, args)?);
+
             if next == text {
                 settled = true;
                 break;
@@ -2850,7 +2974,10 @@ fn write_formatted_rust(
     if !settled {
         outcome.unsettled.push(path.to_path_buf());
     }
+
+    let text = finish_rust(text, options);
     let encoded = encode_source(&text, source);
+
     if encoded == original {
         return Ok(());
     }
@@ -2888,6 +3015,7 @@ fn rustfmt_would_touch(
 ) -> Result<Vec<PathBuf>> {
     if rustfmt.unstable_cli() {
         let reported = rustfmt_json(files, options, rustfmt, args)?;
+
         return Ok(reported
             .files
             .into_iter()
@@ -2896,9 +3024,11 @@ fn rustfmt_would_touch(
     }
 
     let mut cmd = Command::new(rustfmt.path());
+
     cmd.args(["--check", "-l"]);
     push_rustfmt_args(&mut cmd, options, rustfmt, args);
     cmd.args(files);
+
     let output = capture_command(cmd, "rustfmt --check -l")?;
     Ok(String::from_utf8_lossy(&output.stdout)
         .lines()
@@ -2922,6 +3052,7 @@ fn rustfmt_json(
     args: BatchArgs<'_>,
 ) -> Result<RustfmtReport> {
     let mut cmd = Command::new(rustfmt.path());
+
     if options.quiet {
         cmd.arg("--quiet");
     }
@@ -2935,6 +3066,7 @@ fn rustfmt_json(
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     let mut errors = rustfmt_diagnostics(&stderr, output.code);
+
     let parsed = match decode_rustfmt_json(&stdout, output.code) {
         Ok(files) => files,
         Err(err) => {
@@ -2996,6 +3128,7 @@ fn rustfmt_diagnostics(stderr: &str, code: i32) -> Vec<Error> {
         // The snippet and the `= help:` notes are what make the message worth
         // reading, and are what the TOML half keeps too.
         let mut message = headline.trim_end().to_string();
+
         for line in rest
             .lines()
             .filter(|line| !line.trim_start().starts_with("--> "))
@@ -3013,6 +3146,7 @@ fn rustfmt_diagnostics(stderr: &str, code: i32) -> Vec<Error> {
 
     let unattributed = unattributed.trim();
     let failed_silently = code != 0 && errors.is_empty();
+
     if !unattributed.is_empty() || failed_silently {
         errors.push(Error::ToolFailed {
             command: "rustfmt".to_string(),
@@ -3034,6 +3168,7 @@ fn diagnostic_blocks(stderr: &str) -> Vec<&str> {
     let mut blocks = Vec::new();
     let mut start = None;
     let mut offset = 0;
+
     for line in stderr.split_inclusive('\n') {
         if starts_diagnostic(line)
             && let Some(from) = start.replace(offset)
@@ -3073,6 +3208,7 @@ fn split_location(location: &str) -> Option<(PathBuf, usize, usize)> {
     let (path, line) = rest.rsplit_once(':')?;
     let column = column.trim().parse().ok()?;
     let line = line.trim().parse().ok()?;
+
     if path.is_empty() {
         return None;
     }
@@ -3106,9 +3242,11 @@ struct RustfmtJsonMismatch {
 /// that verified nothing as a success.
 fn decode_rustfmt_json(stdout: &str, code: i32) -> Result<Vec<RustfmtJsonFile>> {
     let trimmed = stdout.trim();
+
     if trimmed.is_empty() {
         return Ok(Vec::new());
     }
+
     let files =
         serde_json::from_str::<Vec<RustfmtJsonFile>>(trimmed).map_err(|err| Error::ToolFailed {
             command: "rustfmt --emit json".to_string(),
@@ -3135,11 +3273,14 @@ fn edition_from_manifest(manifest: &Path) -> Option<String> {
 
     let parent = manifest.parent()?;
     let boundary = Boundary::workspace();
+
     for dir in bounded_ancestors(parent, &boundary).skip(1) {
         let ancestor = dir.join("Cargo.toml");
+
         if !ancestor.is_file() {
             continue;
         }
+
         let Ok(source) = fs::read_to_string(&ancestor) else {
             continue;
         };
@@ -3183,6 +3324,7 @@ fn push_rustfmt_args(
     // where it has to keeps the nightly command line the one every earlier
     // release produced.
     let mut config = options.config.to_config_arg();
+
     if args.skip_children && !rustfmt.unstable_cli() {
         if !config.is_empty() {
             config.push(',');
@@ -3256,6 +3398,7 @@ fn collect_cargo_files(
     warnings: &mut Vec<String>,
 ) -> Result<Collected> {
     let packages = select_packages(meta, manifest_path, options.all);
+
     if packages.is_empty() {
         return Ok(Collected::default());
     }
@@ -3270,8 +3413,10 @@ fn collect_cargo_files(
         members[0].clone()
     };
     let prune = [canonicalize_path(&meta.target_directory)];
+
     let mut collected = take_walk(&root, selector, wanted, &prune, errors, warnings)?;
     let mut scope = WorkspaceScope::new(&root, &members);
+
     collected.rust.retain(|path| scope.contains(path));
     collected.toml.retain(|path| scope.contains(path));
     Ok(collected)
@@ -3284,6 +3429,7 @@ fn select_packages<'a>(
 ) -> Vec<&'a CargoPackage> {
     if all {
         let members: HashSet<&str> = meta.workspace_members.iter().map(String::as_str).collect();
+
         return meta
             .packages
             .iter()
@@ -3318,6 +3464,7 @@ fn same_path(left: &Path, right: &Path) -> bool {
 fn cargo_metadata(cargo: &Path, manifest_path: &Path, offline: bool) -> Result<CargoMetadata> {
     let run = |offline: bool| {
         let mut cmd = Command::new(cargo);
+
         cmd.args(["metadata", "--format-version", "1", "--no-deps", "--quiet"]);
         if offline {
             cmd.arg("--offline");
@@ -3345,6 +3492,7 @@ fn cargo_metadata(cargo: &Path, manifest_path: &Path, offline: bool) -> Result<C
 
     if !output.status.success() {
         let details = String::from_utf8_lossy(&output.stderr);
+
         return Err(Error::ToolFailed {
             command: "cargo metadata".to_string(),
             code: output.status.code().unwrap_or(1),
@@ -3415,6 +3563,7 @@ fn collect_for_run(
         }
         TargetKind::SingleFile(path) => {
             let mut collected = Collected::default();
+
             if wanted.rust() && is_rust_path(path) {
                 collected.rust.push(path.clone());
             }
@@ -3484,6 +3633,7 @@ fn collect_cargo_for_run(
     if options.all && scope.is_none() {
         return collect_workspace_fallback(manifest_path, selector, wanted, errors, warnings);
     }
+
     let dir = scope.unwrap_or_else(|| manifest_path.parent().unwrap_or(Path::new(".")));
     take_walk(dir, selector, wanted, &[], errors, warnings)
 }
@@ -3498,7 +3648,9 @@ fn collect_workspace_fallback(
     let root = workspace_root(manifest_path);
     let members = workspace_member_dirs(&root);
     let mut collected = take_walk(&root, selector, wanted, &[], errors, warnings)?;
+
     let mut scope = WorkspaceScope::new(&root, &members);
+
     collected.rust.retain(|path| scope.contains(path));
     collected.toml.retain(|path| scope.contains(path));
     Ok(collected)
@@ -3513,6 +3665,7 @@ fn take_walk(
     warnings: &mut Vec<String>,
 ) -> Result<Collected> {
     let walk = collect(root, selector, wanted, prune, false)?;
+
     errors.extend(walk.errors);
     warnings.extend(walk.warnings);
     Ok(Collected {
@@ -3529,6 +3682,7 @@ fn package_is_standalone(manifest_path: &Path) -> bool {
     if manifest_defines_workspace(manifest_path) {
         return false;
     }
+
     let pkg_dir = manifest_path.parent().unwrap_or(Path::new("."));
     workspace_root(manifest_path) == pkg_dir
 }
@@ -3565,6 +3719,7 @@ fn prewarm_manifest_versions(
         .iter()
         .filter(|path| is_cargo_manifest(path))
         .collect();
+
     if manifests.is_empty() {
         lookup.prewarm(&[]);
         return AHashMap::new();
@@ -3579,6 +3734,7 @@ fn prewarm_manifest_versions(
                     let Ok(source) = decode_source(&bytes, path) else {
                         return;
                     };
+
                     state.push((path.clone(), PrewarmedManifest { bytes, source }));
                 },
             ) as pool::Job<'_, Vec<(PathBuf, PrewarmedManifest)>>
@@ -3588,11 +3744,13 @@ fn prewarm_manifest_versions(
 
     let read: AHashMap<PathBuf, PrewarmedManifest> = states.into_iter().flatten().collect();
     let mut owned = Vec::new();
+
     for warmed in read.values() {
         if let Ok(requests) = owned_dep_requests(&warmed.source.text, &options.toml_style) {
             owned.extend(requests);
         }
     }
+
     let refs: Vec<DepRequest<'_>> = owned
         .iter()
         .map(|(name, req)| DepRequest {
@@ -3600,6 +3758,7 @@ fn prewarm_manifest_versions(
             req: req.as_str(),
         })
         .collect();
+
     lookup.prewarm(&refs);
     read
 }
@@ -3681,6 +3840,7 @@ fn read_and_format_toml(
         let on_disk = fs::read(path).ok()?;
         warmed.source_if_unchanged(&on_disk).cloned()
     });
+
     let source = if let Some(source) = unchanged_prewarm {
         source
     } else {
@@ -3691,6 +3851,7 @@ fn read_and_format_toml(
             // ACCESS_DENIED while another handle is open, and `File::open`
             // does not grant FILE_SHARE_DELETE.
             let mut file = File::open(path).map_err(|err| Error::io(path, err))?;
+
             file.read_to_end(bytes)
                 .map_err(|err| Error::io(path, err))?;
         }
@@ -3724,15 +3885,18 @@ fn read_and_format_toml(
             )));
         }
     };
+
     notes.records.extend(
         formatted
             .versions
             .into_iter()
             .map(|record| (path.to_path_buf(), record)),
     );
+
     let formatted = formatted.text;
 
     let findings_before = notes.findings.len();
+
     if options.toml_style.toml_version == TomlVersion::V1_0 {
         notes.findings.extend(
             toml_1_0_issues(&formatted)
@@ -3763,6 +3927,7 @@ fn read_and_format_toml(
     }
 
     let encoded = encode_toml_source(&formatted, &source, &options.toml_style);
+
     atomic_write(path, &encoded)?;
     // What is on disk now is a fixed point, so a check run straight after a
     // write run is warm rather than paying for the whole tree again.
@@ -3793,6 +3958,7 @@ pub(crate) fn decode_source(bytes: &[u8], path: &Path) -> Result<SourceText> {
     })?;
     let crlf = first_newline_is_crlf(text);
     let normalized = normalize_source_newlines(text);
+
     let mixed_endings_original = (text.contains('\r')
         && encode_newlines(&normalized, crlf) != text)
         .then(|| text.to_owned());
@@ -3819,8 +3985,10 @@ fn normalize_source_newlines(text: &str) -> std::borrow::Cow<'_, str> {
     if !text.contains('\r') {
         return std::borrow::Cow::Borrowed(text);
     }
+
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
+
     while let Some(cr) = rest.find('\r') {
         out.push_str(&rest[..cr]);
         out.push('\n');
@@ -3833,6 +4001,30 @@ fn normalize_source_newlines(text: &str) -> std::borrow::Cow<'_, str> {
 
 fn normalize_formatted_rust(text: &str) -> String {
     normalize_source_newlines(text.strip_prefix('\u{feff}').unwrap_or(text)).into_owned()
+}
+
+fn finish_rust(text: String, options: &FormatterOptions) -> String {
+    match rust_pass(options) {
+        Some(pass) => crate::rust_pass::apply(&text, pass),
+        None => text,
+    }
+}
+
+fn rust_pass(options: &FormatterOptions) -> Option<Pass> {
+    if !options.ranges.is_empty() {
+        return None;
+    }
+
+    let max_blank_lines = match options.config.get("blank_lines_upper_bound") {
+        _ if !options.paragraphs => None,
+        None => Some(1),
+        Some(raw) => raw.trim().parse().ok().filter(|&bound| bound > 0),
+    };
+    let pass = Pass {
+        sort_attributes: options.sort_attributes,
+        max_blank_lines,
+    };
+    (pass.sort_attributes || pass.max_blank_lines.is_some()).then_some(pass)
 }
 
 fn encode_newlines(text: &str, crlf: bool) -> std::borrow::Cow<'_, str> {
@@ -3851,7 +4043,9 @@ fn with_bom(body: &str, bom: bool) -> Vec<u8> {
     if !bom {
         return body.as_bytes().to_vec();
     }
+
     let mut out = Vec::with_capacity(UTF8_BOM.len() + body.len());
+
     out.extend_from_slice(UTF8_BOM);
     out.extend_from_slice(body.as_bytes());
     out
@@ -3874,8 +4068,10 @@ pub(crate) fn encode_toml_source(
     let placed = Regions::scan(formatted);
     let mut body = String::with_capacity(formatted.len() + formatted.len() / 16);
     let mut cursor = 0;
+
     for (placed, written) in placed.spans().iter().zip(written.spans()) {
         let frozen = &original[written.clone()];
+
         if normalize_source_newlines(frozen) != formatted[placed.clone()] {
             continue;
         }
@@ -3902,6 +4098,7 @@ pub(crate) fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let mut tmp = NamedTempFile::new_in(dir).map_err(|err| Error::io(dir, err))?;
+
     tmp.write_all(contents)
         .map_err(|err| Error::io(tmp.path(), err))?;
     tmp.flush().map_err(|err| Error::io(tmp.path(), err))?;
@@ -3945,6 +4142,7 @@ pub fn stdin_edition(named: Option<&Path>, options: &FormatterOptions) -> Option
         Path::to_path_buf,
     );
     let mut discovery = crate::rustfmt_config::Discovery::new();
+
     if discovery.setting_for_file(&probe, "edition").is_some() {
         return None;
     }
@@ -4004,11 +4202,13 @@ fn reconcile_with_rustfmt(
         .map(|(key, _)| key.to_owned())
         .filter(|key| !capabilities.has(key))
         .collect();
+
     for key in unknown {
         let droppable = options.lenient_keys.contains(&key)
             || crate::config::DEFAULT_CONFIGS
                 .iter()
                 .any(|&(default, _)| default == key);
+
         if !droppable {
             return Err(Error::UnknownRustfmtOption {
                 option: key,
@@ -4035,6 +4235,7 @@ fn report_resolution(options: &FormatterOptions, rustfmt: Option<&Rustfmt>, stre
             |found| found.path().display().to_string()
         )
     ));
+
     if let Some(found) = rustfmt {
         let _ = streams.note_line(&format!("version: {}", found.capabilities().version()));
     }
@@ -4044,6 +4245,7 @@ fn report_resolution(options: &FormatterOptions, rustfmt: Option<&Rustfmt>, stre
             options.config_sources.join(", ")
         ));
     }
+
     let config = options.config.to_config_arg();
     let _ = streams.note_line(&format!(
         "config: {}",
@@ -4054,9 +4256,11 @@ fn report_resolution(options: &FormatterOptions, rustfmt: Option<&Rustfmt>, stre
         .config_file_options()
         .map(|(key, value)| format!("{key}={value}"))
         .collect();
+
     if !file_config.is_empty() {
         let _ = streams.note_line(&format!("config file: {}", file_config.join(", ")));
     }
+
     let _ = streams.note_line(&format!("jobs: {}", options.worker_threads()));
     let _ = streams.note_line(&format!(
         "edition: {}",
@@ -4066,6 +4270,7 @@ fn report_resolution(options: &FormatterOptions, rustfmt: Option<&Rustfmt>, stre
             .or(options.edition_fallback.as_deref())
             .unwrap_or("per manifest")
     ));
+
     if let Some(style_edition) = &options.style_edition {
         let _ = streams.note_line(&format!("style edition: {style_edition}"));
     }
@@ -4077,6 +4282,7 @@ fn report_resolution(options: &FormatterOptions, rustfmt: Option<&Rustfmt>, stre
             .collect();
         let _ = streams.note_line(&format!("ranges: {}", ranges.join(", ")));
     }
+
     let _ = streams.note_line(&format!("strategy: {:?}", RustfmtMode::of(options)));
     let _ = streams.note_line(&format!("color: {}", streams.product_color()));
 }
@@ -4090,6 +4296,7 @@ pub fn collect_files(
     let mut found: Vec<(PathBuf, Kind)> = Vec::new();
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
+
     plan.workspaces.begin_stage();
 
     for target in &plan.targets {
@@ -4102,6 +4309,7 @@ pub fn collect_files(
             &mut errors,
             &mut warnings,
         )?;
+
         found.extend(collected.rust.into_iter().map(|path| (path, Kind::Rust)));
         found.extend(collected.toml.into_iter().map(|path| (path, Kind::Toml)));
     }
@@ -4140,9 +4348,11 @@ impl MetadataCache {
         let TargetKind::CargoProject { manifest_path, .. } = target else {
             return Ok(None);
         };
+
         if let MetadataAnswer::Known(known) = self.known(manifest_path) {
             return Ok(known);
         }
+
         let Some(cargo) = self.cargo_bin(rustfmt, options, streams) else {
             return Ok(None);
         };
@@ -4178,9 +4388,11 @@ impl MetadataCache {
 
     fn known(&mut self, manifest: &Path) -> MetadataAnswer {
         let key = canonicalize_path(manifest);
+
         if let Some(cached) = self.by_manifest.get(&key) {
             return MetadataAnswer::Known(cached.clone());
         }
+
         let Some(hit) = self
             .loaded
             .iter()
@@ -4189,6 +4401,7 @@ impl MetadataCache {
         else {
             return MetadataAnswer::Unasked;
         };
+
         self.by_manifest.insert(key, Some(Arc::clone(&hit)));
         MetadataAnswer::Known(Some(hit))
     }
@@ -4204,6 +4417,7 @@ impl MetadataCache {
 /// A metadata failure keeps the parser root so `--watch` can still start.
 pub(crate) fn bind_workspaces(plan: &mut Plan, options: &FormatterOptions) {
     let streams = Streams::discard();
+
     plan.workspaces.begin_stage();
     for target in &mut plan.targets {
         let Ok(metadata) = plan.workspaces.get(target, options, None, &streams) else {
@@ -4215,9 +4429,12 @@ pub(crate) fn bind_workspaces(plan: &mut Plan, options: &FormatterOptions) {
         let TargetKind::CargoProject { workspace_root, .. } = target else {
             continue;
         };
+
         *workspace_root = canonicalize_path(&meta.workspace_root);
     }
+
     let targets = std::mem::take(&mut plan.targets);
+
     plan.targets = selection::collapse_targets(targets, options.all);
 }
 
@@ -4229,7 +4446,9 @@ fn load_metadata(
     if let MetadataAnswer::Known(known) = cache.known(manifest) {
         return Ok(known);
     }
+
     let result = load(manifest)?.map(Arc::new);
+
     if let Some(meta) = &result {
         cache.loaded.push(Arc::clone(meta));
     }
@@ -4281,6 +4500,7 @@ pub fn print_config(options: &FormatterOptions, probe: Option<&Path>) -> Result<
     };
 
     let mut cmd = Command::new(rustfmt.path());
+
     cmd.arg("--print-config").arg("current").arg(&probe_path);
     push_rustfmt_args(
         &mut cmd,
@@ -4295,8 +4515,10 @@ pub fn print_config(options: &FormatterOptions, probe: Option<&Path>) -> Result<
     );
 
     let output = capture_command(cmd, "rustfmt --print-config")?;
+
     if output.code != 0 {
         let details = String::from_utf8_lossy(&output.stderr);
+
         return Err(Error::ToolFailed {
             command: "rustfmt --print-config".to_string(),
             code: output.code,
@@ -4372,6 +4594,7 @@ pub fn format_stdin(
             .as_ref()
             .map_or_default(RegistryLookup::warnings)
             .to_vec();
+
         warnings.extend(version_warnings(&versions, options));
 
         return Ok(StdinOutput {
@@ -4385,6 +4608,7 @@ pub fn format_stdin(
 
     let scratch;
     let project = stdin_project(options);
+
     let config_path = if options.config.needs_config_file() {
         scratch = tempfile::TempDir::new().map_err(|err| Error::io("<config>", err))?;
         Some(crate::rustfmt_config::materialize(
@@ -4406,15 +4630,17 @@ pub fn format_stdin(
     };
 
     let mut current = normalize_formatted_rust(&rustfmt_stdin(source, options, &rustfmt, args)?);
+
     for _ in 1..rustfmt_passes(options) {
         let next = normalize_formatted_rust(&rustfmt_stdin(&current, options, &rustfmt, args)?);
+
         if next == current {
             break;
         }
         current = next;
     }
     Ok(StdinOutput {
-        text: current,
+        text: finish_rust(current, options),
         versions: Vec::new(),
         warnings: Vec::new(),
     })
@@ -4444,6 +4670,7 @@ fn rustfmt_stdin(
     args: BatchArgs<'_>,
 ) -> Result<String> {
     let mut cmd = Command::new(rustfmt.path());
+
     cmd.args(["--emit", "stdout"]);
     push_rustfmt_args(&mut cmd, options, rustfmt, args);
     if !options.ranges.is_empty() {
@@ -4532,6 +4759,7 @@ mod tests {
     fn test_edition_from_manifest_reads_package_edition() {
         let temp = tempfile::tempdir().unwrap();
         let manifest = temp.path().join("Cargo.toml");
+
         fs::write(
             &manifest,
             r#"[package]
@@ -4541,6 +4769,7 @@ edition = "2021"
 "#,
         )
         .unwrap();
+
         assert_eq!(edition_from_manifest(&manifest).as_deref(), Some("2021"));
     }
 
@@ -4548,6 +4777,7 @@ edition = "2021"
     fn test_edition_from_manifest_missing_edition() {
         let temp = tempfile::tempdir().unwrap();
         let manifest = temp.path().join("Cargo.toml");
+
         fs::write(
             &manifest,
             r#"[package]
@@ -4556,6 +4786,7 @@ version = "0.1.0"
 "#,
         )
         .unwrap();
+
         assert_eq!(edition_from_manifest(&manifest), None);
     }
 
@@ -4576,11 +4807,13 @@ version = "0.1.0"
         )
         .unwrap();
         let all = select_packages(&meta, Path::new("/tmp/foo/Cargo.toml"), true);
+
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].id, "foo");
         assert_eq!(all[0].edition, "2024");
 
         let one = select_packages(&meta, Path::new("/tmp/bar/Cargo.toml"), false);
+
         assert_eq!(one.len(), 1);
         assert_eq!(one[0].id, "bar");
     }
@@ -4605,6 +4838,7 @@ version = "0.1.0"
     #[test]
     fn metadata_covers_members_and_the_virtual_root() {
         let meta = fixture_metadata();
+
         assert!(metadata_covers(&meta, Path::new("/tmp/foo/Cargo.toml")));
         assert!(metadata_covers(&meta, Path::new("/tmp/bar/Cargo.toml")));
         assert!(metadata_covers(&meta, Path::new("/tmp/Cargo.toml")));
@@ -4615,8 +4849,10 @@ version = "0.1.0"
     fn metadata_cache_loads_a_workspace_once() {
         let mut cache = MetadataCache::default();
         let mut loads = 0usize;
+
         let mut load = |manifest: &Path| {
             loads += 1;
+
             assert!(
                 manifest.ends_with("foo/Cargo.toml")
                     || manifest.ends_with("bar/Cargo.toml")
@@ -4636,6 +4872,7 @@ version = "0.1.0"
         let root = load_metadata(&mut cache, Path::new("/tmp/Cargo.toml"), &mut load)
             .unwrap()
             .unwrap();
+
         assert_eq!(loads, 1);
         assert!(Arc::ptr_eq(&first, &second));
         assert!(Arc::ptr_eq(&first, &root));
@@ -4645,6 +4882,7 @@ version = "0.1.0"
             Ok(None)
         })
         .unwrap();
+
         assert!(unrelated.is_none());
         assert_eq!(loads, 2);
 
@@ -4652,6 +4890,7 @@ version = "0.1.0"
             panic!("standalone miss must stay cached")
         })
         .unwrap();
+
         assert!(again.is_none());
         assert_eq!(loads, 2);
     }
@@ -4677,6 +4916,7 @@ version = "0.1.0"
         assert_eq!(loads, 2);
 
         cache.begin_stage();
+
         let member = load_metadata(&mut cache, Path::new("/tmp/bar/Cargo.toml"), |_| {
             panic!("a workspace cargo already described must not be asked again")
         })
@@ -4696,6 +4936,7 @@ version = "0.1.0"
     #[test]
     fn a_run_starts_from_the_metadata_its_plan_bound() {
         let temp = tempfile::tempdir().unwrap();
+
         fs::create_dir_all(temp.path().join("src")).unwrap();
         fs::write(
             temp.path().join("Cargo.toml"),
@@ -4703,6 +4944,7 @@ version = "0.1.0"
         )
         .unwrap();
         fs::write(temp.path().join("src").join("lib.rs"), "pub fn f() {}\n").unwrap();
+
         let options = FormatterOptions::for_path(temp.path());
         let selector = options.selector().unwrap();
 
@@ -4742,6 +4984,7 @@ version = "0.1.0"
             b"#![path = \"x.rs\"]",
             b"#[cfg_attr(unix, path = \"x.rs\")]",
         ];
+
         for line in yes {
             assert!(
                 opens_path_attribute(line),
@@ -4756,6 +4999,7 @@ version = "0.1.0"
                 String::from_utf8_lossy(line)
             );
         }
+
         assert!(mentions_path_attribute_bytes(
             b"fn f() {}\n#[path = \"x.rs\"]\nmod x;\n"
         ));
@@ -4778,21 +5022,26 @@ version = "0.1.0"
     fn batching_splits_a_list_that_crosses_packages() {
         let temp = tempfile::tempdir().unwrap();
         let mut files = Vec::new();
+
         for (name, edition) in [("old", "2015"), ("new", "2024")] {
             let dir = temp.path().join(name).join("src");
+
             fs::create_dir_all(&dir).unwrap();
             fs::write(
                 temp.path().join(name).join("Cargo.toml"),
                 format!("[package]\nname = \"{name}\"\nedition = \"{edition}\"\n"),
             )
             .unwrap();
+
             let file = dir.join("lib.rs");
+
             fs::write(&file, "pub fn a() {}\n").unwrap();
             files.push(file);
         }
 
         let batches = batches_of(files, &FormatterOptions::default());
         let editions: Vec<_> = batches.iter().map(|batch| batch.edition.clone()).collect();
+
         assert_eq!(
             editions,
             vec![Some("2015".to_string()), Some("2024".to_string())]
@@ -4810,6 +5059,7 @@ version = "0.1.0"
             vec![PathBuf::from("/a/x.rs"), PathBuf::from("/b/y.rs")],
             &options,
         );
+
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].edition.as_deref(), Some("2021"));
     }
@@ -4820,9 +5070,11 @@ version = "0.1.0"
     fn a_file_with_no_manifest_gets_a_modern_edition() {
         let temp = tempfile::tempdir().unwrap();
         let file = temp.path().join("script.rs");
+
         fs::write(&file, "async fn f() {}\n").unwrap();
 
         let batches = batches_of(vec![file], &FormatterOptions::default());
+
         assert_eq!(batches[0].edition.as_deref(), Some(DEFAULT_EDITION));
     }
 
@@ -4831,18 +5083,24 @@ version = "0.1.0"
     #[test]
     fn a_project_rustfmt_toml_keeps_the_last_word_on_edition() {
         let temp = tempfile::tempdir().unwrap();
+
         fs::write(temp.path().join("rustfmt.toml"), "edition = \"2018\"\n").unwrap();
         fs::write(
             temp.path().join("Cargo.toml"),
             "[package]\nname = \"x\"\nedition = \"2021\"\n",
         )
         .unwrap();
+
         let dir = temp.path().join("src");
+
         fs::create_dir_all(&dir).unwrap();
+
         let file = dir.join("lib.rs");
+
         fs::write(&file, "pub fn a() {}\n").unwrap();
 
         let batches = batches_of(vec![file.clone()], &FormatterOptions::default());
+
         assert_eq!(batches[0].edition, None);
 
         // An edition the caller asked for still wins over the file.
@@ -4850,6 +5108,7 @@ version = "0.1.0"
             edition: Some("2024".to_string()),
             ..FormatterOptions::default()
         };
+
         assert_eq!(
             batches_of(vec![file], &options)[0].edition.as_deref(),
             Some("2024")
@@ -4862,26 +5121,34 @@ version = "0.1.0"
     fn a_config_file_route_splits_batches_by_project_config() {
         let temp = tempfile::tempdir().unwrap();
         let mut files = Vec::new();
+
         for name in ["a", "b"] {
             let dir = temp.path().join(name);
+
             fs::create_dir_all(&dir).unwrap();
             fs::write(dir.join("rustfmt.toml"), "max_width = 80\n").unwrap();
+
             let file = dir.join("lib.rs");
+
             fs::write(&file, "pub fn a() {}\n").unwrap();
             files.push(file);
         }
 
         let plain = batches_of(files.clone(), &FormatterOptions::default());
+
         assert_eq!(plain.len(), 2);
         assert!(plain.iter().all(|batch| batch.project_config.is_some()));
 
         let mut config = RustfmtConfig::default();
+
         config.extend_from_str(r#"ignore=["x","y"]"#).unwrap();
+
         let options = FormatterOptions {
             config,
             ..FormatterOptions::default()
         };
         let split = batches_of(files, &options);
+
         assert_eq!(split.len(), 2);
         assert!(split.iter().all(|batch| batch.project_config.is_some()));
     }
@@ -4889,10 +5156,15 @@ version = "0.1.0"
     #[test]
     fn worker_threads_honors_jobs_override() {
         let mut options = FormatterOptions::default();
+
         assert!(options.worker_threads() >= 1);
+
         options.jobs = NonZeroUsize::new(1);
+
         assert_eq!(options.worker_threads(), 1);
+
         options.jobs = NonZeroUsize::new(32);
+
         assert_eq!(options.worker_threads(), 32);
     }
 
@@ -4900,12 +5172,17 @@ version = "0.1.0"
     fn decode_preserves_bom_and_crlf() {
         let path = Path::new("mem.toml");
         let mut bytes = UTF8_BOM.to_vec();
+
         bytes.extend_from_slice(b"a = 1\r\nb = 2\r\n");
+
         let source = decode_source(&bytes, path).unwrap();
+
         assert!(source.bom);
         assert!(source.crlf);
         assert_eq!(source.text, "a = 1\nb = 2\n");
+
         let encoded = encode_source("a = 1\nb = 2\n", &source);
+
         assert_eq!(encoded, bytes);
     }
 
@@ -4992,17 +5269,21 @@ version = "0.1.0"
     fn atomic_write_replaces_and_keeps_mode() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("file.toml");
+
         fs::write(&path, "old\n").unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
+
             fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
         }
         atomic_write(&path, b"new\n").unwrap();
+
         assert_eq!(fs::read(&path).unwrap(), b"new\n");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
+
             assert_eq!(
                 fs::metadata(&path).unwrap().permissions().mode() & 0o777,
                 0o640
@@ -5032,6 +5313,7 @@ version = "0.1.0"
                 hunk(2, "use std::io::Read;\n", ""),
             ],
         );
+
         assert_eq!(
             rebuilt,
             "use std::io::Read;\n\nuse serde::Serialize;\nfn main() {}\n"
@@ -5041,6 +5323,7 @@ version = "0.1.0"
     #[test]
     fn a_replacement_and_a_deletion_rebuild_exactly() {
         let original = "fn a() {}\n\n\n\n\nfn b() {}\n";
+
         assert_eq!(
             apply_mismatches(original, &[hunk(3, "\n\n\n", "")]),
             "fn a() {}\n\nfn b() {}\n"
@@ -5058,6 +5341,7 @@ version = "0.1.0"
     #[test]
     fn a_rewrite_drops_a_byte_order_mark() {
         let original = "\u{feff}fn  a( ){}\n";
+
         assert_eq!(
             apply_mismatches(original, &[hunk(1, "fn  a( ){}\n", "fn a() {}\n")]),
             "fn a() {}\n"
@@ -5083,7 +5367,9 @@ error[E0670]: `async fn` is not permitted in Rust 2015
   | ^^^^^
 ";
         let errors = rustfmt_diagnostics(stderr, 1);
+
         assert_eq!(errors.len(), 2);
+
         match &errors[0] {
             Error::RustfmtDiagnostic {
                 path,
@@ -5116,6 +5402,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
     #[test]
     fn a_diagnostic_without_a_location_is_still_reported() {
         let errors = rustfmt_diagnostics("invalid key=val pair: `max_width=true`\n", 1);
+
         assert_eq!(errors.len(), 1);
         assert!(matches!(errors[0], Error::ToolFailed { code: 1, .. }));
 
@@ -5123,6 +5410,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
             "error: bad\n --> /tmp/a.rs:1:1\n\nRustfmt failed at /tmp/a.rs: internal error\n",
             101,
         );
+
         assert_eq!(mixed.len(), 2);
         assert!(matches!(mixed[0], Error::RustfmtDiagnostic { .. }));
         assert!(matches!(mixed[1], Error::ToolFailed { .. }));
@@ -5229,6 +5517,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
     fn a_file_rustfmt_returned_no_text_for_is_not_remembered_as_clean() {
         let silent = PathBuf::from("/nonexistent/silent.rs");
         let clean = PathBuf::from("/nonexistent/clean.rs");
+
         let known = Known {
             pending: vec![silent.clone(), clean.clone()],
             candidates: vec![
@@ -5318,6 +5607,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
         let rewritten = temp.path().join("rewritten.rs");
         let oscillating = temp.path().join("oscillating.rs");
         let clean = temp.path().join("clean.rs");
+
         fs::write(&rewritten, "fn a() {}\n").unwrap();
 
         let known = Known {
@@ -5373,6 +5663,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
             &ranges,
         );
         let parsed: serde_json::Value = serde_json::from_str(&payload).unwrap();
+
         assert_eq!(parsed.as_array().unwrap().len(), 4);
         assert_eq!(parsed[0]["file"], "src/lib.rs");
         assert_eq!(parsed[0]["range"], serde_json::json!([7, 13]));
@@ -5396,6 +5687,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
         let manifest = temp.path().join("Cargo.toml");
         let original =
             "[package]\nname = \"x\"\nversion = \"0.1.0\"\n[dependencies]\nclap = \"4.6\"\n";
+
         fs::write(&manifest, original).unwrap();
 
         prewarm_manifest_versions(
@@ -5403,6 +5695,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
             &FormatterOptions::default(),
             &FailLookup,
         );
+
         assert_eq!(
             FailLookup.take_error(),
             Some(("clap".into(), "boom".into()))
@@ -5430,15 +5723,19 @@ error[E0670]: `async fn` is not permitted in Rust 2015
         let original = "[package]\nname   =   \"x\"\n[dependencies]\nclap = \"4.6\"\n";
         let edited =
             "[package]\nname   =   \"x\"\n[dependencies]\nclap = \"4.6\"\nserde   =   \"1\"\n";
+
         fs::write(&manifest, original).unwrap();
+
         let lookup = EditingLookup {
             manifest: &manifest,
             edited,
         };
         let options = FormatterOptions::default();
+
         let prewarmed =
             prewarm_manifest_versions(std::slice::from_ref(&manifest), &options, &lookup);
         let cache = Cache::default();
+
         let job = TomlJob {
             options: &options,
             lookup: Some(&lookup),
@@ -5483,12 +5780,14 @@ error[E0670]: `async fn` is not permitted in Rust 2015
 
         let temp = tempfile::tempdir().unwrap();
         let bin = temp.path().join("rustfmt");
+
         fs::write(
             &bin,
             "#!/bin/sh\necho \"Unrecognized option: 'unstable-features'\" >&2\nexit 1\n",
         )
         .unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
         assert!(RustfmtCapabilities::probe(&bin).is_err());
     }
 
@@ -5502,6 +5801,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
 
         let temp = tempfile::tempdir().unwrap();
         let bin = temp.path().join("rustfmt");
+
         fs::write(
             &bin,
             "#!/bin/sh\n\
@@ -5513,6 +5813,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
 
         let probed = RustfmtCapabilities::probe(&bin).unwrap();
+
         assert_eq!(probed.version(), "rustfmt 9.9.9-nightly");
         assert!(probed.has("max_width"));
         assert!(probed.has("group_imports"));
@@ -5534,7 +5835,9 @@ error[E0670]: `async fn` is not permitted in Rust 2015
         };
 
         let mut options = FormatterOptions::default();
+
         let notes = reconcile_with_rustfmt(&mut options, &capabilities).unwrap();
+
         assert_eq!(notes.len(), 1);
         assert!(notes[0].contains("imports_granularity"), "{notes:?}");
         assert_eq!(options.config.get("imports_granularity"), None);
@@ -5547,6 +5850,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
             unset_configs: vec!["group_imprts".to_string()],
             ..FormatterOptions::default()
         };
+
         assert!(matches!(
             reconcile_with_rustfmt(&mut typo, &capabilities),
             Err(Error::UnknownRustfmtOption { .. })
@@ -5556,7 +5860,9 @@ error[E0670]: `async fn` is not permitted in Rust 2015
             unset_misses: vec!["max_width".to_string()],
             ..FormatterOptions::default()
         };
+
         let notes = reconcile_with_rustfmt(&mut miss, &capabilities).unwrap();
+
         assert!(
             notes.iter().any(|note| note.contains("nothing to drop")),
             "{notes:?}"

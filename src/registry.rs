@@ -36,7 +36,7 @@ const CARGO_INDEX_FORMAT_MAX: u32 = 2;
 /// Our own cache header, so a format change is a miss rather than a misparse.
 const CACHE_MAGIC: &str = "rust-formatter-index\t1\t";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexEntry {
     pub version: Version,
     pub yanked: bool,
@@ -85,7 +85,7 @@ impl fmt::Display for LookupError {
 
 /// Where crates.io resolves to for this tree, which cargo's `[source]` tables
 /// can move out from under a manifest.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RegistrySource {
     Sparse(String),
     /// Replaced by a source whose versions this tool cannot enumerate, so no
@@ -93,7 +93,7 @@ pub enum RegistrySource {
     Replaced(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct RegistryCli {
     pub registry_url: Option<String>,
     pub offline: bool,
@@ -240,6 +240,7 @@ impl Registry {
         match http.get(&url, etag) {
             Ok(Fetched::Body { bytes, etag }) => {
                 let entries = parse_entries(&bytes)?;
+
                 if let Some(dir) = &self.cache_dir {
                     write_our_cache(&dir.join(&path), etag.as_deref(), &bytes);
                 }
@@ -265,6 +266,7 @@ impl Registry {
 /// a name out of the URL path it is interpolated into.
 fn is_valid_crate_name(name: &str) -> bool {
     let bytes = name.as_bytes();
+
     if !(1..=64).contains(&bytes.len()) {
         return false;
     }
@@ -304,10 +306,12 @@ fn parse_entries(bytes: &[u8]) -> Result<Vec<IndexEntry>, LookupError> {
 
     for line in bytes.split(|&b| b == b'\n') {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
+
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
         lines += 1;
+
         let Ok(parsed) = serde_json::from_slice::<IndexLine>(line) else {
             continue;
         };
@@ -316,6 +320,7 @@ fn parse_entries(bytes: &[u8]) -> Result<Vec<IndexEntry>, LookupError> {
         let Ok(version) = Version::parse(&parsed.vers) else {
             continue;
         };
+
         entries.push(IndexEntry {
             version,
             yanked: parsed.yanked,
@@ -343,6 +348,7 @@ fn read_our_cache(path: &Path) -> Option<CachedIndex> {
     let bytes = fs::read(path).ok()?;
     let rest = bytes.strip_prefix(CACHE_MAGIC.as_bytes())?;
     let split = rest.iter().position(|&b| b == b'\n')?;
+
     let etag = String::from_utf8(rest[..split].to_vec()).ok()?;
     Some(CachedIndex {
         etag: (!etag.is_empty()).then_some(etag),
@@ -352,10 +358,13 @@ fn read_our_cache(path: &Path) -> Option<CachedIndex> {
 
 fn write_our_cache(path: &Path, etag: Option<&str>, body: &[u8]) {
     let Some(parent) = path.parent() else { return };
+
     if fs::create_dir_all(parent).is_err() {
         return;
     }
+
     let mut bytes = Vec::with_capacity(body.len() + 64);
+
     bytes.extend_from_slice(CACHE_MAGIC.as_bytes());
     bytes.extend_from_slice(etag.unwrap_or_default().as_bytes());
     bytes.push(b'\n');
@@ -370,15 +379,19 @@ fn write_our_cache(path: &Path, etag: Option<&str>, body: &[u8]) {
 fn read_cargo_cache(path: &Path) -> Option<CachedIndex> {
     let bytes = fs::read(path).ok()?;
     let (&version, rest) = bytes.split_first()?;
+
     if version != CARGO_CACHE_VERSION || rest.len() < 4 {
         return None;
     }
+
     let (format, rest) = rest.split_at(4);
+
     if u32::from_le_bytes(format.try_into().ok()?) > CARGO_INDEX_FORMAT_MAX {
         return None;
     }
 
     let mut fields = rest.split(|&b| b == 0);
+
     let index_version = std::str::from_utf8(fields.next()?).ok()?;
     let etag = index_version
         .strip_prefix("etag: ")
@@ -412,11 +425,13 @@ fn resolve_source(
     }
 
     let mut name = "crates-io".to_owned();
+
     for _ in 0..8 {
         let Some(next) = config.str(&["source", &name, "replace-with"]) else {
             break;
         };
         let next = next.to_owned();
+
         if next == name {
             break;
         }
@@ -460,13 +475,17 @@ fn local_index_dir(env: EnvLookup<'_>, host: &str) -> Option<PathBuf> {
     for entry in fs::read_dir(root).ok()?.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
+
         if !name.starts_with(&prefix) {
             continue;
         }
+
         let cache = entry.path().join(".cache");
+
         if !cache.is_dir() {
             continue;
         }
+
         let modified = entry
             .metadata()
             .and_then(|meta| meta.modified())
@@ -532,6 +551,7 @@ mod tests {
 
     fn write_config(dir: &Path, body: &str) {
         let cargo = dir.join(".cargo");
+
         fs::create_dir_all(&cargo).unwrap();
         fs::write(cargo.join("config.toml"), body).unwrap();
     }
@@ -554,6 +574,7 @@ mod tests {
         for name in ["", "1abc", "-abc", "foo/bar", "../x", "foo bar", "foo?x"] {
             assert!(!is_valid_crate_name(name), "{name}");
         }
+
         assert!(!is_valid_crate_name(&"a".repeat(65)));
     }
 
@@ -565,6 +586,7 @@ mod tests {
 
 "#;
         let entries = parse_entries(body).unwrap();
+
         assert_eq!(entries.len(), 3);
         assert_eq!(entries[0].version, Version::parse("1.10.0").unwrap());
         assert!(entries[1].yanked);
@@ -577,6 +599,7 @@ mod tests {
         let mixed = br#"{"name":"x","vers":"not-a-version"}
 {"name":"x","vers":"1.0.0"}
 "#;
+
         assert_eq!(parse_entries(mixed).unwrap().len(), 1);
 
         assert!(parse_entries(b"garbage\n").is_err());
@@ -589,12 +612,16 @@ mod tests {
         let path = temp.path().join("se/rd/serde");
 
         write_our_cache(&path, Some("\"abc\""), b"{\"vers\":\"1.0.0\"}\n");
+
         let cached = read_our_cache(&path).unwrap();
+
         assert_eq!(cached.etag.as_deref(), Some("\"abc\""));
         assert_eq!(cached.body, b"{\"vers\":\"1.0.0\"}\n");
 
         write_our_cache(&path, None, b"body\n");
+
         let cached = read_our_cache(&path).unwrap();
+
         assert_eq!(cached.etag, None);
         assert_eq!(cached.body, b"body\n");
     }
@@ -603,7 +630,9 @@ mod tests {
     fn a_cache_file_from_another_format_is_a_miss_not_an_error() {
         let temp = tempdir().unwrap();
         let path = temp.path().join("x");
+
         fs::write(&path, b"some other tool's file").unwrap();
+
         assert!(read_our_cache(&path).is_none());
         assert!(read_cargo_cache(&path).is_none());
         assert!(read_our_cache(&temp.path().join("missing")).is_none());
@@ -611,6 +640,7 @@ mod tests {
 
     fn cargo_cache_bytes(index_version: &str, rows: &[(&str, &str)]) -> Vec<u8> {
         let mut bytes = vec![CARGO_CACHE_VERSION];
+
         bytes.extend_from_slice(&CARGO_INDEX_FORMAT_MAX.to_le_bytes());
         bytes.extend_from_slice(index_version.as_bytes());
         bytes.push(0);
@@ -627,6 +657,7 @@ mod tests {
     fn cargos_own_index_cache_is_readable() {
         let temp = tempdir().unwrap();
         let path = temp.path().join("se/rd/serde");
+
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(
             &path,
@@ -641,8 +672,11 @@ mod tests {
         .unwrap();
 
         let cached = read_cargo_cache(&path).unwrap();
+
         assert_eq!(cached.etag.as_deref(), Some("\"69ee5a\""));
+
         let entries = parse_entries(&cached.body).unwrap();
+
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[1].version, Version::parse("1.1.0").unwrap());
     }
@@ -651,11 +685,13 @@ mod tests {
     fn a_git_revision_is_not_offered_as_an_etag() {
         let temp = tempdir().unwrap();
         let path = temp.path().join("x");
+
         fs::write(
             &path,
             cargo_cache_bytes("revision: deadbeef", &[("1.0.0", r#"{"vers":"1.0.0"}"#)]),
         )
         .unwrap();
+
         assert_eq!(read_cargo_cache(&path).unwrap().etag, None);
     }
 
@@ -664,8 +700,10 @@ mod tests {
         let temp = tempdir().unwrap();
         let path = temp.path().join("x");
         let mut bytes = cargo_cache_bytes("etag: \"a\"", &[("1.0.0", r#"{"vers":"1.0.0"}"#)]);
+
         bytes[0] = CARGO_CACHE_VERSION + 1;
         fs::write(&path, &bytes).unwrap();
+
         assert!(read_cargo_cache(&path).is_none());
     }
 
@@ -673,6 +711,7 @@ mod tests {
     fn the_default_source_is_the_sparse_index() {
         let map = env_from(&[]);
         let config = CargoConfig::empty();
+
         assert_eq!(
             resolve_source(&config, None, &env_lookup(&map)),
             RegistrySource::Sparse(DEFAULT_INDEX_URL.to_owned())
@@ -682,10 +721,12 @@ mod tests {
     #[test]
     fn an_explicit_url_outranks_the_environment_and_the_config() {
         let temp = tempdir().unwrap();
+
         write_config(
             temp.path(),
             "[source.crates-io]\nreplace-with = \"vendored\"\n[source.vendored]\ndirectory = \"vendor\"\n",
         );
+
         let map = env_from(&[(BASE_URL_ENV, "http://127.0.0.1:1/env")]);
         let config = CargoConfig::load(temp.path(), &env_lookup(&map));
 
@@ -706,13 +747,16 @@ mod tests {
     #[test]
     fn a_vendored_source_refuses_to_pin() {
         let temp = tempdir().unwrap();
+
         write_config(
             temp.path(),
             "[source.crates-io]\nreplace-with = \"vendored-sources\"\n\
              [source.vendored-sources]\ndirectory = \"vendor\"\n",
         );
+
         let map = env_from(&[]);
         let config = CargoConfig::load(temp.path(), &env_lookup(&map));
+
         assert_eq!(
             resolve_source(&config, None, &env_lookup(&map)),
             RegistrySource::Replaced("vendored-sources".to_owned())
@@ -722,14 +766,17 @@ mod tests {
     #[test]
     fn a_sparse_mirror_is_followed_through_the_replacement_chain() {
         let temp = tempdir().unwrap();
+
         write_config(
             temp.path(),
             "[source.crates-io]\nreplace-with = \"first\"\n\
              [source.first]\nreplace-with = \"mirror\"\n\
              [source.mirror]\nregistry = \"sparse+https://mirror.example/index/\"\n",
         );
+
         let map = env_from(&[]);
         let config = CargoConfig::load(temp.path(), &env_lookup(&map));
+
         assert_eq!(
             resolve_source(&config, None, &env_lookup(&map)),
             RegistrySource::Sparse("https://mirror.example/index".to_owned())
@@ -739,13 +786,16 @@ mod tests {
     #[test]
     fn a_replacement_cycle_terminates() {
         let temp = tempdir().unwrap();
+
         write_config(
             temp.path(),
             "[source.crates-io]\nreplace-with = \"a\"\n\
              [source.a]\nreplace-with = \"b\"\n[source.b]\nreplace-with = \"a\"\n",
         );
+
         let map = env_from(&[]);
         let config = CargoConfig::load(temp.path(), &env_lookup(&map));
+
         assert!(matches!(
             resolve_source(&config, None, &env_lookup(&map)),
             RegistrySource::Replaced(_)
@@ -755,10 +805,12 @@ mod tests {
     #[test]
     fn cargo_network_settings_are_honoured_with_the_environment_on_top() {
         let temp = tempdir().unwrap();
+
         write_config(
             temp.path(),
             "[http]\ntimeout = 5\nproxy = \"http://config.example:3128\"\n[net]\nretry = 7\noffline = true\n",
         );
+
         let map = env_from(&[
             ("HOME", temp.path().to_str().unwrap()),
             ("CARGO_HTTP_TIMEOUT", "11"),
@@ -785,7 +837,9 @@ mod tests {
     #[test]
     fn an_unreadable_cargo_config_is_reported_rather_than_swallowed() {
         let temp = tempdir().unwrap();
+
         write_config(temp.path(), "[http\ntimeout = ");
+
         let map = env_from(&[("HOME", temp.path().to_str().unwrap())]);
         let options = RegistryOptions::resolve(
             temp.path(),
@@ -796,6 +850,7 @@ mod tests {
                 concurrency: 1,
             },
         );
+
         assert!(
             options
                 .warnings
@@ -827,6 +882,7 @@ mod tests {
         .unwrap();
 
         let err = registry.lookup("serde").unwrap_err();
+
         assert!(matches!(err, LookupError::SourceReplaced(_)));
         assert!(!err.is_fatal());
     }
@@ -836,6 +892,7 @@ mod tests {
         let temp = tempdir().unwrap();
         let index = temp.path().join("cache");
         let path = index.join(index_path("serde"));
+
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(
             &path,
@@ -865,7 +922,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(registry.lookup("serde").unwrap().len(), 1);
+
         let missing = registry.lookup("nothing-here").unwrap_err();
+
         assert!(matches!(missing, LookupError::Offline));
         assert!(!missing.is_fatal());
     }

@@ -10,6 +10,7 @@ use crate::error::{Error, Result};
 
 pub fn files_with_suffix(root: &Path, suffix: &str, max_depth: usize) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
+
     for entry in WalkDir::new(root).max_depth(max_depth) {
         let entry = entry.map_err(Error::walk(root))?;
         if entry.file_type().is_file() && entry.file_name().to_string_lossy().ends_with(suffix) {
@@ -22,6 +23,7 @@ pub fn files_with_suffix(root: &Path, suffix: &str, max_depth: usize) -> Result<
 
 pub fn directories_at_depth(root: &Path, depth: usize) -> Result<Vec<PathBuf>> {
     let mut directories = Vec::new();
+
     for entry in WalkDir::new(root).min_depth(depth).max_depth(depth) {
         let entry = entry.map_err(Error::walk(root))?;
         if entry.file_type().is_dir() {
@@ -50,6 +52,7 @@ pub fn copy_tree(from: &Path, to: &Path, skipped_names: &[&str]) -> Result<()> {
     let entries = WalkDir::new(from)
         .into_iter()
         .filter_entry(|entry| !skipped_names.iter().any(|name| entry.file_name() == *name));
+
     for entry in entries {
         let entry = entry.map_err(Error::walk(from))?;
         let Ok(relative) = entry.path().strip_prefix(from) else {
@@ -77,6 +80,7 @@ pub fn differences(left: &Path, right: &Path) -> Result<Vec<String>> {
     let right_files = listing(right)?;
 
     let mut differences = Vec::new();
+
     for (relative, left_path) in &left_files {
         match right_files.get(relative) {
             None => differences.push(format!(
@@ -112,14 +116,18 @@ pub fn differences(left: &Path, right: &Path) -> Result<Vec<String>> {
 
 fn listing(root: &Path) -> Result<BTreeMap<PathBuf, PathBuf>> {
     let mut files = BTreeMap::new();
+
     for entry in WalkDir::new(root) {
         let entry = entry.map_err(Error::walk(root))?;
+
         if !entry.file_type().is_file() {
             continue;
         }
+
         let Ok(relative) = entry.path().strip_prefix(root) else {
             continue;
         };
+
         files.insert(relative.to_owned(), entry.path().to_owned());
     }
     Ok(files)
@@ -133,6 +141,7 @@ mod tests {
 
     fn write(root: &Path, relative: &str, contents: &str) {
         let path = root.join(relative);
+
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, contents).unwrap();
     }
@@ -151,6 +160,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let from = dir.path().join("from");
         let to = dir.path().join("to");
+
         write(&from, "a.toml", "a = 1\n");
         write(&from, "nested/b.rs", "fn b() {}\n");
         write(&from, ".cargo-checksum.json", "{}");
@@ -168,6 +178,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let left = dir.path().join("left");
         let right = dir.path().join("right");
+
         write(&left, "a.toml", "a = 1\n");
 
         replace_with_copy(&left, &right).unwrap();

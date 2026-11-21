@@ -40,6 +40,7 @@ impl Profile {
     /// place, so the ordered form is the one that states it.
     pub fn comment_view(&self, src: &str) -> Vec<String> {
         let mut list = comments::normalized(src);
+
         if self.reorders() {
             list.sort();
         }

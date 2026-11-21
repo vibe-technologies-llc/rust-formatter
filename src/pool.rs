@@ -54,6 +54,7 @@ pub fn run<S: Send>(
     if jobs.is_empty() {
         return (Vec::new(), Vec::new());
     }
+
     let workers = workers.max(1).min(jobs.len());
     let queue = Mutex::new(VecDeque::from(jobs));
     let control = Control::default();
@@ -72,10 +73,12 @@ pub fn run<S: Send>(
             .collect();
 
         let mut own = new_state();
+
         work(&queue, &control, &mut own);
 
         let mut states = vec![own];
         let mut panics = Vec::new();
+
         for handle in handles {
             match handle.join() {
                 Ok(state) => states.push(state),
@@ -91,11 +94,13 @@ fn work<S>(queue: &Mutex<VecDeque<Job<'_, S>>>, control: &Control, state: &mut S
         if control.stopped() {
             return;
         }
+
         let job = queue
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .pop_front();
         let Some(job) = job else { return };
+
         job(state, control);
     }
 }
@@ -120,6 +125,7 @@ mod tests {
             .collect();
 
         let (states, panics) = run(jobs, 8, || 0usize);
+
         assert!(panics.is_empty());
         assert_eq!(seen.load(Ordering::Relaxed), 1000);
         assert_eq!(states.iter().sum::<usize>(), 1000);
@@ -136,6 +142,7 @@ mod tests {
                 let (live, peak) = (&live, &peak);
                 Box::new(move |(): &mut (), _: &Control| {
                     let now = live.fetch_add(1, Ordering::SeqCst) + 1;
+
                     peak.fetch_max(now, Ordering::SeqCst);
                     std::thread::yield_now();
                     live.fetch_sub(1, Ordering::SeqCst);
@@ -144,6 +151,7 @@ mod tests {
             .collect();
 
         run(jobs, 4, || ());
+
         assert!(peak.load(Ordering::SeqCst) <= 4);
     }
 
@@ -165,12 +173,14 @@ mod tests {
             .collect();
 
         run(jobs, 4, || ());
+
         assert!(ran.load(Ordering::SeqCst) < 500);
     }
 
     #[test]
     fn an_empty_run_starts_no_threads() {
         let (states, panics) = run(Vec::<Job<'_, ()>>::new(), 8, || ());
+
         assert!(states.is_empty() && panics.is_empty());
     }
 }

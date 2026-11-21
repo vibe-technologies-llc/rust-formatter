@@ -79,10 +79,13 @@ impl Discovery {
     /// The configuration file rustfmt will read when it formats `file`.
     pub fn for_file(&mut self, file: &Path) -> Option<PathBuf> {
         let dir = file.parent().unwrap_or(Path::new("."));
+
         if let Some(found) = self.by_dir.get(dir) {
             return found.clone();
         }
+
         let found = discover(dir);
+
         self.by_dir.insert(dir.to_path_buf(), found.clone());
         found
     }
@@ -91,10 +94,13 @@ impl Discovery {
     pub fn setting_for_file(&mut self, file: &Path, key: &str) -> Option<String> {
         let config = self.for_file(file)?;
         let cache_key = (config.clone(), key.to_owned());
+
         if let Some(found) = self.settings.get(&cache_key) {
             return found.clone();
         }
+
         let found = setting(&config, key);
+
         self.settings.insert(cache_key, found.clone());
         found
     }
@@ -142,6 +148,7 @@ pub fn materialize(
     }
 
     let path = dir.join("rustfmt.toml");
+
     fs::write(&path, doc.to_string()).map_err(|err| Error::io(&path, err))?;
     Ok(path)
 }
@@ -192,6 +199,7 @@ mod tests {
         let tree = tempdir().unwrap();
         let home = tempdir().unwrap();
         let config = tempdir().unwrap();
+
         fs::write(home.path().join(".rustfmt.toml"), "max_width = 40\n").unwrap();
         fs::create_dir_all(config.path().join("rustfmt")).unwrap();
         fs::write(
@@ -199,6 +207,7 @@ mod tests {
             "max_width = 50\n",
         )
         .unwrap();
+
         let env = env_of(&[
             (home_key(), home.path()),
             (platform_config_key(), config.path()),
@@ -217,17 +226,22 @@ mod tests {
         let home = tempdir().unwrap();
         let config = tempdir().unwrap();
         let global = config.path().join("rustfmt").join("rustfmt.toml");
+
         fs::create_dir_all(global.parent().unwrap()).unwrap();
         fs::write(&global, "max_width = 40\n").unwrap();
+
         let xdg = env_of(&[("HOME", home.path()), ("XDG_CONFIG_HOME", config.path())]);
 
         fs::create_dir_all(home.path().join(".config").join("rustfmt")).unwrap();
+
         let dotted = home
             .path()
             .join(".config")
             .join("rustfmt")
             .join(".rustfmt.toml");
+
         fs::write(&dotted, "max_width = 60\n").unwrap();
+
         let without_xdg = env_of(&[("HOME", home.path())]);
 
         assert_eq!(discover_with(tree.path(), &xdg), Some(global));
@@ -238,8 +252,10 @@ mod tests {
     fn a_project_file_outranks_every_user_level_one() {
         let tree = tempdir().unwrap();
         let home = tempdir().unwrap();
+
         fs::write(tree.path().join("rustfmt.toml"), "max_width = 80\n").unwrap();
         fs::write(home.path().join("rustfmt.toml"), "max_width = 40\n").unwrap();
+
         let env = env_of(&[(home_key(), home.path())]);
 
         assert_eq!(
@@ -252,6 +268,7 @@ mod tests {
     fn discovery_prefers_the_nearest_file_and_the_undotted_name() {
         let temp = tempdir().unwrap();
         let deep = temp.path().join("a").join("b");
+
         fs::create_dir_all(&deep).unwrap();
         fs::write(temp.path().join("rustfmt.toml"), "max_width = 80\n").unwrap();
         fs::write(deep.join(".rustfmt.toml"), "max_width = 70\n").unwrap();
@@ -267,8 +284,11 @@ mod tests {
     #[test]
     fn a_dotted_name_is_found_when_it_is_the_only_one() {
         let temp = tempdir().unwrap();
+
         fs::write(temp.path().join(".rustfmt.toml"), "edition = \"2018\"\n").unwrap();
+
         let found = discover(temp.path()).unwrap();
+
         assert_eq!(setting(&found, "edition").as_deref(), Some("2018"));
         assert_eq!(setting(&found, "max_width"), None);
     }
@@ -277,7 +297,9 @@ mod tests {
     fn an_integer_setting_reads_back_as_its_digits() {
         let temp = tempdir().unwrap();
         let config = temp.path().join("rustfmt.toml");
+
         fs::write(&config, "style_edition = 2024\n").unwrap();
+
         assert_eq!(setting(&config, "style_edition").as_deref(), Some("2024"));
     }
 
@@ -285,11 +307,15 @@ mod tests {
     fn discovery_answers_the_second_file_of_a_directory_without_walking_again() {
         let temp = tempdir().unwrap();
         let config = temp.path().join("rustfmt.toml");
+
         fs::write(&config, "max_width = 80\n").unwrap();
+
         let mut discovery = Discovery::new();
 
         assert_eq!(discovery.for_file(&temp.path().join("a.rs")), Some(config));
+
         fs::remove_file(temp.path().join("rustfmt.toml")).unwrap();
+
         assert!(discovery.for_file(&temp.path().join("b.rs")).is_some());
     }
 
@@ -297,7 +323,9 @@ mod tests {
     fn materializing_carries_the_project_settings_across() {
         let temp = tempdir().unwrap();
         let project = temp.path().join("rustfmt.toml");
+
         fs::write(&project, "max_width = 80\nedition = \"2018\"\n").unwrap();
+
         let out = tempdir().unwrap();
 
         let merged = materialize(
@@ -313,6 +341,7 @@ mod tests {
         .unwrap();
 
         let text = fs::read_to_string(&merged).unwrap();
+
         assert!(text.contains("edition = \"2018\""), "{text}");
         assert!(text.contains("max_width = 120"), "{text}");
         assert!(text.contains("ignore = [\"a\", \"b\"]"), "{text}");
@@ -331,6 +360,7 @@ mod tests {
             [("ignore".to_string(), "[\"vendor\"]".to_string())].into_iter(),
         )
         .unwrap();
+
         assert_eq!(
             fs::read_to_string(&merged).unwrap(),
             "ignore = [\"vendor\"]\n"
@@ -341,8 +371,11 @@ mod tests {
     fn a_project_ignore_list_cannot_be_carried_into_a_temporary_file() {
         let temp = tempdir().unwrap();
         let project = temp.path().join("rustfmt.toml");
+
         fs::write(&project, "ignore = [\"vendor\"]\n").unwrap();
+
         let out = tempdir().unwrap();
+
         assert!(matches!(
             materialize(
                 out.path(),
@@ -361,8 +394,11 @@ mod tests {
     fn an_unparseable_project_file_is_reported_rather_than_dropped() {
         let temp = tempdir().unwrap();
         let project = temp.path().join("rustfmt.toml");
+
         fs::write(&project, "max_width = \n").unwrap();
+
         let out = tempdir().unwrap();
+
         assert!(materialize(out.path(), Some(&project), std::iter::empty()).is_err());
     }
 }

@@ -51,6 +51,12 @@ ureq = { version = "3.5.2", features = ["json", "platform-verifier", "socks-prox
 clap_complete = "4.6.12"
 clap_mangen = "0.3.4"
 notify-debouncer-full = "0.8.0"
+syn = {
+    version = "3.0.10",
+    default-features = false,
+    features = ["full", "parsing", "printing", "visit"]
+}
+proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
 
 [dev-dependencies]
 assert_cmd = "2.2.2"

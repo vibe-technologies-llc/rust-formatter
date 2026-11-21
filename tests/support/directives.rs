@@ -55,9 +55,11 @@ const MAX_MARKER: usize = 40;
 /// opens.
 fn marker(body: &str) -> Option<Marker> {
     let body = body.trim();
+
     if body.is_empty() || body.len() > MAX_MARKER {
         return None;
     }
+
     let squeezed: String = body
         .chars()
         .filter(|ch| !ch.is_whitespace())
@@ -80,6 +82,7 @@ fn comment_offsets(src: &str) -> Vec<(usize, &str)> {
         match bytes[i] {
             b'#' => {
                 let start = i;
+
                 while i < bytes.len() && bytes[i] != b'\n' {
                     i += 1;
                 }

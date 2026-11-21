@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use crate::config::{Mode, Settings};
 
 /// Top-level arguments. The about string is user-facing and must survive.
-#[derive(Parser, Debug)]
+#[derive(Debug, Parser)]
 #[command(name = "tool", about = "format a tree of files")]
 pub struct Args {
     /// Paths to format, defaulting to the current directory.
@@ -16,7 +16,7 @@ pub struct Args {
     pub command: Option<Command>,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Debug, Subcommand)]
 pub enum Command {
     /// Rewrite in place.
     Write {

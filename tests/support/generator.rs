@@ -82,14 +82,14 @@ const DIRECTIVE_POOL: &[&str] = &[
     " rust-formatter: fmt-on",
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyStyle {
     Bare,
     Basic,
     Literal,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GenKey {
     pub logical: String,
     pub style: KeyStyle,
@@ -107,7 +107,7 @@ impl GenKey {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StrStyle {
     Basic,
     Literal,
@@ -115,7 +115,7 @@ pub enum StrStyle {
     MlLiteral,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IntStyle {
     Dec,
     Plus,
@@ -125,7 +125,7 @@ pub enum IntStyle {
     Bin,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct InlineEntry {
     pub key: GenKey,
     pub value: GenValue,
@@ -136,7 +136,7 @@ pub struct InlineEntry {
     pub after_eq: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum GenValue {
     Str(String, StrStyle),
     Int(i64, IntStyle),
@@ -160,6 +160,7 @@ pub enum GenValue {
 impl GenValue {
     pub fn render(&self, depth: usize) -> String {
         let mut out = String::new();
+
         self.push(&mut out, depth);
         out
     }
@@ -195,7 +196,9 @@ fn push_array(
     depth: usize,
 ) {
     out.push('[');
+
     let pad = INDENT.repeat(depth + 1);
+
     for (index, item) in items.iter().enumerate() {
         if multiline {
             if let Some(Some(comment)) = comments.get(index) {
@@ -234,7 +237,9 @@ fn push_inline(
     }
 
     out.push('{');
+
     let pad = INDENT.repeat(depth + 1);
+
     for (index, entry) in entries.iter().enumerate() {
         if multiline {
             if let Some(comment) = &entry.above {
@@ -275,7 +280,7 @@ fn push_inline(
 
 const INDENT: &str = "    ";
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Lead {
     pub blanks: usize,
     pub comments: Vec<String>,
@@ -296,7 +301,7 @@ impl Lead {
 
 /// Whitespace TOML allows inside a key path and inside a header's brackets,
 /// and which the formatter is expected to remove.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct KeyPad {
     pub before_dot: String,
     pub after_dot: String,
@@ -304,7 +309,7 @@ pub struct KeyPad {
     pub close: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Pair {
     pub lead: Lead,
     pub path: Vec<GenKey>,
@@ -313,7 +318,7 @@ pub struct Pair {
     pub trailing: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Body {
     Pair(Pair),
     Table {
@@ -325,13 +330,13 @@ pub enum Body {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Item {
     pub lead: Lead,
     pub body: Body,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct GenDoc {
     pub items: Vec<Item>,
     pub trailer: Lead,
@@ -341,6 +346,7 @@ pub struct GenDoc {
 impl GenDoc {
     pub fn render(&self) -> String {
         let mut out = String::new();
+
         for item in &self.items {
             item.lead.render(&mut out);
             match &item.body {
@@ -354,6 +360,7 @@ impl GenDoc {
                 } => {
                     let path = render_path(header, pad);
                     let (open, close) = (&pad.open, &pad.close);
+
                     if *array_of_tables {
                         let _ = write!(out, "[[{open}{path}{close}]]");
                     } else {
@@ -394,6 +401,7 @@ fn push_trailing(trailing: Option<&String>, out: &mut String) {
 
 fn render_path(path: &[GenKey], pad: &KeyPad) -> String {
     let mut out = String::new();
+
     for (index, key) in path.iter().enumerate() {
         if index > 0 {
             out.push_str(&pad.before_dot);
@@ -457,6 +465,7 @@ fn render_int(value: i64, style: IntStyle) -> String {
 
 fn render_basic_string(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
+
     out.push('"');
     for ch in text.chars() {
         match ch {
@@ -484,6 +493,7 @@ fn render_float(value: f64) -> String {
     if value.is_infinite() {
         return if value < 0.0 { "-inf" } else { "inf" }.to_owned();
     }
+
     let rendered = format!("{value:?}");
     if rendered.contains('.') || rendered.contains('e') || rendered.contains('E') {
         rendered
@@ -520,6 +530,7 @@ impl Namespace {
         let header = kind != Claim::Value;
 
         let mut node = self;
+
         for segment in parents {
             node = node.children.entry(segment.logical.clone()).or_default();
             match node.claim {
@@ -538,6 +549,7 @@ impl Namespace {
 
         let node = node.children.entry(last.logical.clone()).or_default();
         let vacant = node.claim.is_none() && node.children.is_empty() && !node.dotted;
+
         match kind {
             Claim::Value | Claim::Table if !vacant => return false,
             Claim::ArrayOfTables
@@ -553,6 +565,7 @@ impl Namespace {
 
     fn descend(&mut self, path: &[GenKey]) -> &mut Namespace {
         let mut node = self;
+
         for segment in path {
             node = node.children.entry(segment.logical.clone()).or_default();
         }
@@ -562,8 +575,10 @@ impl Namespace {
 
 fn sanitize_pairs(pairs: Vec<Pair>, namespace: &mut Namespace, prefix: &[GenKey]) -> Vec<Pair> {
     let mut kept = Vec::new();
+
     for mut pair in pairs {
         let mut full = prefix.to_vec();
+
         full.extend(pair.path.iter().cloned());
         if namespace.claim(&full, Claim::Value) {
             pair.value = sanitize_value(pair.value);
@@ -582,6 +597,7 @@ fn sanitize_value(value: GenValue) -> GenValue {
             mut comments,
         } => {
             let items: Vec<GenValue> = items.into_iter().map(sanitize_value).collect();
+
             comments.resize(items.len(), None);
             GenValue::Array {
                 trailing_comma: trailing_comma && !items.is_empty(),
@@ -597,6 +613,7 @@ fn sanitize_value(value: GenValue) -> GenValue {
         } => {
             let mut seen = BTreeSet::new();
             let mut kept = Vec::new();
+
             for entry in entries {
                 if seen.insert(entry.key.logical.clone()) {
                     kept.push(InlineEntry {
@@ -652,6 +669,7 @@ fn sanitize(doc: GenDoc) -> GenDoc {
                 } else {
                     Claim::Table
                 };
+
                 if !namespace.claim(&header, kind) {
                     continue;
                 }
@@ -664,6 +682,7 @@ fn sanitize(doc: GenDoc) -> GenDoc {
                     let scope = namespace.descend(&header);
                     sanitize_pairs(pairs, scope, &[])
                 };
+
                 items.push(Item {
                     lead: item.lead,
                     body: Body::Table {

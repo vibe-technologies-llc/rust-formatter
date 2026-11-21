@@ -51,6 +51,7 @@ fn report(failures: &[String], what: &str) {
 #[test]
 fn snippets_match_their_goldens() {
     needs_nightly!();
+
     let root = expected_dir();
     let mut produced = BTreeSet::new();
     let mut failures = Vec::new();
@@ -58,6 +59,7 @@ fn snippets_match_their_goldens() {
     for snippet in load() {
         for preset in &snippet.presets {
             let expected = snippet.golden(&root, preset);
+
             match snippets::format(&snippet, preset, cache_dir()) {
                 Ok(formatted) => {
                     if let Some(detail) = golden::check(&expected, formatted.as_bytes()) {
@@ -81,7 +83,9 @@ fn snippets_match_their_goldens() {
 #[test]
 fn snippets_are_fixed_points() {
     needs_nightly!();
+
     let mut failures = Vec::new();
+
     for snippet in load() {
         if !snippet.fixed_point {
             continue;
@@ -95,6 +99,7 @@ fn snippets_are_fixed_points() {
                 }
             };
             let mut again = snippet.clone();
+
             again.source = once.clone();
             match snippets::format(&again, preset, cache_dir()) {
                 Ok(twice) if twice == once => {}
@@ -118,7 +123,9 @@ fn snippets_are_fixed_points() {
 #[test]
 fn snippets_keep_comment_content() {
     needs_nightly!();
+
     let mut failures = Vec::new();
+
     for snippet in load() {
         if !snippet.comments_kept {
             continue;
@@ -142,14 +149,18 @@ fn snippets_keep_comment_content() {
 #[test]
 fn skip_regions_survive_listed_presets() {
     needs_nightly!();
+
     let mut failures = Vec::new();
     let mut saw_skip = false;
+
     for snippet in load() {
         if !snippet.skip_intact {
             continue;
         }
         saw_skip = true;
+
         let regions = skip_regions(&snippet.source);
+
         assert!(
             !regions.is_empty(),
             "{} enables skip-intact but has no #[rustfmt::skip] item",
@@ -166,26 +177,31 @@ fn skip_regions_survive_listed_presets() {
             }
         }
     }
+
     assert!(
         saw_skip,
         "the suite needs at least one #[rustfmt::skip] snippet"
     );
+
     report(&failures, "skip regions were reformatted");
 }
 
 #[test]
 fn every_snippet_has_a_feature_comment() {
     let snippets = load();
+
     assert!(
         snippets.len() >= 50,
         "expected a real snippet set, found {}",
         snippets.len()
     );
+
     let mute: Vec<String> = snippets
         .iter()
         .filter(|snippet| comments(&snippet.source).is_empty())
         .map(|snippet| snippet.stem.clone())
         .collect();
+
     assert!(
         mute.is_empty(),
         "snippets with no comments (the suite documents features in comments): {mute:?}"
@@ -220,6 +236,7 @@ fn directives_are_stripped_and_unknown_keys_fail() {
          use crate::a;\n",
     )
     .unwrap();
+
     assert_eq!(parsed.stem, "imports/three_tier");
     assert_eq!(parsed.presets, ["default", "comments"]);
     assert_eq!(parsed.config.as_deref(), Some("max_width=80"));
@@ -230,6 +247,7 @@ fn directives_are_stripped_and_unknown_keys_fail() {
 
     let err = Snippet::from_text(root.join("bad.rs.in"), root, "// @nope: true\nfn f() {}\n")
         .unwrap_err();
+
     assert!(err.contains("unknown directive `@nope`"), "{err}");
 }
 
@@ -247,6 +265,7 @@ fn comment_scanner_skips_strings_and_nests_blocks() {
         br#"raw // no"#;
     "##;
     let bodies = comments(src);
+
     assert_eq!(bodies.len(), 2, "{bodies:?}");
     assert!(bodies[0].contains("keep me"), "{bodies:?}");
     assert!(bodies[1].contains("outer"), "{bodies:?}");
@@ -260,6 +279,7 @@ fn comment_scanner_skips_strings_and_nests_blocks() {
 fn fingerprint_survives_block_to_line_normalize() {
     let block = "/* an old-style block comment that is long enough to need wrapping */\n";
     let lines = "// an old-style block comment that is long\n// enough to need wrapping\n";
+
     assert_eq!(fingerprint(block), fingerprint(lines));
 }
 
@@ -274,6 +294,7 @@ pub const MATRIX: [[u8; 3]; 2] = [
 pub fn reformatted() {}
 ";
     let regions = skip_regions(src);
+
     assert_eq!(regions.len(), 1, "{regions:?}");
     assert!(regions[0].contains("[1,   2,   3]"), "{}", regions[0]);
 }

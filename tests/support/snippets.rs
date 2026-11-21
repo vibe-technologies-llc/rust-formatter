@@ -34,7 +34,7 @@ const KNOWN_KEYS: [&str; 7] = [
     "assert",
 ];
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Snippet {
     pub path: PathBuf,
     pub stem: String,
@@ -94,9 +94,11 @@ pub fn discover(root: &Path) -> Result<Vec<Snippet>, String> {
                 .is_some_and(|name| name.ends_with(".rs.in"))
         })
         .collect();
+
     paths.sort();
 
     let mut snippets = Vec::with_capacity(paths.len());
+
     for path in paths {
         snippets.push(Snippet::parse(&path, root)?);
     }
@@ -106,6 +108,7 @@ pub fn discover(root: &Path) -> Result<Vec<Snippet>, String> {
 pub fn format(snippet: &Snippet, preset: &str, cache_dir: &Path) -> Result<String, String> {
     let mut cmd = Command::cargo_bin("rust-formatter")
         .map_err(|err| format!("cargo bin rust-formatter: {err}"))?;
+
     cmd.env("RUST_FORMATTER_CACHE_DIR", cache_dir)
         .args(["--stdin", "--stdin-filepath"])
         .arg(snippet.stdin_name())
@@ -141,6 +144,7 @@ pub fn comments_lost(before: &str, after: &str) -> Option<String> {
 pub fn skip_lost(before: &str, after: &str) -> Option<String> {
     let regions = rust_comments::skip_regions(before);
     let mut missing = Vec::new();
+
     for region in &regions {
         if !after.contains(region) {
             missing.push(region.clone());
@@ -176,6 +180,7 @@ fn parse_text(path: PathBuf, stem: String, text: &str) -> Result<Snippet, String
         let err = |message: String| format!("{}:{line_no}: {message}", path.display());
         let (key, value) = split_directive(raw)
             .ok_or_else(|| err(format!("directive `{raw}` is not `// @key: value`")))?;
+
         if !KNOWN_KEYS.contains(&key) {
             return Err(err(format!(
                 "unknown directive `@{key}`; known: {}",
@@ -253,6 +258,7 @@ fn split_directives(text: &str) -> (Vec<(usize, String)>, String) {
             }
             None => (rest.trim_end_matches('\r'), None),
         };
+
         if !line.trim().starts_with("// @") {
             break;
         }
@@ -274,6 +280,7 @@ fn split_directive(raw: &str) -> Option<(&str, &str)> {
     let (key, value) = rest.split_once(':')?;
     let key = key.trim();
     let value = value.trim();
+
     if key.is_empty() {
         return None;
     }

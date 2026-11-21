@@ -9,6 +9,7 @@ use toolchain::{needs_nightly, nightly_available};
 
 fn formatter() -> Command {
     let mut cmd = Command::cargo_bin("rust-formatter").unwrap();
+
     cmd.env("RUST_FORMATTER_CACHE_DIR", cache_dir());
     cmd
 }
@@ -26,6 +27,7 @@ fn cache_dir() -> &'static std::path::Path {
 fn workspace(root_metadata: &str, member_metadata: &str) -> TempDir {
     let temp = tempdir().unwrap();
     let member = temp.path().join("member");
+
     fs::create_dir_all(member.join("src")).unwrap();
     fs::write(
         temp.path().join("Cargo.toml"),
@@ -82,6 +84,7 @@ fn a_workspace_metadata_table_reaches_every_member() {
         "",
     );
     let rendered = settings(&temp.path().join("member"), &[]);
+
     assert_eq!(value(&rendered, "sort-deps").as_deref(), Some("true"));
 
     let out = formatted(&temp.path().join("member"), "Cargo.toml", &[]);
@@ -91,6 +94,7 @@ fn a_workspace_metadata_table_reaches_every_member() {
         .skip(1)
         .take(2)
         .collect();
+
     assert_eq!(deps, vec!["aaa = \"1\"", "zzz = \"1\""]);
 }
 
@@ -116,13 +120,16 @@ fn a_discovered_file_outranks_the_manifest_and_a_named_one_outranks_it() {
         "\n[package.metadata.rust-formatter]\ntoml-max-width = 80\n",
     );
     let member = temp.path().join("member");
+
     fs::write(member.join("rust-formatter.toml"), "toml-max-width = 70\n").unwrap();
+
     assert_eq!(
         value(&settings(&member, &[]), "toml-max-width").as_deref(),
         Some("70")
     );
 
     fs::write(member.join("named.toml"), "toml-max-width = 60\n").unwrap();
+
     assert_eq!(
         value(
             &settings(&member, &["--config-file", "named.toml"]),
@@ -137,7 +144,9 @@ fn a_discovered_file_outranks_the_manifest_and_a_named_one_outranks_it() {
 fn a_dotted_file_name_is_found_too() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(member.join(".rust-formatter.toml"), "toml-max-width = 70\n").unwrap();
+
     assert_eq!(
         value(&settings(&member, &[]), "toml-max-width").as_deref(),
         Some("70")
@@ -151,9 +160,11 @@ fn no_config_ignores_every_file_source() {
         "",
     );
     let member = temp.path().join("member");
+
     fs::write(member.join("rust-formatter.toml"), "toml-max-width = 70\n").unwrap();
 
     let rendered = settings(&member, &["--no-config"]);
+
     assert_eq!(value(&rendered, "sort-deps"), None);
     assert_eq!(value(&rendered, "toml-max-width"), None);
 }
@@ -170,6 +181,7 @@ fn a_named_config_file_cannot_be_combined_with_no_config() {
 fn the_environment_outranks_a_file_and_loses_to_a_flag() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(member.join("rust-formatter.toml"), "toml-max-width = 70\n").unwrap();
 
     let assert = formatter()
@@ -179,6 +191,7 @@ fn the_environment_outranks_a_file_and_loses_to_a_flag() {
         .assert()
         .success();
     let rendered = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+
     assert_eq!(value(&rendered, "toml-max-width").as_deref(), Some("55"));
     assert!(
         rendered.contains("# from: $RUST_FORMATTER_TOML_MAX_WIDTH"),
@@ -198,6 +211,7 @@ fn the_environment_outranks_a_file_and_loses_to_a_flag() {
         .assert()
         .success();
     let rendered = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+
     assert_eq!(value(&rendered, "toml-max-width").as_deref(), Some("44"));
 }
 
@@ -218,6 +232,7 @@ fn a_flag_can_switch_off_what_a_file_switched_on() {
         vec!["--sort-deps", "--no-sort-deps"],
     ] {
         let out = formatted(&member, "Cargo.toml", &args);
+
         assert!(
             out.contains("zzz = \"1\"\naaa = \"1\""),
             "{args:?} did not switch sorting off:\n{out}"
@@ -226,6 +241,7 @@ fn a_flag_can_switch_off_what_a_file_switched_on() {
 
     // The last spelling on the line wins, so a wrapper may append either.
     let out = formatted(&member, "Cargo.toml", &["--no-sort-deps", "--sort-deps"]);
+
     assert!(out.contains("aaa = \"1\"\nzzz = \"1\""), "{out}");
 }
 
@@ -242,6 +258,7 @@ fn an_environment_variable_can_switch_off_what_a_file_switched_on() {
         .assert()
         .success();
     let out = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+
     assert!(out.contains("zzz = \"1\"\naaa = \"1\""), "{out}");
 }
 
@@ -249,6 +266,7 @@ fn an_environment_variable_can_switch_off_what_a_file_switched_on() {
 fn a_preset_fills_in_under_the_layer_that_named_it() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(
         member.join("rust-formatter.toml"),
         "preset = [\"cargo\"]\ntoml-max-width = 70\n",
@@ -256,6 +274,7 @@ fn a_preset_fills_in_under_the_layer_that_named_it() {
     .unwrap();
 
     let rendered = settings(&member, &[]);
+
     assert_eq!(value(&rendered, "toml-max-width").as_deref(), Some("70"));
     assert_eq!(value(&rendered, "sort-keys").as_deref(), Some("true"));
     assert!(rendered.contains("# from: preset cargo"), "{rendered}");
@@ -271,6 +290,7 @@ fn style_guide_and_the_cargo_preset_are_the_same_settings() {
             .collect::<Vec<_>>()
             .join("\n")
     };
+
     assert_eq!(
         strip(settings(&member, &["--style-guide"])),
         strip(settings(&member, &["--preset", "cargo"]))
@@ -281,6 +301,7 @@ fn style_guide_and_the_cargo_preset_are_the_same_settings() {
 fn a_file_may_define_a_preset_of_its_own() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(
         member.join("rust-formatter.toml"),
         "[presets.house]\nsort-keys = true\ntoml-align-entries = true\n",
@@ -288,6 +309,7 @@ fn a_file_may_define_a_preset_of_its_own() {
     .unwrap();
 
     let rendered = settings(&member, &["--preset", "house"]);
+
     assert_eq!(value(&rendered, "sort-keys").as_deref(), Some("true"));
     assert_eq!(
         value(&rendered, "toml-align-entries").as_deref(),
@@ -300,9 +322,11 @@ fn presets_layer_in_the_order_they_are_named() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
     let rendered = settings(&member, &["--preset", "narrow-tabs", "--preset", "cargo"]);
+
     assert_eq!(value(&rendered, "toml-max-width").as_deref(), Some("100"));
 
     let rendered = settings(&member, &["--preset", "cargo", "--preset", "narrow-tabs"]);
+
     assert_eq!(value(&rendered, "toml-max-width").as_deref(), Some("60"));
 }
 
@@ -310,6 +334,7 @@ fn presets_layer_in_the_order_they_are_named() {
 fn a_misspelled_setting_names_the_one_it_meant_and_exits_two() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(member.join("rust-formatter.toml"), "sort_deps = true\n").unwrap();
 
     let assert = formatter()
@@ -318,6 +343,7 @@ fn a_misspelled_setting_names_the_one_it_meant_and_exits_two() {
         .assert()
         .code(2);
     let err = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+
     assert!(err.contains("did you mean `sort-deps`"), "{err}");
     assert!(err.contains("rust-formatter.toml"), "{err}");
 }
@@ -334,6 +360,7 @@ fn a_misspelled_setting_in_a_manifest_names_its_table() {
         .assert()
         .code(2);
     let err = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+
     assert!(err.contains("[workspace.metadata.rust-formatter]"), "{err}");
     assert!(err.contains("did you mean `toml-max-width`"), "{err}");
 }
@@ -347,6 +374,7 @@ fn an_unknown_preset_exits_two_and_lists_the_ones_there_are() {
         .assert()
         .code(2);
     let err = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+
     assert!(err.contains("unknown preset `nope`"), "{err}");
     assert!(err.contains("aligned-indented"), "{err}");
 }
@@ -355,6 +383,7 @@ fn an_unknown_preset_exits_two_and_lists_the_ones_there_are() {
 fn a_flag_combination_a_file_asked_for_is_refused_the_same_way_a_typed_one_is() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(
         member.join("rust-formatter.toml"),
         "sort-grouped = true\ntoml-max-blank-lines = 0\n",
@@ -367,6 +396,7 @@ fn a_flag_combination_a_file_asked_for_is_refused_the_same_way_a_typed_one_is() 
         .assert()
         .code(2);
     let err = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+
     assert!(err.contains("--sort-grouped"), "{err}");
 }
 
@@ -376,6 +406,7 @@ fn a_flag_combination_a_file_asked_for_is_refused_the_same_way_a_typed_one_is() 
 fn the_settings_dump_still_prints_a_configuration_that_would_be_refused() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(
         member.join("rust-formatter.toml"),
         "sort-grouped = true\ntoml-max-blank-lines = 0\n",
@@ -383,6 +414,7 @@ fn the_settings_dump_still_prints_a_configuration_that_would_be_refused() {
     .unwrap();
 
     let rendered = settings(&member, &[]);
+
     assert_eq!(value(&rendered, "sort-grouped").as_deref(), Some("true"));
 }
 
@@ -422,8 +454,10 @@ fn the_settings_dump_has_a_machine_readable_form() {
 #[test]
 fn a_configured_exclude_does_not_make_an_empty_run_a_no_op() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let empty = temp.path().join("empty");
+
     fs::create_dir_all(&empty).unwrap();
     fs::write(
         temp.path().join("rust-formatter.toml"),
@@ -445,6 +479,7 @@ fn a_configured_exclude_does_not_make_an_empty_run_a_no_op() {
 fn widening_the_toml_skips_does_not_make_an_empty_run_a_no_op() {
     let temp = tempdir().unwrap();
     let empty = temp.path().join("empty");
+
     fs::create_dir_all(&empty).unwrap();
 
     formatter()
@@ -472,6 +507,7 @@ fn widening_the_toml_skips_does_not_make_an_empty_run_a_no_op() {
 fn a_rustfmt_option_from_a_file_reaches_the_command_line() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(
         member.join("rust-formatter.toml"),
         "[config]\nmax_width = 120\n",
@@ -479,6 +515,7 @@ fn a_rustfmt_option_from_a_file_reaches_the_command_line() {
     .unwrap();
 
     let rendered = settings(&member, &[]);
+
     assert!(rendered.contains("max_width = 120"), "{rendered}");
 }
 
@@ -492,9 +529,11 @@ fn a_setting_reaches_the_formatter_through_every_source() {
     assert!(formatted(&member, "Cargo.toml", &[]).contains(unsorted));
 
     fs::write(member.join("rust-formatter.toml"), "sort-deps = true\n").unwrap();
+
     assert!(formatted(&member, "Cargo.toml", &[]).contains(sorted));
 
     fs::remove_file(member.join("rust-formatter.toml")).unwrap();
+
     assert!(formatted(&member, "Cargo.toml", &["--preset", "cargo"]).contains(sorted));
 }
 
@@ -504,8 +543,10 @@ fn a_setting_reaches_the_formatter_through_every_source() {
 #[test]
 fn an_unknown_rustfmt_option_is_fatal_only_when_it_was_typed() {
     needs_nightly!();
+
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(
         member.join("rust-formatter.toml"),
         "[config]\nno_such_rustfmt_option = true\n",
@@ -518,6 +559,7 @@ fn an_unknown_rustfmt_option_is_fatal_only_when_it_was_typed() {
         .assert()
         .success();
     let err = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+
     assert!(err.contains("no_such_rustfmt_option"), "{err}");
     assert!(err.contains("formatting without it"), "{err}");
 
@@ -535,8 +577,10 @@ fn an_unknown_rustfmt_option_is_fatal_only_when_it_was_typed() {
 #[test]
 fn a_configured_edition_ranks_below_the_manifest_and_the_project_config() {
     needs_nightly!();
+
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(member.join("rust-formatter.toml"), "edition = \"2015\"\n").unwrap();
 
     let assert = formatter()
@@ -544,6 +588,7 @@ fn a_configured_edition_ranks_below_the_manifest_and_the_project_config() {
         .args(["-v", "--check", "."])
         .assert();
     let err = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+
     assert!(err.contains("edition: 2015"), "{err}");
 
     // `package.edition` is more specific, so the file only replaces the built-in
@@ -560,6 +605,7 @@ fn a_configured_edition_ranks_below_the_manifest_and_the_project_config() {
         .args(["-v", "--check", "--edition", "2021", "."])
         .assert();
     let err = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+
     assert!(err.contains("edition: 2021"), "{err}");
 }
 
@@ -571,6 +617,7 @@ fn a_configured_edition_ranks_below_the_manifest_and_the_project_config() {
 fn a_rust_toolchain_file_sets_the_toolchain() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(
         temp.path().join("rust-toolchain.toml"),
         "[toolchain]\nchannel = \"nightly-2026-06-01\"\ncomponents = [\"rustfmt\"]\n",
@@ -578,6 +625,7 @@ fn a_rust_toolchain_file_sets_the_toolchain() {
     .unwrap();
 
     let rendered = settings(&member, &[]);
+
     assert_eq!(
         value(&rendered, "toolchain").as_deref(),
         Some("\"nightly-2026-06-01\"")
@@ -591,7 +639,9 @@ fn a_rust_toolchain_file_sets_the_toolchain() {
 fn a_legacy_rust_toolchain_file_is_read_too() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(temp.path().join("rust-toolchain"), "stable\n").unwrap();
+
     assert_eq!(
         value(&settings(&member, &[]), "toolchain").as_deref(),
         Some("\"stable\"")
@@ -607,11 +657,13 @@ fn every_configuration_source_outranks_the_toolchain_file() {
         "\n[package.metadata.rust-formatter]\ntoolchain = \"beta\"\n",
     );
     let member = temp.path().join("member");
+
     fs::write(
         temp.path().join("rust-toolchain.toml"),
         "[toolchain]\nchannel = \"stable\"\n",
     )
     .unwrap();
+
     assert_eq!(
         value(&settings(&member, &[]), "toolchain").as_deref(),
         Some("\"beta\"")
@@ -622,6 +674,7 @@ fn every_configuration_source_outranks_the_toolchain_file() {
         "toolchain = \"nightly\"\n",
     )
     .unwrap();
+
     assert_eq!(
         value(&settings(&member, &[]), "toolchain").as_deref(),
         Some("\"nightly\"")
@@ -637,6 +690,7 @@ fn every_configuration_source_outranks_the_toolchain_file() {
 fn a_toolchain_chosen_with_a_rustup_plus_outranks_the_toolchain_file() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(
         temp.path().join("rust-toolchain.toml"),
         "[toolchain]\nchannel = \"stable\"\n",
@@ -664,6 +718,7 @@ fn a_toolchain_chosen_with_a_rustup_plus_outranks_the_toolchain_file() {
 fn no_config_ignores_the_toolchain_file() {
     let temp = workspace("", "");
     let member = temp.path().join("member");
+
     fs::write(
         temp.path().join("rust-toolchain.toml"),
         "[toolchain]\nchannel = \"stable\"\n",
@@ -683,6 +738,7 @@ fn a_toolchain_file_with_no_channel_is_ignored() {
     let member = temp.path().join("member");
     for body in ["[toolchain]\ncomponents = [\"rustfmt\"]\n", "= = =\n", "\n"] {
         fs::write(temp.path().join("rust-toolchain.toml"), body).unwrap();
+
         assert_eq!(value(&settings(&member, &[]), "toolchain"), None, "{body}");
     }
 }

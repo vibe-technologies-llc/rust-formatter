@@ -19,6 +19,7 @@ const CLEAN_TOML: &str = "foo.path = \"x\"\n";
 
 fn formatter() -> Command {
     let mut cmd = Command::cargo_bin("rust-formatter").unwrap();
+
     cmd.env("RUST_FORMATTER_CACHE_DIR", cache_dir());
     cmd
 }
@@ -44,6 +45,7 @@ fn write(path: &Path, body: &str) -> PathBuf {
 #[test]
 fn check_puts_diffs_on_stdout_and_the_verdict_on_stderr() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY_TOML);
 
     let out = formatter()
@@ -60,12 +62,14 @@ fn check_puts_diffs_on_stdout_and_the_verdict_on_stderr() {
         .clone();
 
     let stderr = String::from_utf8(out.stderr).unwrap();
+
     assert!(!stderr.contains("a.toml"), "{stderr}");
 }
 
 #[test]
 fn a_write_run_writes_nothing_to_stdout() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY_TOML);
 
     formatter()
@@ -154,6 +158,7 @@ fn list_files_prints_the_selection_without_formatting() {
 #[test]
 fn list_different_prints_only_mismatched_paths() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("dirty.toml"), DIRTY_TOML);
     write(&temp.path().join("clean.toml"), CLEAN_TOML);
 
@@ -167,6 +172,7 @@ fn list_different_prints_only_mismatched_paths() {
         .clone();
 
     let stdout = String::from_utf8(output.stdout).unwrap();
+
     assert!(stdout.contains("dirty.toml"), "{stdout}");
     assert!(!stdout.contains("clean.toml"), "{stdout}");
     // Names, never a diff: the point is that the list is pipeable.
@@ -176,6 +182,7 @@ fn list_different_prints_only_mismatched_paths() {
 #[test]
 fn list_different_on_a_clean_tree_prints_nothing_and_exits_zero() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("clean.toml"), CLEAN_TOML);
 
     formatter()
@@ -205,6 +212,7 @@ fn list_different_leaves_the_file_alone() {
 #[test]
 fn json_reports_every_verdict_on_stdout() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY_TOML);
 
     let output = formatter()
@@ -229,6 +237,7 @@ fn json_reports_every_verdict_on_stdout() {
     assert_eq!(value["files"][0]["status"], "needs-formatting");
 
     let diff = value["files"][0]["diff"].as_str().expect("a diff");
+
     assert!(diff.contains("+foo.path"), "{diff}");
     // A JSON-encoded escape survives stream-level stripping, so the diff
     // embedded here must never have been painted.
@@ -238,6 +247,7 @@ fn json_reports_every_verdict_on_stdout() {
 #[test]
 fn json_suppresses_the_human_summary() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), CLEAN_TOML);
 
     formatter()
@@ -254,6 +264,7 @@ fn json_suppresses_the_human_summary() {
 #[test]
 fn quiet_silences_the_summary_but_not_the_diff() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY_TOML);
 
     formatter()
@@ -274,6 +285,7 @@ fn color_never_reaches_the_rustfmt_diff() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.rs"), DIRTY_RS);
 
     formatter()
@@ -292,6 +304,7 @@ fn color_always_paints_the_rustfmt_diff_through_a_pipe() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.rs"), DIRTY_RS);
 
     formatter()
@@ -307,6 +320,7 @@ fn color_always_paints_the_rustfmt_diff_through_a_pipe() {
 #[test]
 fn color_never_leaves_the_toml_diff_plain() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY_TOML);
 
     formatter()
@@ -324,6 +338,7 @@ fn color_never_leaves_the_toml_diff_plain() {
 #[test]
 fn a_clean_tree_is_never_reported_as_formatted() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), CLEAN_TOML);
     write(&temp.path().join("b.toml"), CLEAN_TOML);
 
@@ -338,6 +353,7 @@ fn a_clean_tree_is_never_reported_as_formatted() {
 #[test]
 fn the_summary_counts_written_files_not_selected_ones() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("dirty.toml"), DIRTY_TOML);
     write(&temp.path().join("clean1.toml"), CLEAN_TOML);
     write(&temp.path().join("clean2.toml"), CLEAN_TOML);
@@ -396,6 +412,7 @@ fn unset_config_changes_how_files_are_formatted() {
     );
 
     formatter().arg(&file).assert().success();
+
     assert!(
         fs::read_to_string(&file)
             .unwrap()
@@ -406,13 +423,16 @@ fn unset_config_changes_how_files_are_formatted() {
         &temp.path().join("b.rs"),
         "use std::fs;\nuse std::io;\n\nfn main() {\n    let _ = (fs::metadata(\".\"), io::stdin());\n}\n",
     );
+
     formatter()
         .arg("--unset-config")
         .arg("imports_granularity")
         .arg(&other)
         .assert()
         .success();
+
     let body = fs::read_to_string(&other).unwrap();
+
     assert!(body.contains("use std::fs;"), "{body}");
     assert!(body.contains("use std::io;"), "{body}");
 }
@@ -511,6 +531,7 @@ fn verbose_reports_what_only_the_run_can_know() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.rs"), CLEAN_RS);
 
     formatter()
@@ -532,6 +553,7 @@ fn a_workspace_run_names_the_workspace_root() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     write(
         &temp.path().join("Cargo.toml"),
         "[workspace]\nmembers = [\"crates/member\"]\nresolver = \"3\"\n",
@@ -553,6 +575,7 @@ fn a_workspace_run_names_the_workspace_root() {
         .clone();
 
     let stderr = String::from_utf8(output.stderr).unwrap();
+
     assert!(stderr.contains("Cargo project"), "{stderr}");
     assert!(!stderr.contains("crates/member"), "{stderr}");
 }
@@ -585,13 +608,16 @@ fn a_rust_check_diff_is_unified_and_appliable() {
     assert!(!diff.contains("Diff in "), "{diff}");
 
     let patch = temp.path().join("d.patch");
+
     fs::write(&patch, &diff).unwrap();
+
     let applied = StdCommand::new("git")
         .args(["apply", "--check", "--unsafe-paths", "-p0"])
         .arg(&patch)
         .current_dir("/")
         .output()
         .unwrap();
+
     assert!(
         applied.status.success(),
         "git apply rejected the diff: {}",
@@ -606,6 +632,7 @@ fn the_json_report_carries_the_same_rust_diff() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.rs"), DIRTY_RS);
 
     let human = formatter()
@@ -642,6 +669,7 @@ fn a_rust_parse_error_is_reported_against_its_own_file() {
     let temp = tempdir().unwrap();
     let first = write(&temp.path().join("a.rs"), "fn main() {\n    let x = ;\n}\n");
     let second = write(&temp.path().join("b.rs"), "fn f( {\n");
+
     write(&temp.path().join("ok.rs"), CLEAN_RS);
 
     formatter()
@@ -670,6 +698,7 @@ fn the_preview_is_what_a_write_run_would_leave() {
 
     let dirty = "use std::io::Write;\nuse b::B;\nuse std::io::Read;\nfn  main( ){let x=1;}\n";
     let temp = tempdir().unwrap();
+
     let previewed = write(&temp.path().join("a.rs"), dirty);
 
     let assert = formatter()
@@ -692,7 +721,9 @@ fn the_preview_is_what_a_write_run_would_leave() {
     );
 
     let written = write(&temp.path().join("b.rs"), dirty);
+
     formatter().arg(&written).assert().success();
+
     assert_eq!(preview, fs::read(&written).unwrap());
 }
 
@@ -705,6 +736,7 @@ fn an_array_valued_config_option_reaches_rustfmt() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.rs"), CLEAN_RS);
 
     formatter()
@@ -728,6 +760,7 @@ fn an_ignore_list_selects_rather_than_reaching_rustfmt() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("keep.rs"), DIRTY_RS);
     write(&temp.path().join("skip.rs"), DIRTY_RS);
     write(&temp.path().join("skip.toml"), DIRTY_TOML);
@@ -743,6 +776,7 @@ fn an_ignore_list_selects_rather_than_reaching_rustfmt() {
         .failure()
         .code(1);
     let out = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+
     assert!(out.contains("keep.rs"), "{out}");
     assert!(!out.contains("skip.rs"), "{out}");
     assert!(!out.contains("skip.toml"), "{out}");
@@ -753,6 +787,7 @@ fn an_ignore_list_selects_rather_than_reaching_rustfmt() {
 #[test]
 fn a_bare_config_key_fails_at_argument_parse_time() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.rs"), CLEAN_RS);
 
     formatter()
@@ -772,6 +807,7 @@ fn unsetting_an_option_rustfmt_does_not_have_is_an_error() {
     needs_nightly!();
 
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.rs"), CLEAN_RS);
 
     formatter()
@@ -841,6 +877,7 @@ fn a_range_formats_only_the_lines_it_names() {
         .arg(&file)
         .assert()
         .success();
+
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
         "fn  a( ){}\nfn b() {}\nfn  c( ){}\n"
@@ -853,6 +890,7 @@ fn a_range_formats_only_the_lines_it_names() {
         .arg(&file)
         .assert()
         .success();
+
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
         "fn  a( ){}\nfn b() {}\nfn c() {}\n"
@@ -875,6 +913,7 @@ fn a_range_never_reaches_the_lines_its_first_pass_moved() {
     let source = "fn main() {\n    foo(\n        a,\n        b,\n    );\n    let   x   =   1;\n}\n";
     let expected = "fn main() {\n    foo(a, b);\n    let   x   =   1;\n}\n";
     let temp = tempdir().unwrap();
+
     let written = write(&temp.path().join("written.rs"), source);
     let previewed = write(&temp.path().join("previewed.rs"), source);
 
@@ -883,6 +922,7 @@ fn a_range_never_reaches_the_lines_its_first_pass_moved() {
         .arg(&written)
         .assert()
         .success();
+
     let preview = formatter()
         .args(["--emit", "stdout", "--range", "2-5"])
         .arg(&previewed)
@@ -965,6 +1005,7 @@ fn json_of(command: &mut Command) -> serde_json::Value {
 #[test]
 fn list_files_reports_json_when_asked() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), CLEAN_TOML);
 
     let value = json_of(
@@ -987,6 +1028,7 @@ fn list_files_reports_json_when_asked() {
 #[test]
 fn list_different_json_names_files_without_diffs() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("dirty.toml"), DIRTY_TOML);
     write(&temp.path().join("clean.toml"), CLEAN_TOML);
 
@@ -1015,6 +1057,7 @@ fn list_different_json_names_files_without_diffs() {
 #[test]
 fn print_config_reports_json_when_asked() {
     needs_nightly!();
+
     let value = json_of(
         formatter()
             .arg("--print-config")
@@ -1063,7 +1106,9 @@ fn stdin_check_json_carries_a_diff() {
 
     assert_eq!(value["files"][0]["status"], "needs-formatting");
     assert_eq!(value["exit_code"], 1);
+
     let diff = value["files"][0]["diff"].as_str().expect("a diff");
+
     assert!(diff.contains("+foo.path"), "{diff}");
     // A check reports on the buffer; it does not hand it back.
     assert!(value.get("content").is_none(), "{value}");
@@ -1093,6 +1138,7 @@ fn emit_stdout_reports_json_when_asked() {
 #[test]
 fn a_toml_parse_error_is_structured_in_json() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("bad.toml"), "a = 1\nb = = 2\n");
 
     let value = json_of(
@@ -1104,13 +1150,16 @@ fn a_toml_parse_error_is_structured_in_json() {
     );
 
     assert_eq!(value["exit_code"], 2);
+
     let error = &value["errors"][0];
+
     assert_eq!(error["code"], "toml-parse");
     assert!(error["path"].as_str().unwrap().ends_with("bad.toml"));
     assert_eq!(error["line"], 2);
     assert_eq!(error["column"], 5);
     // The message is the reason alone: the location is carried as data.
     let message = error["message"].as_str().unwrap();
+
     assert!(!message.contains("bad.toml"), "{message}");
     assert!(!message.contains("TOML parse error at line"), "{message}");
 }
@@ -1118,6 +1167,7 @@ fn a_toml_parse_error_is_structured_in_json() {
 #[test]
 fn a_failed_file_is_listed_with_an_error_status() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("bad.toml"), "a = = 1\n");
 
     let value = json_of(
@@ -1135,7 +1185,9 @@ fn a_failed_file_is_listed_with_an_error_status() {
 #[test]
 fn a_rust_parse_error_is_structured_in_json() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("bad.rs"), "fn main() { let x = ; }\n");
 
     let value = json_of(
@@ -1147,6 +1199,7 @@ fn a_rust_parse_error_is_structured_in_json() {
     );
 
     let error = &value["errors"][0];
+
     assert_eq!(error["code"], "rustfmt-diagnostic");
     assert!(error["path"].as_str().unwrap().ends_with("bad.rs"));
     assert!(error["line"].is_number(), "{value}");
@@ -1158,6 +1211,7 @@ fn a_rust_parse_error_is_structured_in_json() {
 #[test]
 fn emit_stdout_refuses_a_directory_of_many_files() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY_TOML);
     write(&temp.path().join("b.toml"), DIRTY_TOML);
 
@@ -1203,6 +1257,7 @@ fn a_preview_keeps_the_bom_and_crlf_a_write_run_would() {
     let source = "\u{feff}foo={path=\"x\"}\r\n";
     let previewed = temp.path().join("preview.toml");
     let written = temp.path().join("written.toml");
+
     fs::write(&previewed, source).unwrap();
     fs::write(&written, source).unwrap();
 
@@ -1216,6 +1271,7 @@ fn a_preview_keeps_the_bom_and_crlf_a_write_run_would() {
         .clone();
 
     formatter().arg(&written).assert().success();
+
     assert_eq!(out.stdout, fs::read(&written).unwrap());
     assert_eq!(out.stdout, b"\xef\xbb\xbffoo.path = \"x\"\r\n");
 }
@@ -1267,6 +1323,7 @@ fn rust_stdin_check_accepts_a_crlf_buffer_that_needs_nothing() {
 #[test]
 fn rust_stdin_restores_the_bom_and_crlf_it_was_given() {
     needs_nightly!();
+
     let out = formatter()
         .arg("--stdin")
         .arg("--stdin-filepath")
@@ -1283,10 +1340,12 @@ fn rust_stdin_restores_the_bom_and_crlf_it_was_given() {
 #[test]
 fn rust_preview_and_write_keep_the_bom_and_crlf() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let source = "\u{feff}fn  main() {}\r\n";
     let previewed = temp.path().join("preview.rs");
     let written = temp.path().join("written.rs");
+
     fs::write(&previewed, source).unwrap();
     fs::write(&written, source).unwrap();
 
@@ -1300,6 +1359,7 @@ fn rust_preview_and_write_keep_the_bom_and_crlf() {
         .clone();
 
     formatter().arg(&written).assert().success();
+
     assert_eq!(out.stdout, fs::read(&written).unwrap());
     assert_eq!(out.stdout, b"\xef\xbb\xbffn main() {}\r\n");
 }
@@ -1307,8 +1367,10 @@ fn rust_preview_and_write_keep_the_bom_and_crlf() {
 #[test]
 fn rust_check_accepts_a_clean_crlf_file() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
     let file = temp.path().join("main.rs");
+
     fs::write(&file, "fn main() {}\r\n").unwrap();
     formatter()
         .arg("--check")
@@ -1324,6 +1386,7 @@ fn rust_check_accepts_a_clean_crlf_file() {
 fn diff_context_sets_the_number_of_context_lines() {
     let temp = tempdir().unwrap();
     let body = "a = 1\nb = 2\nc = 3\nd = 4\ne={f=\"g\"}\n";
+
     write(&temp.path().join("a.toml"), body);
 
     let tight = formatter()
@@ -1350,12 +1413,14 @@ fn diff_context_sets_the_number_of_context_lines() {
         .get_output()
         .clone();
     let none = String::from_utf8(none.stdout).unwrap();
+
     assert!(!none.contains(" d = 4\n"), "{none}");
 }
 
 #[test]
 fn dash_l_is_list_different() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("dirty.toml"), DIRTY_TOML);
     write(&temp.path().join("clean.toml"), CLEAN_TOML);
 
@@ -1393,6 +1458,7 @@ fn help_groups_the_flags() {
     ] {
         assert!(text.contains(heading), "missing {heading}\n{text}");
     }
+
     assert!(text.contains("Examples:"), "{text}");
 }
 
@@ -1401,7 +1467,9 @@ fn help_groups_the_flags() {
 #[test]
 fn a_named_manifest_is_previewed_alone() {
     needs_nightly!();
+
     let temp = tempdir().unwrap();
+
     write(
         &temp.path().join("Cargo.toml"),
         "[package]\nname=\"a\"\nversion  =  \"1\"\n",
@@ -1425,7 +1493,9 @@ fn a_named_manifest_is_previewed_alone() {
         fs::read_to_string(temp.path().join("src/lib.rs")).unwrap(),
         DIRTY_RS
     );
+
     let stderr = String::from_utf8(out.stderr).unwrap();
+
     assert!(stderr.contains("Cargo.toml"), "{stderr}");
 }
 
@@ -1453,6 +1523,7 @@ fn a_fatal_error_is_reported_as_json_too() {
 #[test]
 fn a_refused_preview_is_reported_as_json_too() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), DIRTY_TOML);
     write(&temp.path().join("b.toml"), DIRTY_TOML);
 
@@ -1480,6 +1551,7 @@ fn json_failure(command: &mut Command) -> serde_json::Value {
 #[test]
 fn a_configuration_failure_is_reported_as_json_too() {
     let temp = tempdir().unwrap();
+
     write(
         &temp.path().join("rust-formatter.toml"),
         "sort_deps = true\n",
@@ -1506,6 +1578,7 @@ fn a_configuration_failure_is_reported_as_json_too() {
 #[test]
 fn a_configuration_failure_honours_json_from_the_environment() {
     let temp = tempdir().unwrap();
+
     write(
         &temp.path().join("rust-formatter.toml"),
         "sort_deps = true\n",
@@ -1525,6 +1598,7 @@ fn a_configuration_failure_honours_json_from_the_environment() {
 #[test]
 fn a_refused_combination_is_reported_as_json_too() {
     let temp = tempdir().unwrap();
+
     write(&temp.path().join("a.toml"), CLEAN_TOML);
 
     for (args, message) in [
@@ -1558,6 +1632,7 @@ fn a_refused_combination_is_reported_as_json_too() {
 #[test]
 fn a_configuration_failure_stays_plain_without_json() {
     let temp = tempdir().unwrap();
+
     write(
         &temp.path().join("rust-formatter.toml"),
         "sort_deps = true\n",

@@ -1,6 +1,6 @@
 /// The string state a line ends in, which is what decides whether the next
 /// line's `#` opens a comment or sits inside a multi-line string.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Mode {
     Code,
     MultiBasic,
@@ -60,6 +60,7 @@ pub(crate) fn scan_line(content: &str, mut mode: Mode) -> (Option<usize>, Option
 /// of a run so that `""""` is one quote of content and a close.
 fn closing_run(bytes: &[u8], from: usize, quote: u8, escapes: bool) -> Option<usize> {
     let mut index = from;
+
     while index < bytes.len() {
         if escapes && bytes[index] == b'\\' {
             index += 2;
@@ -69,7 +70,9 @@ fn closing_run(bytes: &[u8], from: usize, quote: u8, escapes: bool) -> Option<us
             index += 1;
             continue;
         }
+
         let run = bytes[index..].iter().take_while(|&&b| b == quote).count();
+
         if run >= 3 {
             return Some(index + run);
         }
@@ -82,6 +85,7 @@ fn closing_run(bytes: &[u8], from: usize, quote: u8, escapes: bool) -> Option<us
 /// is unterminated — which valid TOML never is.
 pub(crate) fn single_line_string(bytes: &[u8], from: usize, quote: u8, escapes: bool) -> usize {
     let mut index = from;
+
     while index < bytes.len() {
         if escapes && bytes[index] == b'\\' {
             index += 2;
@@ -111,6 +115,7 @@ pub(crate) fn lines(text: &str) -> impl Iterator<Item = (Split<'_>, Option<usize
             .strip_suffix('\n')
             .map_or(raw, |rest| rest.strip_suffix('\r').unwrap_or(rest));
         let (equals, comment, next) = scan_line(content, mode);
+
         mode = next;
         (Split { raw, content }, equals, comment)
     })
@@ -123,6 +128,7 @@ mod tests {
     #[test]
     fn a_multi_line_string_ends_and_code_resumes() {
         let (equals, comment, mode) = scan_line("still\"\"\" # tail", Mode::MultiBasic);
+
         assert_eq!(equals, None);
         assert_eq!(comment, Some(9));
         assert_eq!(mode, Mode::Code);
@@ -131,6 +137,7 @@ mod tests {
     #[test]
     fn four_quotes_close_a_multi_line_string() {
         let (_, comment, mode) = scan_line("a\"\"\"\" # tail", Mode::MultiBasic);
+
         assert_eq!(comment, Some(6));
         assert_eq!(mode, Mode::Code);
     }
@@ -138,6 +145,7 @@ mod tests {
     #[test]
     fn an_escaped_quote_does_not_close_a_multi_line_string() {
         let (_, comment, mode) = scan_line("\\\"\"\" # no", Mode::MultiBasic);
+
         assert_eq!(comment, None);
         assert_eq!(mode, Mode::MultiBasic);
     }
@@ -145,6 +153,7 @@ mod tests {
     #[test]
     fn a_hash_inside_a_single_line_string_is_not_a_comment() {
         let (_, comment, _) = scan_line("a = \"# no\" # yes", Mode::Code);
+
         assert_eq!(comment, Some(11));
     }
 
@@ -153,6 +162,7 @@ mod tests {
         let split: Vec<_> = lines("a = 1\r\nb = 2")
             .map(|(split, ..)| split.raw)
             .collect();
+
         assert_eq!(split, ["a = 1\r\n", "b = 2"]);
     }
 
@@ -161,6 +171,7 @@ mod tests {
         let found: Vec<_> = lines("a = \"\"\"\n# hidden\n\"\"\"\n# real\n")
             .map(|(_, _, comment)| comment)
             .collect();
+
         assert_eq!(found, [None, None, None, Some(0)]);
     }
 }

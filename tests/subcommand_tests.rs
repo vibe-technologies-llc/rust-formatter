@@ -33,12 +33,14 @@ const PAGES: [&str; 7] = [
 
 fn formatter() -> Command {
     let mut cmd = Command::cargo_bin("rust-formatter").unwrap();
+
     cmd.env("RUST_FORMATTER_CACHE_DIR", cache_dir());
     cmd
 }
 
 fn cargo_alias() -> Command {
     let mut cmd = Command::cargo_bin("cargo-rust-formatter").unwrap();
+
     cmd.env("RUST_FORMATTER_CACHE_DIR", cache_dir());
     cmd
 }
@@ -59,6 +61,7 @@ fn completions_print_a_script_for_every_shell() {
     for (shell, _) in SHELLS {
         let assert = formatter().args(["completions", shell]).assert().success();
         let script = stdout(&assert);
+
         assert!(!script.is_empty(), "{shell}: empty script");
         assert!(script.contains("rust-formatter"), "{shell}: {script}");
     }
@@ -69,10 +72,12 @@ fn completions_print_a_script_for_every_shell() {
 #[test]
 fn a_completion_script_describes_this_cli() {
     let bash = stdout(&formatter().args(["completions", "bash"]).assert().success());
+
     assert!(bash.contains("--staged"), "{bash}");
     assert!(bash.contains("--toml-max-width"), "{bash}");
 
     let zsh = stdout(&formatter().args(["completions", "zsh"]).assert().success());
+
     assert!(zsh.starts_with("#compdef rust-formatter"), "{zsh}");
 }
 
@@ -85,7 +90,9 @@ fn completions_out_dir_uses_the_conventional_name() {
             .arg(dir.path())
             .assert()
             .success();
+
         let written = dir.path().join(name);
+
         assert!(written.is_file(), "{shell}: expected {name}");
         assert!(!fs::read(&written).unwrap().is_empty(), "{shell}: empty");
     }
@@ -95,12 +102,14 @@ fn completions_out_dir_uses_the_conventional_name() {
 fn completions_without_a_shell_is_refused() {
     let assert = formatter().arg("completions").assert().failure().code(2);
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+
     assert!(stderr.contains("SHELL"), "{stderr}");
 }
 
 #[test]
 fn the_man_page_is_roff() {
     let page = stdout(&formatter().arg("man").assert().success());
+
     assert!(page.contains(".TH rust-formatter 1"), "{page}");
     // roff escapes a hyphen, so the flag appears as `\-\-staged`.
     assert!(page.contains(r"\-\-staged"), "{page}");
@@ -109,6 +118,7 @@ fn the_man_page_is_roff() {
 #[test]
 fn man_out_dir_writes_one_page_per_command() {
     let dir = tempdir().unwrap();
+
     formatter()
         .args(["man", "--out-dir"])
         .arg(dir.path())
@@ -119,9 +129,13 @@ fn man_out_dir_writes_one_page_per_command() {
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
+
     written.sort();
+
     let mut expected: Vec<String> = PAGES.iter().map(|page| (*page).to_string()).collect();
+
     expected.sort();
+
     assert_eq!(written, expected);
 }
 
@@ -131,8 +145,11 @@ fn man_out_dir_writes_one_page_per_command() {
 fn a_directory_named_completions_is_reached_through_a_prefix() {
     let dir = tempdir().unwrap();
     let nested = dir.path().join("completions");
+
     fs::create_dir(&nested).unwrap();
+
     let file = nested.join("a.toml");
+
     fs::write(&file, "foo={path=\"x\"}\n").unwrap();
 
     // A bare `completions` is the subcommand, so it never reaches the walk.
@@ -154,6 +171,7 @@ fn a_directory_named_completions_is_reached_through_a_prefix() {
         .arg("./completions")
         .assert()
         .success();
+
     assert_eq!(fs::read_to_string(&file).unwrap(), "foo.path = \"x\"\n");
 }
 
@@ -184,6 +202,7 @@ fn the_cargo_alias_drops_the_subcommand_word() {
             .assert()
             .success(),
     );
+
     assert!(help.contains("Usage: cargo rust-formatter"), "{help}");
 }
 
@@ -196,6 +215,7 @@ fn the_cargo_alias_reports_the_same_version() {
             .assert()
             .success(),
     );
+
     assert_eq!(direct, aliased);
 }
 
@@ -203,6 +223,7 @@ fn the_cargo_alias_reports_the_same_version() {
 fn the_cargo_alias_formats() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("a.toml");
+
     fs::write(&file, "foo={path=\"x\"}\n").unwrap();
 
     cargo_alias()
@@ -210,6 +231,7 @@ fn the_cargo_alias_formats() {
         .args(["rust-formatter", "."])
         .assert()
         .success();
+
     assert_eq!(fs::read_to_string(&file).unwrap(), "foo.path = \"x\"\n");
 }
 
@@ -223,6 +245,7 @@ fn a_script_generated_through_the_alias_names_the_real_binary() {
             .assert()
             .success(),
     );
+
     assert!(script.contains("rust-formatter"), "{script}");
     assert!(!script.contains("cargo-rust-formatter"), "{script}");
 }

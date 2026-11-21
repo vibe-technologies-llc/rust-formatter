@@ -9,7 +9,7 @@ use crate::{
     version_sort::version_cmp,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Section {
     Root,
     Workspace,
@@ -26,7 +26,7 @@ enum Section {
 }
 
 /// How one table's keys are ordered.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Rule {
     Version,
     /// Known names in the listed order, then everything else in the order it was
@@ -41,6 +41,7 @@ impl Rule {
     /// keys a rule cannot separate keep the arrangement they were written in.
     fn order(self, keys: &[&str]) -> Vec<usize> {
         let mut order: Vec<usize> = (0..keys.len()).collect();
+
         match self {
             Self::Version => order.sort_by(|&a, &b| version_cmp(keys[a], keys[b])),
             Self::Known(known) => order.sort_by_key(|&index| rank_in(known, keys[index])),
@@ -96,6 +97,7 @@ fn walk(table: &mut Table, section: Section, source: &str, style: &TomlStyle, gu
             }
             Item::Table(child) => {
                 let child_section = descend(section, name, false);
+
                 walk(child, child_section, source, style, guard.child(name, 0));
             }
             Item::ArrayOfTables(children) => {
@@ -106,6 +108,7 @@ fn walk(table: &mut Table, section: Section, source: &str, style: &TomlStyle, gu
                 {
                     sort_target_array(children, source);
                 }
+
                 let child_section = descend(section, name, true);
                 for (index, child) in children.iter_mut().enumerate() {
                     walk(
@@ -129,11 +132,13 @@ fn walk_value(value: &mut Value, section: Section, name: &str, source: &str, sty
     match value {
         Value::InlineTable(table) => {
             let inner = descend(section, name, false);
+
             if let Some(rule) = rule_for(inner, style) {
                 reorder_inline(table, rule);
             }
             for (key, child) in table.iter_mut() {
                 let child_name = key.get().to_owned();
+
                 walk_value(child, inner, &child_name, source, style);
             }
         }
@@ -203,6 +208,7 @@ fn sortable_array(section: Section, name: &str) -> bool {
 
 fn reorder(table: &mut Table, source: &str, style: &TomlStyle, rule: Rule, guard: Guard<'_>) {
     let names: Vec<String> = table.iter().map(|(name, _)| name.to_owned()).collect();
+
     if names.len() < 2 {
         return;
     }
@@ -213,7 +219,9 @@ fn reorder(table: &mut Table, source: &str, style: &TomlStyle, rule: Rule, guard
         .copied()
         .filter(|name| guard.touched(name))
         .collect();
+
     let order = run_order(table, source, &borrowed, rule, style.sort_grouped, &walls);
+
     if order.iter().copied().eq(0..order.len()) {
         return;
     }
@@ -229,10 +237,12 @@ fn reorder(table: &mut Table, source: &str, style: &TomlStyle, rule: Rule, guard
     // so redistributing them would hand its header someone else's slot and carry
     // the frozen lines somewhere they were not written.
     let mut blanks = Vec::new();
+
     body_blanks(table, source, &walls, &mut blanks);
     set_body_blanks(table, source, &walls, &mut std::iter::repeat(String::new()));
 
     let mut slots = Vec::new();
+
     for (name, item) in table.iter() {
         if !walls.contains(&name) {
             collect_slots(item, source, &mut slots);
@@ -241,10 +251,12 @@ fn reorder(table: &mut Table, source: &str, style: &TomlStyle, rule: Rule, guard
     slots.sort_by_key(|(position, _)| *position);
 
     let mut taken = Vec::with_capacity(order.len());
+
     for &index in &order {
         let entry = table
             .remove_entry(&names[index])
             .expect("key came from this table");
+
         taken.push(entry);
     }
     for (key, item) in taken {
@@ -286,11 +298,14 @@ fn run_order(
 
     let mut order = Vec::with_capacity(names.len());
     let mut start = 0;
+
     for index in 1..=names.len() {
         if index < names.len() && !starts[index] {
             continue;
         }
+
         let group = rule.order(&names[start..index]);
+
         order.extend(group.into_iter().map(|offset| start + offset));
         start = index;
     }
@@ -305,11 +320,13 @@ fn entry_starts_group(table: &Table, name: &str, item: &Item, source: &str) -> b
     match item {
         Item::Table(child) if child.is_dotted() => {
             let mut blanks = Vec::new();
+
             body_blanks(child, source, &[], &mut blanks);
             blanks.first().is_some_and(|blank| !blank.is_empty())
         }
         Item::Table(_) | Item::ArrayOfTables(_) => {
             let mut slots = Vec::new();
+
             collect_slots(item, source, &mut slots);
             slots
                 .into_iter()
@@ -324,12 +341,14 @@ fn entry_starts_group(table: &Table, name: &str, item: &Item, source: &str) -> b
 
 fn reorder_inline(table: &mut InlineTable, rule: Rule) {
     let names: Vec<String> = table.iter().map(|(name, _)| name.to_owned()).collect();
+
     if names.len() < 2 {
         return;
     }
 
     let borrowed: Vec<&str> = names.iter().map(String::as_str).collect();
     let order = rule.order(&borrowed);
+
     if order.iter().copied().eq(0..order.len()) {
         return;
     }
@@ -337,10 +356,12 @@ fn reorder_inline(table: &mut InlineTable, rule: Rule) {
     // An inline table renders in map order and the layout pass rewrites every
     // separator, so the permutation alone is the whole rewrite here.
     let mut taken = Vec::with_capacity(order.len());
+
     for &index in &order {
         let entry = table
             .remove_entry(&names[index])
             .expect("key came from this table");
+
         taken.push(entry);
     }
     for (key, value) in taken {
@@ -359,6 +380,7 @@ fn sort_array(array: &mut Array, source: &str) {
         return;
     };
     let order = Rule::Version.order(&values);
+
     if order.iter().copied().eq(0..order.len()) {
         return;
     }
@@ -366,6 +388,7 @@ fn sort_array(array: &mut Array, source: &str) {
     let mut taken: Vec<Option<Value>> = (0..array.len()).map(|_| Some(array.remove(0))).collect();
     for &index in &order {
         let value = taken[index].take().expect("each index is used once");
+
         array.push_formatted(value);
     }
 }
@@ -381,17 +404,20 @@ fn sort_target_array(children: &mut ArrayOfTables, source: &str) {
                 .to_owned()
         })
         .collect();
+
     if names.len() < 2 {
         return;
     }
 
     let borrowed: Vec<&str> = names.iter().map(String::as_str).collect();
     let order = Rule::Version.order(&borrowed);
+
     if order.iter().copied().eq(0..order.len()) {
         return;
     }
 
     let mut slots = Vec::new();
+
     for child in children.iter() {
         collect_subtree_slots(child, source, &mut slots);
     }
@@ -400,6 +426,7 @@ fn sort_target_array(children: &mut ArrayOfTables, source: &str) {
     let mut taken: Vec<Option<Table>> = (0..children.len())
         .map(|_| Some(children.remove(0)))
         .collect();
+
     for &index in &order {
         children.push(taken[index].take().expect("each index is used once"));
     }
@@ -535,6 +562,7 @@ mod tests {
 
     fn style(build: impl FnOnce(&mut TomlStyle)) -> TomlStyle {
         let mut style = TomlStyle::default();
+
         build(&mut style);
         style
     }
@@ -543,6 +571,7 @@ mod tests {
     /// is the permutation rather than the formatter's rendering of it.
     fn sorted(source: &str, style: &TomlStyle) -> String {
         let mut doc: DocumentMut = source.parse().expect("test input parses");
+
         sort_document(doc.as_table_mut(), source, style, Guard::default());
         doc.to_string()
     }
@@ -560,6 +589,7 @@ mod tests {
     fn keys_of(rendered: &str, path: &str) -> Vec<String> {
         let doc: DocumentMut = rendered.parse().expect("output parses");
         let mut item = doc.as_item().clone();
+
         for segment in path.split('.').filter(|segment| !segment.is_empty()) {
             item = item.get(segment).expect("path exists").clone();
         }
@@ -577,6 +607,7 @@ mod tests {
     #[test]
     fn version_order_is_not_lexicographic() {
         let keys = ["x-10", "x-9", "x-1"];
+
         assert_eq!(Rule::Version.order(&keys), vec![2, 1, 0]);
     }
 
@@ -584,6 +615,7 @@ mod tests {
     fn known_order_keeps_unknown_keys_where_they_were() {
         let keys = ["zzz", "version", "aaa", "name"];
         let order = Rule::Known(&["name", "version"]).order(&keys);
+
         assert_eq!(
             order.iter().map(|&index| keys[index]).collect::<Vec<_>>(),
             vec!["name", "version", "zzz", "aaa"]
@@ -594,6 +626,7 @@ mod tests {
     fn the_style_guide_puts_description_last_and_version_sorts_the_middle() {
         let keys = ["description", "edition-10", "name", "edition-9", "version"];
         let order = Rule::StyleGuidePackage.order(&keys);
+
         assert_eq!(
             order.iter().map(|&index| keys[index]).collect::<Vec<_>>(),
             vec!["name", "version", "edition-9", "edition-10", "description"]
@@ -609,7 +642,9 @@ mod tests {
             Rule::StyleGuidePackage,
         ] {
             let mut order = rule.order(&keys);
+
             order.sort_unstable();
+
             assert_eq!(order, (0..keys.len()).collect::<Vec<_>>(), "{rule:?}");
         }
     }
@@ -660,6 +695,7 @@ mod tests {
     #[test]
     fn sort_keys_does_not_reach_the_root_or_the_package_table() {
         let style = style(|style| style.sort_keys = true);
+
         assert!(rule_for(Section::Root, &style).is_none());
         assert!(rule_for(Section::Package, &style).is_none());
         assert_eq!(rule_for(Section::Other, &style), Some(Rule::Version));
@@ -741,6 +777,7 @@ mod tests {
         for name in ["bin", "example", "test", "bench"] {
             assert!(is_target_array(name), "{name}");
         }
+
         assert!(!is_target_array("lib"));
         assert!(!is_target_array("dependencies"));
     }
@@ -750,12 +787,14 @@ mod tests {
     #[test]
     fn nothing_moves_with_every_switch_off() {
         let source = "[dependencies]\nzzz = \"1\"\naaa = \"2\"\n";
+
         assert_eq!(sorted(source, &TomlStyle::default()), source);
     }
 
     #[test]
     fn a_table_of_one_key_is_left_alone() {
         let source = "[dependencies]\nonly = \"1\"\n";
+
         assert_eq!(
             sorted(source, &style(|style| style.sort_deps = true)),
             source
@@ -768,6 +807,7 @@ mod tests {
             "[dependencies]\nserde-10 = \"1\"\nserde-9 = \"1\"\nalpha = \"1\"\n",
             &style(|style| style.sort_deps = true),
         );
+
         assert_eq!(
             keys_of(&rendered, "dependencies"),
             ["alpha", "serde-9", "serde-10"]
@@ -784,6 +824,7 @@ mod tests {
             "replace",
         ] {
             let rendered = sorted(&format!("[{section}]\nb = \"1\"\na = \"1\"\n"), &style);
+
             assert_eq!(keys_of(&rendered, section), ["a", "b"], "{section}");
         }
     }
@@ -822,6 +863,7 @@ mod tests {
         );
 
         let source = "[package.metadata.tool.dependencies]\nb = \"1\"\na = \"1\"\n";
+
         assert_eq!(
             sorted(source, &style(|style| style.sort_deps = true)),
             source
@@ -834,6 +876,7 @@ mod tests {
             "[patch.crates-io]\nzzz = { path = \"z\" }\naaa = { path = \"a\" }\n",
             &style(|style| style.sort_deps = true),
         );
+
         assert_eq!(keys_of(&rendered, "patch.crates-io"), ["aaa", "zzz"]);
     }
 
@@ -844,6 +887,7 @@ mod tests {
             &style(|style| style.sort_package = true),
         );
         let keys = keys_of(&rendered, "package");
+
         assert_eq!(&keys[..2], ["name", "version"]);
         assert_eq!(keys.last().unwrap(), "custom");
     }
@@ -854,6 +898,7 @@ mod tests {
             "[dependencies.serde]\nfeatures = [\"derive\"]\nversion = \"1\"\n",
             &style(|style| style.sort_dep_fields = true),
         );
+
         assert_eq!(
             keys_of(&rendered, "dependencies.serde"),
             ["version", "features"]
@@ -868,6 +913,7 @@ mod tests {
             "[dependencies]\nserde = { features = [\"derive\"], version = \"1\" }\n",
             &style(|style| style.sort_dep_fields = true),
         );
+
         assert_eq!(
             keys_of(&rendered, "dependencies.serde"),
             ["version", "features"]
@@ -883,6 +929,7 @@ mod tests {
                 style.sort_arrays = true;
             }),
         );
+
         assert_eq!(keys_of(&rendered, "features"), ["a", "b"]);
         assert!(
             rendered.find("\"a\"").unwrap() < rendered.find("\"z\"").unwrap(),
@@ -898,12 +945,14 @@ mod tests {
         let rendered = sorted(source, &style(|style| style.sort_arrays = true));
         let index_z = rendered.find("\"z\"").unwrap();
         let index_a = rendered.find("\"a\"").unwrap();
+
         assert!(index_z < index_a, "{rendered}");
     }
 
     #[test]
     fn an_array_of_mixed_types_is_left_alone() {
         let source = "[features]\nb = [\"z\", 1]\n";
+
         assert_eq!(
             sorted(source, &style(|style| style.sort_arrays = true)),
             source
@@ -916,6 +965,7 @@ mod tests {
             "[[bin]]\nname = \"zzz\"\n\n[[bin]]\nname = \"aaa\"\n",
             &style(|style| style.sort_targets = true),
         );
+
         assert!(
             rendered.find("aaa").unwrap() < rendered.find("zzz").unwrap(),
             "{rendered}"
@@ -928,6 +978,7 @@ mod tests {
             "[dependencies]\na = \"1\"\n\n[package]\nname = \"x\"\n",
             &style(|style| style.sort_tables = true),
         );
+
         assert_eq!(keys(&rendered, &TomlStyle::default())[0], "package");
     }
 
@@ -937,6 +988,7 @@ mod tests {
             "[whatever]\nzzz = 1\naaa = 2\n",
             &style(|style| style.sort_keys = true),
         );
+
         assert_eq!(keys_of(&rendered, "whatever"), ["aaa", "zzz"]);
     }
 
@@ -949,6 +1001,7 @@ mod tests {
             style.sort_deps = true;
             style.sort_grouped = true;
         });
+
         assert_eq!(
             keys_of(&sorted(source, &style), "dependencies"),
             ["mmm", "zzz", "aaa", "bbb"]
@@ -958,6 +1011,7 @@ mod tests {
     #[test]
     fn without_grouping_a_blank_line_is_not_a_wall() {
         let source = "[dependencies]\nzzz = \"1\"\nmmm = \"2\"\n\nbbb = \"3\"\naaa = \"4\"\n";
+
         assert_eq!(
             keys_of(
                 &sorted(source, &style(|style| style.sort_deps = true)),
@@ -981,6 +1035,7 @@ mod tests {
             "aaa = \"3\"\n",
         );
         let out = format_toml(source, &style(|style| style.sort_deps = true)).expect("formats");
+
         assert_eq!(
             keys_of(&out, "dependencies"),
             ["zzz", "mmm", "aaa"],
@@ -992,6 +1047,7 @@ mod tests {
     fn a_document_with_no_directives_sorts_across_the_whole_table() {
         let source = "[dependencies]\nzzz = \"1\"\nmmm = \"2\"\naaa = \"3\"\n";
         let out = format_toml(source, &style(|style| style.sort_deps = true)).expect("formats");
+
         assert_eq!(keys_of(&out, "dependencies"), ["aaa", "mmm", "zzz"]);
     }
 }

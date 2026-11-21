@@ -75,7 +75,7 @@ pub fn key(field: &str) -> String {
 /// A boolean as a configuration file or an environment variable may spell it.
 /// The command line accepts `1`, `yes` and `off` for these too, so the two
 /// surfaces agree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct Toggle(pub bool);
 
@@ -143,7 +143,7 @@ impl<'de> Deserialize<'de> for Toggle {
 /// One rustfmt option as a configuration file writes it. rustfmt's own command
 /// line takes every value as text, so each spelling is rendered back to the
 /// string that `--config` would have carried.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ConfigValue {
     Bool(bool),
@@ -178,7 +178,7 @@ impl fmt::Display for ConfigValue {
 }
 
 /// The layer a setting's value came from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Source {
     Default,
     Preset(String),
@@ -216,7 +216,7 @@ impl fmt::Display for Source {
 }
 
 /// Which layer last set each setting, keyed by the setting's field name.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Provenance(BTreeMap<&'static str, Source>);
 
 impl Provenance {
@@ -305,6 +305,8 @@ settings! {
     edition: String,
     style_edition: String,
     rust_style: Vec<RustStyle>,
+    paragraphs: Toggle,
+    sort_attributes: Toggle,
     config: BTreeMap<String, ConfigValue>,
     unset_config: Vec<String>,
     no_all: Toggle,
@@ -383,14 +385,17 @@ impl Settings {
     ) {
         if let Some(config) = higher.config.take() {
             let merged = self.config.get_or_insert_with(BTreeMap::new);
+
             merged.extend(config);
             provenance.set("config", source_of("config"));
         }
         if let Some(presets) = higher.presets.take() {
             let merged = self.presets.get_or_insert_with(BTreeMap::new);
+
             merged.extend(presets);
             provenance.set("presets", source_of("presets"));
         }
+
         macro_rules! append {
             ($field:ident) => {
                 if let Some(values) = higher.$field.take() {
@@ -399,6 +404,7 @@ impl Settings {
                 }
             };
         }
+
         append!(rust_style);
         append!(unset_config);
         append!(include);
@@ -532,6 +538,7 @@ fn parse_env_value<T: serde::de::DeserializeOwned>(name: &str, raw: &str) -> Res
 
     let trimmed = raw.trim();
     let quoted = toml_edit::Value::from(trimmed).to_string();
+
     for candidate in [trimmed.to_string(), quoted] {
         if let Ok(wrapped) = toml_edit::de::from_str::<Wrap<T>>(&format!("value = {candidate}")) {
             return Ok(wrapped.value);
@@ -561,7 +568,9 @@ fn deserialize_file(path: &Path, source: &str) -> Result<Settings> {
 /// instead.
 fn deserialize_table(path: &Path, label: &str, table: &toml_edit::Table) -> Result<Settings> {
     let mut doc = toml_edit::DocumentMut::new();
+
     *doc.as_table_mut() = table.clone();
+
     let table_error = |message: String| Error::Config {
         path: path.to_path_buf(),
         message: format!("{label}: {message}"),
@@ -621,8 +630,10 @@ fn nearest(found: &str) -> Option<String> {
 fn distance(left: &str, right: &str) -> usize {
     let right: Vec<char> = right.chars().collect();
     let mut row: Vec<usize> = (0..=right.len()).collect();
+
     for (i, a) in left.chars().enumerate() {
         let mut diagonal = row[0];
+
         row[0] = i + 1;
         for (j, b) in right.iter().enumerate() {
             let next = if a == *b {
@@ -630,6 +641,7 @@ fn distance(left: &str, right: &str) -> usize {
             } else {
                 1 + diagonal.min(row[j]).min(row[j + 1])
             };
+
             diagonal = row[j + 1];
             row[j + 1] = next;
         }
@@ -642,6 +654,7 @@ fn distance(left: &str, right: &str) -> usize {
 pub fn builtin_preset(name: &str) -> Option<Settings> {
     let on = || Some(Toggle(true));
     let mut settings = Settings::default();
+
     match name {
         "default" => {}
         "compact" => settings.toml_inline_tables = Some(InlineTableStyle::Compact),
@@ -716,14 +729,14 @@ pub const BUILTIN_PRESETS: &[&str] = &[
 
 /// The command-line half of the resolution, which no configuration source can
 /// set because each entry names where settings come from.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SettingsCli {
     pub preset: Vec<String>,
     pub config_file: Option<PathBuf>,
     pub no_config: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Resolved {
     pub settings: Settings,
     pub provenance: Provenance,
@@ -759,6 +772,7 @@ pub fn resolve(start: &Path, env: EnvLookup<'_>, cli: &SettingsCli) -> Result<Re
     let start = start.as_path();
 
     let mut layers = Vec::new();
+
     if !cli.no_config {
         layers.extend(toolchain_layer(start, env));
         layers.extend(manifest_layers(start)?);
@@ -769,11 +783,13 @@ pub fn resolve(start: &Path, env: EnvLookup<'_>, cli: &SettingsCli) -> Result<Re
     if let Some(path) = &cli.config_file {
         layers.push(read_file(path)?);
     }
+
     let from_env = Settings::from_env(env)?;
 
     let defined = collect_presets(&layers, &from_env)?;
 
     let mut steps = Vec::new();
+
     for layer in layers {
         for name in layer.settings.preset.clone().unwrap_or_default() {
             steps.push(Step::Preset(name));
@@ -798,6 +814,7 @@ pub fn resolve(start: &Path, env: EnvLookup<'_>, cli: &SettingsCli) -> Result<Re
             Step::Preset(name) => {
                 let preset = preset_settings(&name, &defined)?;
                 let source = Source::Preset(name.clone());
+
                 settings.merge_from(preset, &source, &mut provenance);
                 sources.push(source);
                 applied.push(name);
@@ -808,6 +825,7 @@ pub fn resolve(start: &Path, env: EnvLookup<'_>, cli: &SettingsCli) -> Result<Re
             }
             Step::Environment(from_env) => {
                 let from_env = strip(from_env);
+
                 sources.extend(from_env.env_sources());
                 settings.merge_env(from_env, &mut provenance);
             }
@@ -852,6 +870,7 @@ fn collect_presets(layers: &[Layer], from_env: &Settings) -> Result<BTreeMap<Str
         .iter()
         .map(|layer| (&layer.source, &layer.settings))
         .chain(std::iter::once((&Source::CommandLine, from_env)));
+
     for (source, settings) in sources {
         let Some(presets) = &settings.presets else {
             continue;
@@ -882,6 +901,7 @@ fn source_path(source: &Source) -> PathBuf {
 
 fn known_presets(defined: &BTreeMap<String, Settings>) -> String {
     let mut names: Vec<&str> = BUILTIN_PRESETS.to_vec();
+
     names.extend(defined.keys().map(String::as_str));
     names.sort_unstable();
     names.dedup();
@@ -923,6 +943,7 @@ fn manifest_layers(start: &Path) -> Result<Vec<Layer>> {
     let workspace = detector::workspace_root(&manifest).join("Cargo.toml");
 
     let mut layers = Vec::new();
+
     if let Some(settings) = metadata_table(&workspace, &["workspace", "metadata"])? {
         layers.push(Layer {
             source: Source::WorkspaceMetadata(workspace.clone()),
@@ -946,12 +967,14 @@ fn metadata_table(manifest: &Path, path: &[&str]) -> Result<Option<Settings>> {
         return Ok(None);
     };
     let mut item = doc.as_item();
+
     for segment in path.iter().chain(std::iter::once(&METADATA_KEY)) {
         match item.get(*segment) {
             Some(next) => item = next,
             None => return Ok(None),
         }
     }
+
     let label = format!("[{}.{METADATA_KEY}]", path.join("."));
     let Some(table) = item.as_table() else {
         return Err(Error::Config {
@@ -971,6 +994,7 @@ fn metadata_table(manifest: &Path, path: &[&str]) -> Result<Option<Settings>> {
 pub fn discover(start: &Path) -> Option<PathBuf> {
     let stop =
         detector::find_cargo_manifest(start).map(|manifest| detector::workspace_root(&manifest));
+
     for dir in detector::project_ancestors(start) {
         for name in CONFIG_NAMES {
             let candidate = dir.join(name);
@@ -1009,6 +1033,7 @@ pub fn render(settings: &Settings, provenance: &Provenance, json: bool) -> Strin
         if field == "preset" {
             return "# the presets this run applied, in order\n".to_string();
         }
+
         let source = provenance.source_of(field);
         match source {
             Source::Environment(_) => format!("# from: {source}\n"),
@@ -1097,6 +1122,7 @@ mod tests {
         let mut lower = parse("toml-max-width = 80\nexclude = [\"a\"]\n");
         let higher = parse("toml-max-width = 120\nexclude = [\"b\"]\n");
         let mut provenance = Provenance::default();
+
         lower.merge_from(higher, &Source::CommandLine, &mut provenance);
 
         assert_eq!(lower.toml_max_width, Some(120));
@@ -1108,9 +1134,11 @@ mod tests {
     fn a_table_merges_key_by_key() {
         let mut lower = parse("[config]\nmax_width = 120\nhard_tabs = true\n");
         let higher = parse("[config]\nmax_width = 100\n");
+
         lower.merge_from(higher, &Source::CommandLine, &mut Provenance::default());
 
         let config = lower.config.unwrap();
+
         assert_eq!(config["max_width"], ConfigValue::Integer(100));
         assert_eq!(config["hard_tabs"], ConfigValue::Bool(true));
     }
@@ -1123,6 +1151,7 @@ mod tests {
         )
         .config
         .unwrap();
+
         assert_eq!(config["group_imports"].to_string(), "StdExternalCrate");
         assert_eq!(config["max_width"].to_string(), "120");
         assert_eq!(config["hard_tabs"].to_string(), "false");
@@ -1141,6 +1170,7 @@ mod tests {
             ("0", false),
         ] {
             let parsed = parse(&format!("sort-deps = {spelling}\n"));
+
             assert_eq!(parsed.sort_deps, Some(Toggle(expected)), "{spelling}");
         }
     }
@@ -1177,6 +1207,7 @@ mod tests {
     fn an_environment_value_that_cannot_be_read_names_its_variable() {
         let map = env_from(&[("RUST_FORMATTER_TOML_MAX_WIDTH", "wide")]);
         let err = Settings::from_env(&lookup(&map)).unwrap_err().to_string();
+
         assert!(err.contains("RUST_FORMATTER_TOML_MAX_WIDTH"), "{err}");
     }
 
@@ -1193,6 +1224,7 @@ mod tests {
             let err = deserialize_file(Path::new("<test>"), source)
                 .unwrap_err()
                 .to_string();
+
             assert!(err.starts_with("<test>: "), "{err}");
             assert!(err.contains("is not in"), "{err}");
         }
@@ -1200,6 +1232,7 @@ mod tests {
         let edges = parse(
             "toml-tab-width = 16\ntoml-max-width = 4096\ntoml-max-blank-lines = 0\ndiff-context = 4096\n",
         );
+
         assert_eq!(edges.toml_max_width, Some(4096));
     }
 
@@ -1207,6 +1240,7 @@ mod tests {
     fn an_environment_value_outside_the_command_line_range_names_its_variable() {
         let map = env_from(&[("RUST_FORMATTER_TOML_MAX_WIDTH", "0")]);
         let err = Settings::from_env(&lookup(&map)).unwrap_err().to_string();
+
         assert_eq!(
             err,
             "$RUST_FORMATTER_TOML_MAX_WIDTH: `0` is not in 1..=4096"
@@ -1216,11 +1250,13 @@ mod tests {
     #[test]
     fn a_metadata_value_outside_the_command_line_range_names_its_table() {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("Cargo.toml"),
             "[package]\nname = \"x\"\nversion = \"0.1.0\"\n\n[package.metadata.rust-formatter]\ntoml-tab-width = 17\n",
         )
         .unwrap();
+
         let err = resolve(
             temp.path(),
             &lookup(&env_from(&[])),
@@ -1228,6 +1264,7 @@ mod tests {
         )
         .unwrap_err()
         .to_string();
+
         assert!(
             err.contains(
                 "[package.metadata.rust-formatter]: toml-tab-width: `17` is not in 1..=16"
@@ -1242,6 +1279,7 @@ mod tests {
     fn the_manifest_tables_layer_workspace_then_package() {
         let temp = tempdir().unwrap();
         let member = temp.path().join("member");
+
         fs::create_dir_all(&member).unwrap();
         fs::write(
             temp.path().join("Cargo.toml"),
@@ -1276,11 +1314,13 @@ mod tests {
     #[test]
     fn the_environment_accumulates_a_list_and_merges_a_table() {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("rust-formatter.toml"),
             "exclude = [\"vendor/**\"]\n[config]\nmax_width = 120\nhard_tabs = true\n",
         )
         .unwrap();
+
         let map = env_from(&[
             ("RUST_FORMATTER_EXCLUDE", r#"["gen/**"]"#),
             ("RUST_FORMATTER_CONFIG", "{ max_width = 100 }"),
@@ -1309,7 +1349,9 @@ mod tests {
     fn the_sources_name_each_environment_variable_in_precedence_order() {
         let temp = tempdir().unwrap();
         let file = temp.path().join("rust-formatter.toml");
+
         fs::write(&file, "toml-max-width = 80\n").unwrap();
+
         let map = env_from(&[
             ("RUST_FORMATTER_TOML_MAX_WIDTH", "90"),
             ("RUST_FORMATTER_SORT_DEPS", "1"),
@@ -1346,6 +1388,7 @@ mod tests {
 
     fn pinned_to_stable() -> tempfile::TempDir {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("rust-toolchain.toml"),
             "[toolchain]\nchannel = \"stable\"\n",
@@ -1401,6 +1444,7 @@ mod tests {
             Some("nightly".to_string()),
             Source::Environment("RUSTUP_TOOLCHAIN".to_string()),
         );
+
         assert_eq!(through_a_proxy, expected);
         assert_eq!(exported_directly, expected);
     }
@@ -1451,6 +1495,7 @@ mod tests {
     #[test]
     fn a_configured_toolchain_still_outranks_a_rustup_plus_toolchain() {
         let temp = pinned_to_stable();
+
         fs::write(
             temp.path().join("rust-formatter.toml"),
             "toolchain = \"beta\"\n",
@@ -1471,6 +1516,7 @@ mod tests {
     #[test]
     fn a_discovered_file_outranks_the_manifest_tables() {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("Cargo.toml"),
             "[package]\nname = \"p\"\nversion = \"0.1.0\"\n\n\
@@ -1485,6 +1531,7 @@ mod tests {
 
         let map = env_from(&[]);
         let resolved = resolve_in(temp.path(), &map, &SettingsCli::default());
+
         assert_eq!(resolved.settings.toml_max_width, Some(70));
     }
 
@@ -1493,6 +1540,7 @@ mod tests {
         let temp = tempdir().unwrap();
         let workspace = temp.path().join("ws");
         let member = workspace.join("member");
+
         fs::create_dir_all(&member).unwrap();
         fs::write(
             workspace.join("Cargo.toml"),
@@ -1506,6 +1554,7 @@ mod tests {
         .unwrap();
         // Above the workspace, so no checkout of it inherits the file.
         let outside = temp.path().join("rust-formatter.toml");
+
         fs::write(&outside, "toml-max-width = 33\n").unwrap();
 
         assert_eq!(discover(&member), None);
@@ -1515,6 +1564,7 @@ mod tests {
     #[test]
     fn no_config_reads_nothing() {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("rust-formatter.toml"),
             "toml-max-width = 70\n",
@@ -1530,6 +1580,7 @@ mod tests {
                 ..SettingsCli::default()
             },
         );
+
         assert_eq!(resolved.settings.toml_max_width, None);
     }
 
@@ -1538,6 +1589,7 @@ mod tests {
     #[test]
     fn a_preset_applies_below_the_layer_that_named_it() {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("rust-formatter.toml"),
             "preset = [\"cargo\"]\ntoml-max-width = 70\n",
@@ -1558,6 +1610,7 @@ mod tests {
     #[test]
     fn a_preset_named_on_the_command_line_outranks_a_file() {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("rust-formatter.toml"),
             "toml-max-width = 70\n",
@@ -1573,12 +1626,14 @@ mod tests {
                 ..SettingsCli::default()
             },
         );
+
         assert_eq!(resolved.settings.toml_max_width, Some(60));
     }
 
     #[test]
     fn a_file_may_define_its_own_preset() {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("rust-formatter.toml"),
             "[presets.house]\nsort-keys = true\ntoml-max-width = 55\n",
@@ -1594,6 +1649,7 @@ mod tests {
                 ..SettingsCli::default()
             },
         );
+
         assert_eq!(resolved.settings.toml_max_width, Some(55));
         assert_eq!(resolved.settings.sort_keys, Some(Toggle(true)));
     }
@@ -1608,9 +1664,11 @@ mod tests {
             "[presets.cargo]\nsort-keys = true\n",
         )
         .unwrap();
+
         let err = resolve(temp.path(), &lookup(&map), &SettingsCli::default())
             .unwrap_err()
             .to_string();
+
         assert!(err.contains("built-in preset"), "{err}");
 
         fs::write(
@@ -1618,9 +1676,11 @@ mod tests {
             "[presets.house]\npreset = [\"cargo\"]\n",
         )
         .unwrap();
+
         let err = resolve(temp.path(), &lookup(&map), &SettingsCli::default())
             .unwrap_err()
             .to_string();
+
         assert!(err.contains("names another preset"), "{err}");
     }
 
@@ -1628,6 +1688,7 @@ mod tests {
     fn an_unknown_preset_lists_the_ones_there_are() {
         let temp = tempdir().unwrap();
         let map = env_from(&[]);
+
         let err = resolve(
             temp.path(),
             &lookup(&map),
@@ -1638,6 +1699,7 @@ mod tests {
         )
         .unwrap_err()
         .to_string();
+
         assert!(err.contains("unknown preset `nope`"), "{err}");
         assert!(err.contains("narrow-tabs"), "{err}");
     }
@@ -1649,11 +1711,13 @@ mod tests {
         let err = deserialize_file(Path::new("<test>"), "sort_deps = true\n")
             .unwrap_err()
             .to_string();
+
         assert!(err.contains("did you mean `sort-deps`"), "{err}");
 
         let err = deserialize_file(Path::new("<test>"), "wibble = true\n")
             .unwrap_err()
             .to_string();
+
         assert!(err.contains("unknown setting `wibble`"), "{err}");
         assert!(!err.contains("did you mean"), "{err}");
     }
@@ -1661,6 +1725,7 @@ mod tests {
     #[test]
     fn the_style_guide_preset_is_the_cargo_preset() {
         let cargo = builtin_preset("cargo").unwrap();
+
         assert_eq!(builtin_preset("style-guide"), Some(cargo));
     }
 
@@ -1675,12 +1740,15 @@ mod tests {
     fn the_rendered_settings_name_the_layer_each_value_came_from() {
         let mut settings = Settings::default();
         let mut provenance = Provenance::default();
+
         settings.merge_from(
             parse("toml-max-width = 70\n"),
             &Source::File(PathBuf::from("/repo/rust-formatter.toml")),
             &mut provenance,
         );
+
         let rendered = render(&settings, &provenance, false);
+
         assert!(rendered.contains("toml-max-width = 70"), "{rendered}");
         assert!(
             rendered.contains("# from: /repo/rust-formatter.toml"),
@@ -1689,6 +1757,7 @@ mod tests {
 
         let json = render(&settings, &provenance, true);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
         assert_eq!(parsed["settings"]["toml-max-width"], 70);
         assert_eq!(
             parsed["sources"]["toml-max-width"],

@@ -28,9 +28,11 @@ pub struct Options {
 pub fn run(options: &Options) -> Result<ExitCode> {
     let root = cargo::repo_root();
     let corpus = root.join("fuzz/corpus").join(TARGET);
+
     fs::create_dir_all(&corpus).map_err(Error::io(&corpus))?;
 
     let mut seeded = 0;
+
     for fixture in tree::files_with_suffix(&root.join(FIXTURES), FIXTURE_SUFFIX, 1)? {
         let name = fixture.file_name().map_or_default(|name| {
             name.to_string_lossy()
@@ -43,6 +45,7 @@ pub fn run(options: &Options) -> Result<ExitCode> {
             let input: Vec<u8> = std::iter::once(selector)
                 .chain(body.iter().copied())
                 .collect();
+
             fs::write(&seed, input).map_err(Error::io(&seed))?;
             seeded += 1;
         }
@@ -50,6 +53,7 @@ pub fn run(options: &Options) -> Result<ExitCode> {
     println!("==> seeded {seeded} inputs into {}", corpus.display());
 
     println!("==> fuzzing for {}s", options.seconds);
+
     let status = cargo::status(
         cargo::cargo()
             .current_dir(root)

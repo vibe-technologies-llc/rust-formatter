@@ -9,7 +9,7 @@ use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Val
 /// sorting off -- five of the seven presets -- a scrambled table is a bug, and a
 /// map-backed tree cannot see one. [`Tree::normalized`] is the escape hatch for
 /// the profiles that reorder on purpose.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Tree {
     Str(String),
     Int(i64),
@@ -35,6 +35,7 @@ impl Tree {
                     .iter()
                     .map(|item| item.normalized(sort_arrays, sort_keys))
                     .collect();
+
                 if sort_arrays {
                     items.sort();
                 }
@@ -45,6 +46,7 @@ impl Tree {
                     .iter()
                     .map(|(key, value)| (key.clone(), value.normalized(sort_arrays, sort_keys)))
                     .collect();
+
                 if sort_keys {
                     entries.sort();
                 }
@@ -65,6 +67,7 @@ pub fn parse_tree(src: &str) -> Result<Tree, toml_edit::TomlError> {
 
 fn table_tree(table: &Table) -> Tree {
     let mut entries = Vec::new();
+
     for (key, item) in table {
         if let Some(value) = item_tree(item) {
             entries.push((key.to_owned(), value));

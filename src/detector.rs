@@ -23,7 +23,7 @@ const ALLOWED_HIDDEN_DIRS: [&str; 2] = [".cargo", ".config"];
 const MAX_ANCESTOR_DEPTH: usize = 32;
 
 /// Represents the detected type of target to format.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TargetKind {
     /// A Cargo project or workspace member with a `Cargo.toml`.
@@ -73,6 +73,7 @@ pub(crate) fn normalize_lexically(path: &Path) -> PathBuf {
     use std::path::Component;
 
     let mut out = PathBuf::new();
+
     for component in path.components() {
         match component {
             Component::CurDir => {}
@@ -101,6 +102,7 @@ pub fn absolutize(path: &Path) -> PathBuf {
     if path.is_absolute() {
         return normalize_lexically(path);
     }
+
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     normalize_lexically(&cwd.join(path))
 }
@@ -123,6 +125,7 @@ pub(crate) fn simplify_path(path: PathBuf) -> PathBuf {
                 .all(|component| matches!(component, Component::RootDir | Component::Normal(_)))
             {
                 let mut simplified = PathBuf::from(format!("{}:\\", letter as char));
+
                 simplified.push(rest);
                 return simplified;
             }
@@ -134,6 +137,7 @@ pub(crate) fn simplify_path(path: PathBuf) -> PathBuf {
 /// Analyzes the given path and detects whether it is a Cargo project, a single file, or loose files.
 pub fn detect_target(target_path: &Path) -> Result<TargetKind> {
     let mut errors = Vec::new();
+
     let target = detect_target_with(target_path, &Selector::permissive(), &mut errors)?;
     match errors.into_iter().next() {
         Some(err) => Err(err),
@@ -168,6 +172,7 @@ pub fn detect_target_with(
 
     if let Some(manifest_path) = find_cargo_manifest(&canonical) {
         let workspace_root = workspace_root(&manifest_path);
+
         return Ok(TargetKind::CargoProject {
             manifest_path,
             root_dir: canonical,
@@ -176,6 +181,7 @@ pub fn detect_target_with(
     }
 
     let walk = collect(&canonical, selector, selector.languages(), &[], true)?;
+
     if walk.rust_files.is_empty() && walk.toml_files.is_empty() {
         return match walk.errors.into_iter().next() {
             Some(err) => Err(err),
@@ -195,6 +201,7 @@ fn single_file_target(path: PathBuf) -> Option<TargetKind> {
     if is_cargo_manifest(&path) {
         let root_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         let workspace_root = workspace_root(&path);
+
         return Some(TargetKind::CargoProject {
             manifest_path: path,
             root_dir,
@@ -343,8 +350,10 @@ pub fn workspace_root(manifest_path: &Path) -> PathBuf {
     }
 
     let boundary = Boundary::workspace();
+
     for dir in bounded_ancestors(start, &boundary) {
         let manifest = dir.join("Cargo.toml");
+
         if !manifest.is_file() {
             continue;
         }
@@ -375,11 +384,13 @@ pub fn workspace_member_dirs(workspace_root: &Path) -> Vec<PathBuf> {
     };
 
     let mut members = Vec::new();
+
     if doc.get("package").is_some() {
         members.push(canonical_dir(workspace_root));
     }
 
     let mut builder = WalkBuilder::new(workspace_root);
+
     builder
         .hidden(false)
         .require_git(false)
@@ -395,18 +406,23 @@ pub fn workspace_member_dirs(workspace_root: &Path) -> Vec<PathBuf> {
         let Ok(entry) = entry else {
             continue;
         };
+
         if entry.file_name() != "Cargo.toml" {
             continue;
         }
+
         let Some(kind) = entry.file_type() else {
             continue;
         };
+
         if kind.is_symlink() || !kind.is_file() {
             continue;
         }
+
         let Some(dir) = entry.path().parent() else {
             continue;
         };
+
         if dir == workspace_root {
             continue;
         }
@@ -470,8 +486,10 @@ fn one_member_pattern_matches(workspace_dir: &Path, pkg_dir: &Path, pattern: &st
     if pattern == "." {
         return pkg_dir == workspace_dir;
     }
+
     let candidate = normalize_lexically(&workspace_dir.join(pattern));
     let target = normalize_lexically(pkg_dir);
+
     if candidate == target {
         return true;
     }
@@ -480,8 +498,10 @@ fn one_member_pattern_matches(workspace_dir: &Path, pkg_dir: &Path, pattern: &st
     // Only the pattern's own segments may glob: a directory really named `a*`
     // higher up the tree is escaped back into a literal.
     let mut absolute = String::new();
+
     for component in normalize_lexically(workspace_dir).components() {
         let text = component.as_os_str().to_string_lossy().replace('\\', "/");
+
         push_glob_segment(&mut absolute, &globset::escape(&text));
     }
     for component in Path::new(pattern).components() {
@@ -492,6 +512,7 @@ fn one_member_pattern_matches(workspace_dir: &Path, pkg_dir: &Path, pattern: &st
             segment => push_glob_segment(&mut absolute, segment),
         }
     }
+
     let target = target.to_string_lossy().replace('\\', "/");
     let Ok(glob) = GlobBuilder::new(&absolute).literal_separator(true).build() else {
         return false;
@@ -525,12 +546,15 @@ fn expand_braces(pattern: &str) -> Vec<Cow<'_, str>> {
     let Some(end_rel) = pattern[start + 1..].find('}') else {
         return vec![Cow::Borrowed(pattern)];
     };
+
     let end = start + 1 + end_rel;
     let prefix = &pattern[..start];
     let suffix = &pattern[end + 1..];
     let mut expanded = Vec::new();
+
     for alt in pattern[start + 1..end].split(',') {
         let combined = format!("{prefix}{alt}{suffix}");
+
         expanded.extend(
             expand_braces(&combined)
                 .into_iter()
@@ -572,12 +596,14 @@ impl<'a> WorkspaceScope<'a> {
         let Some(parent) = path.parent() else {
             return true;
         };
+
         if let Some(&known) = self.by_dir.get(parent) {
             return known;
         }
 
         let mut walked = Vec::new();
         let mut in_scope = true;
+
         for dir in parent.ancestors() {
             if let Some(&known) = self.by_dir.get(dir) {
                 in_scope = known;
@@ -760,6 +786,7 @@ pub fn collect(
             )
         })
         .collect();
+
     let scope = WalkScope {
         root: root.to_path_buf(),
         filter,
@@ -770,6 +797,7 @@ pub fn collect(
     };
 
     let mut builder = WalkBuilder::new(root);
+
     builder
         .hidden(false)
         .require_git(false)
@@ -796,6 +824,7 @@ pub fn collect(
 
     let collected = Mutex::new(Vec::new());
     let failures = Mutex::new(Vec::new());
+
     builder.build_parallel().visit(&mut Collector {
         scope: &scope,
         collected: &collected,
@@ -814,6 +843,7 @@ pub fn collect(
         .unwrap_or_else(PoisonError::into_inner);
     let mut rust_files = Vec::with_capacity(parts.iter().map(|(rust, _)| rust.len()).sum());
     let mut toml_files = Vec::with_capacity(parts.iter().map(|(_, toml)| toml.len()).sum());
+
     for (rust, toml) in parts {
         rust_files.extend(rust);
         toml_files.extend(toml);
@@ -874,6 +904,7 @@ impl ParallelVisitor for Visitor<'_> {
                 let path = walk_error_path(&err)
                     .map_or_else(|| self.scope.root.clone(), Path::to_path_buf);
                 let source = walk_io_error(&err);
+
                 self.failures
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
@@ -883,6 +914,7 @@ impl ParallelVisitor for Visitor<'_> {
         };
 
         let kind = entry.file_type();
+
         if kind.is_some_and(|kind| kind.is_dir()) {
             if entry.depth() > 0 && self.scope.prunes_dir(entry.path(), entry.file_name()) {
                 return WalkState::Skip;
@@ -977,14 +1009,19 @@ mod tests {
     fn test_detect_cargo_project() {
         let temp = tempdir().unwrap();
         let cargo_toml = temp.path().join("Cargo.toml");
+
         fs::write(
             &cargo_toml,
             "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n",
         )
         .unwrap();
+
         let src = temp.path().join("src");
+
         fs::create_dir(&src).unwrap();
+
         let main_rs = src.join("main.rs");
+
         fs::write(&main_rs, "fn main() {}\n").unwrap();
 
         let detected = detect_target(temp.path()).unwrap();
@@ -1000,6 +1037,7 @@ mod tests {
     fn test_detect_loose_files() {
         let temp = tempdir().unwrap();
         let file1 = temp.path().join("script.rs");
+
         fs::write(&file1, "fn main() {}\n").unwrap();
 
         let detected = detect_target(temp.path()).unwrap();
@@ -1017,6 +1055,7 @@ mod tests {
         let temp = tempdir().unwrap();
         let rust = temp.path().join("script.rs");
         let toml = temp.path().join("extra.toml");
+
         fs::write(&rust, "fn main() {}\n").unwrap();
         fs::write(&toml, "a = 1\n").unwrap();
 
@@ -1038,6 +1077,7 @@ mod tests {
     fn test_detect_single_file() {
         let temp = tempdir().unwrap();
         let file = temp.path().join("main.rs");
+
         fs::write(&file, "fn main() {}\n").unwrap();
 
         let detected = detect_target(&file).unwrap();
@@ -1053,12 +1093,16 @@ mod tests {
     fn test_collect_rust_files_pruning_skips_nested_package() {
         let temp = tempdir().unwrap();
         let root = temp.path();
+
         fs::write(root.join("root.rs"), "fn root() {}\n").unwrap();
+
         let nested = root.join("nested");
+
         fs::create_dir(&nested).unwrap();
         fs::write(nested.join("child.rs"), "fn child() {}\n").unwrap();
 
         let files = collect_rust_files_pruning(root, &[nested]).unwrap();
+
         assert_eq!(files, vec![root.join("root.rs")]);
     }
 
@@ -1069,9 +1113,12 @@ mod tests {
     fn test_target_dir_is_pruned_even_when_not_ignored() {
         let temp = tempdir().unwrap();
         let kept = temp.path().join("keep.rs");
+
         fs::write(&kept, "fn main() {}\n").unwrap();
+
         let target = temp.path().join("target");
         let build_dir = target.join("debug");
+
         fs::create_dir_all(&build_dir).unwrap();
         fs::write(
             target.join("CACHEDIR.TAG"),
@@ -1081,18 +1128,22 @@ mod tests {
         fs::write(build_dir.join("generated.rs"), "fn gen() {}\n").unwrap();
 
         let files = collect_rust_files(temp.path()).unwrap();
+
         assert_eq!(files, vec![kept]);
     }
 
     #[test]
     fn a_target_dir_beside_a_manifest_is_pruned_without_a_tag() {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("Cargo.toml"),
             "[package]\nname = \"x\"\nversion = \"0.1.0\"\n",
         )
         .unwrap();
+
         let build_dir = temp.path().join("target").join("debug");
+
         fs::create_dir_all(&build_dir).unwrap();
         fs::write(build_dir.join("generated.rs"), "fn gen() {}\n").unwrap();
 
@@ -1108,8 +1159,11 @@ mod tests {
     fn a_source_module_named_target_is_formatted() {
         let temp = tempdir().unwrap();
         let module = temp.path().join("src").join("target");
+
         fs::create_dir_all(&module).unwrap();
+
         let source = module.join("mod.rs");
+
         fs::write(&source, "pub fn t() {}\n").unwrap();
 
         assert_eq!(collect_rust_files(temp.path()).unwrap(), vec![source]);
@@ -1119,8 +1173,11 @@ mod tests {
     fn a_renamed_build_dir_is_pruned_by_its_tag() {
         let temp = tempdir().unwrap();
         let kept = temp.path().join("keep.rs");
+
         fs::write(&kept, "fn main() {}\n").unwrap();
+
         let build = temp.path().join("build-output");
+
         fs::create_dir_all(&build).unwrap();
         fs::write(
             build.join("CACHEDIR.TAG"),
@@ -1135,6 +1192,7 @@ mod tests {
     #[test]
     fn test_collect_skips_cargo_lock_and_unwanted_kinds() {
         let temp = tempdir().unwrap();
+
         fs::write(temp.path().join("Cargo.lock"), "version = 4\n").unwrap();
         fs::write(
             temp.path().join("clippy.toml"),
@@ -1146,9 +1204,11 @@ mod tests {
         fs::write(temp.path().join("a.rs"), "fn main() {}\n").unwrap();
 
         let toml_files = collect_toml_files(temp.path()).unwrap();
+
         assert_eq!(toml_files, vec![temp.path().join("a.toml")]);
 
         let rust_files = collect_rust_files(temp.path()).unwrap();
+
         assert_eq!(rust_files, vec![temp.path().join("a.rs")]);
     }
 
@@ -1157,10 +1217,12 @@ mod tests {
         let temp = tempdir().unwrap();
         let home = temp.path().join("home");
         let scratch = home.join("scratch");
+
         fs::create_dir_all(&scratch).unwrap();
         fs::write(home.join("Cargo.toml"), "[package]\nname = \"stray\"\n").unwrap();
 
         let bounded = Boundary::with_home(Some(home.clone()), false);
+
         assert_eq!(find_cargo_manifest_within(&scratch, &bounded), None);
 
         // The start directory itself is exempt, so working in `$HOME` still works.
@@ -1173,12 +1235,15 @@ mod tests {
     #[test]
     fn the_manifest_search_stops_at_a_git_root() {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("Cargo.toml"),
             "[package]\nname = \"outer\"\n",
         )
         .unwrap();
+
         let inner = temp.path().join("inner").join("src");
+
         fs::create_dir_all(&inner).unwrap();
         fs::create_dir_all(temp.path().join("inner").join(".git")).unwrap();
 
@@ -1200,9 +1265,12 @@ mod tests {
     fn a_manifest_beside_a_git_file_is_found() {
         let temp = tempdir().unwrap();
         let sub = temp.path().join("sub");
+
         fs::create_dir_all(sub.join("src")).unwrap();
         fs::write(sub.join(".git"), "gitdir: ../.git/modules/sub\n").unwrap();
+
         let manifest = sub.join("Cargo.toml");
+
         fs::write(&manifest, "[package]\nname = \"sub\"\n").unwrap();
 
         assert_eq!(
@@ -1214,11 +1282,14 @@ mod tests {
     #[test]
     fn the_ancestor_walk_is_depth_capped() {
         let mut deep = PathBuf::from("/");
+
         for level in 0..MAX_ANCESTOR_DEPTH + 8 {
             deep.push(format!("d{level}"));
         }
+
         let boundary = Boundary::with_home(None, false);
         let visited: Vec<_> = bounded_ancestors(&deep, &boundary).collect();
+
         assert_eq!(visited.len(), MAX_ANCESTOR_DEPTH);
     }
 
@@ -1227,8 +1298,10 @@ mod tests {
     #[test]
     fn a_parallel_walk_agrees_with_a_serial_one() {
         let temp = tempdir().unwrap();
+
         for dir in 0..12 {
             let nested = temp.path().join(format!("d{dir}")).join("inner");
+
             fs::create_dir_all(&nested).unwrap();
             for file in 0..12 {
                 fs::write(nested.join(format!("f{file}.rs")), "fn f() {}\n").unwrap();
@@ -1261,12 +1334,14 @@ mod tests {
         let filter = Selector::permissive()
             .filter_for(Path::new("/tmp"))
             .unwrap();
+
         for name in crate::selection::DEFAULT_TOML_SKIPS {
             assert!(
                 filter.skips_toml(Path::new("/tmp").join(name).as_path()),
                 "expected skip for {name}"
             );
         }
+
         assert!(!filter.skips_toml(Path::new("/tmp/deny.toml")));
     }
 
@@ -1274,6 +1349,7 @@ mod tests {
     fn test_workspace_root_standalone_package() {
         let temp = tempdir().unwrap();
         let manifest = temp.path().join("Cargo.toml");
+
         fs::write(
             &manifest,
             r#"[package]
@@ -1283,6 +1359,7 @@ edition = "2021"
 "#,
         )
         .unwrap();
+
         assert_eq!(workspace_root(&manifest), temp.path());
     }
 
@@ -1290,6 +1367,7 @@ edition = "2021"
     fn test_workspace_root_from_virtual_member() {
         let temp = tempdir().unwrap();
         let root_manifest = temp.path().join("Cargo.toml");
+
         fs::write(
             &root_manifest,
             r#"[workspace]
@@ -1299,8 +1377,11 @@ members = ["crates/foo", "crates/bar"]
         .unwrap();
 
         let foo_dir = temp.path().join("crates").join("foo");
+
         fs::create_dir_all(&foo_dir).unwrap();
+
         let foo_manifest = foo_dir.join("Cargo.toml");
+
         fs::write(
             &foo_manifest,
             r#"[package]
@@ -1317,7 +1398,9 @@ edition = "2021"
 
     fn write_package(dir: &Path, name: &str) -> PathBuf {
         fs::create_dir_all(dir).unwrap();
+
         let manifest = dir.join("Cargo.toml");
+
         fs::write(
             &manifest,
             format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
@@ -1329,6 +1412,7 @@ edition = "2021"
     #[test]
     fn test_workspace_root_for_member() {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("Cargo.toml"),
             r#"[workspace]
@@ -1336,6 +1420,7 @@ members = ["crates/foo"]
 "#,
         )
         .unwrap();
+
         let foo_manifest = write_package(&temp.path().join("crates").join("foo"), "foo");
 
         assert_eq!(workspace_root(&foo_manifest), temp.path());
@@ -1344,6 +1429,7 @@ members = ["crates/foo"]
     #[test]
     fn test_workspace_root_for_non_member_is_the_package() {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("Cargo.toml"),
             r#"[workspace]
@@ -1352,6 +1438,7 @@ members = ["crates/foo"]
         )
         .unwrap();
         write_package(&temp.path().join("crates").join("foo"), "foo");
+
         let scratch_manifest = write_package(&temp.path().join("scratch"), "scratch");
 
         assert_eq!(
@@ -1364,6 +1451,7 @@ members = ["crates/foo"]
     #[test]
     fn test_workspace_root_for_glob_member() {
         let temp = tempdir().unwrap();
+
         fs::write(
             temp.path().join("Cargo.toml"),
             r#"[workspace]
@@ -1371,6 +1459,7 @@ members = ["crates/*"]
 "#,
         )
         .unwrap();
+
         let foo_manifest = write_package(&temp.path().join("crates").join("foo"), "foo");
 
         assert_eq!(workspace_root(&foo_manifest), temp.path());
@@ -1390,16 +1479,20 @@ members = ["crates/*"]
 
         let temp = tempdir().unwrap();
         let kept = temp.path().join("keep.rs");
+
         fs::write(&kept, "fn main() {}\n").unwrap();
 
         let blocked = temp.path().join("blocked");
+
         fs::create_dir(&blocked).unwrap();
         fs::write(blocked.join("dirty.rs"), "fn dirty(){}\n").unwrap();
 
         fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
+
         let _guard = Restore(blocked.clone());
 
         let result = collect_rust_files(temp.path());
+
         assert!(
             result.is_err(),
             "expected walk error, got Ok({:?})",
@@ -1416,6 +1509,7 @@ members = ["crates/*"]
             true,
         )
         .unwrap();
+
         assert_eq!(walk.rust_files, vec![kept]);
         assert_eq!(walk.errors.len(), 1);
         assert!(
@@ -1430,6 +1524,7 @@ members = ["crates/*"]
     #[test]
     fn a_member_outside_the_workspace_root_is_recognized() {
         let root = Path::new("/ws/inner");
+
         assert!(member_pattern_matches(root, Path::new("/ws/pkg"), "../pkg"));
         assert!(member_pattern_matches(
             root,
@@ -1457,6 +1552,7 @@ members = ["crates/*"]
     #[test]
     fn a_glob_character_in_the_workspace_path_is_not_reinterpreted() {
         let root = Path::new("/ws/a*");
+
         assert!(member_pattern_matches(root, Path::new("/ws/a*/one"), "one"));
         assert!(!member_pattern_matches(
             root,
@@ -1484,6 +1580,7 @@ members = ["crates/*"]
     #[test]
     fn member_globs_match_nested_and_braces() {
         let root = Path::new("/ws");
+
         assert!(member_pattern_matches(
             root,
             &root.join("crates/foo"),
@@ -1522,6 +1619,7 @@ members = ["crates/*"]
         let temp = tempdir().unwrap();
         let ws = temp.path().join("ws");
         let pkg = temp.path().join("pkg");
+
         fs::create_dir_all(&ws).unwrap();
         fs::create_dir_all(&pkg).unwrap();
         fs::write(
@@ -1529,12 +1627,15 @@ members = ["crates/*"]
             "[workspace]\nmembers = [\"../pkg\"]\n",
         )
         .unwrap();
+
         let manifest = pkg.join("Cargo.toml");
+
         fs::write(
             &manifest,
             "[package]\nname = \"pkg\"\nversion = \"0.1.0\"\nworkspace = \"../ws\"\n",
         )
         .unwrap();
+
         assert_eq!(workspace_root(&manifest), canonical(&ws));
     }
 
@@ -1542,11 +1643,13 @@ members = ["crates/*"]
     fn package_workspace_true_is_not_a_path() {
         let temp = tempdir().unwrap();
         let manifest = temp.path().join("Cargo.toml");
+
         fs::write(
             &manifest,
             "[package]\nname = \"pkg\"\nversion.workspace = true\n",
         )
         .unwrap();
+
         assert_eq!(workspace_root(&manifest), temp.path());
     }
 
@@ -1554,19 +1657,23 @@ members = ["crates/*"]
     fn vendor_and_checksum_dirs_are_pruned() {
         let temp = tempdir().unwrap();
         let keep = temp.path().join("keep.toml");
+
         fs::write(&keep, "a = 1\n").unwrap();
 
         let vendor = temp.path().join("vendor").join("foo");
+
         fs::create_dir_all(&vendor).unwrap();
         fs::write(vendor.join(".cargo-checksum.json"), "{}").unwrap();
         fs::write(vendor.join("Cargo.toml"), "x=1\n").unwrap();
 
         let renamed = temp.path().join("third-party").join("bar");
+
         fs::create_dir_all(&renamed).unwrap();
         fs::write(renamed.join(".cargo-checksum.json"), "{}").unwrap();
         fs::write(renamed.join("Cargo.toml"), "y=1\n").unwrap();
 
         let files = collect_toml_files(temp.path()).unwrap();
+
         assert_eq!(files, vec![keep]);
     }
 
@@ -1575,16 +1682,20 @@ members = ["crates/*"]
         let temp = tempdir().unwrap();
         let cargo_dir = temp.path().join(".cargo");
         let config_dir = temp.path().join(".config");
+
         fs::create_dir(&cargo_dir).unwrap();
         fs::create_dir(&config_dir).unwrap();
+
         let cargo_toml = cargo_dir.join("config.toml");
         let nextest = config_dir.join("nextest.toml");
         let secret = temp.path().join(".secret.toml");
+
         fs::write(&cargo_toml, "x = 1\n").unwrap();
         fs::write(&nextest, "y = 1\n").unwrap();
         fs::write(&secret, "z = 1\n").unwrap();
 
         let files = collect_toml_files(temp.path()).unwrap();
+
         assert!(files.contains(&cargo_toml));
         assert!(files.contains(&nextest));
         assert!(!files.contains(&secret));
@@ -1594,22 +1705,32 @@ members = ["crates/*"]
     fn nested_cargo_config_is_found() {
         let temp = tempdir().unwrap();
         let nested = temp.path().join("crates").join("foo").join(".cargo");
+
         fs::create_dir_all(&nested).unwrap();
+
         let config = nested.join("config.toml");
+
         fs::write(&config, "x = 1\n").unwrap();
+
         let files = collect_toml_files(temp.path()).unwrap();
+
         assert_eq!(files, vec![config]);
     }
 
     #[test]
     fn gitignore_applies_without_git_dir() {
         let temp = tempdir().unwrap();
+
         fs::write(temp.path().join(".gitignore"), "skip.toml\n").unwrap();
+
         let keep = temp.path().join("keep.toml");
         let skip = temp.path().join("skip.toml");
+
         fs::write(&keep, "a = 1\n").unwrap();
         fs::write(&skip, "b = 1\n").unwrap();
+
         let files = collect_toml_files(temp.path()).unwrap();
+
         assert_eq!(files, vec![keep]);
     }
 
@@ -1619,16 +1740,20 @@ members = ["crates/*"]
         let root = temp.path();
         let member = root.join("crates").join("foo");
         let excluded = root.join("crates").join("local");
+
         fs::create_dir_all(&member).unwrap();
         fs::create_dir_all(&excluded).unwrap();
+
         let root_toml = root.join("deny.toml");
         let member_toml = member.join("Cargo.toml");
         let excluded_toml = excluded.join("Cargo.toml");
+
         fs::write(&root_toml, "a = 1\n").unwrap();
         fs::write(&member_toml, "[package]\nname = \"foo\"\n").unwrap();
         fs::write(&excluded_toml, "[package]\nname = \"local\"\n").unwrap();
 
         let members = vec![member.clone()];
+
         assert!(file_in_workspace_scope(&root_toml, root, &members));
         assert!(file_in_workspace_scope(&member_toml, root, &members));
         assert!(!file_in_workspace_scope(&excluded_toml, root, &members));
@@ -1638,14 +1763,17 @@ members = ["crates/*"]
     fn workspace_member_dirs_skips_excluded_and_nested_packages() {
         let temp = tempdir().unwrap();
         let root = temp.path();
+
         fs::write(
             root.join("Cargo.toml"),
             "[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"crates/local\"]\nresolver = \"2\"\n",
         )
         .unwrap();
+
         let member = root.join("crates").join("foo");
         let excluded = root.join("crates").join("local");
         let nested = root.join("crates").join("foo").join("nested");
+
         fs::create_dir_all(&member).unwrap();
         fs::create_dir_all(&excluded).unwrap();
         fs::create_dir_all(&nested).unwrap();
@@ -1654,6 +1782,7 @@ members = ["crates/*"]
         fs::write(nested.join("Cargo.toml"), "[package]\nname = \"nested\"\n").unwrap();
 
         let members = workspace_member_dirs(root);
+
         assert!(members.contains(&canonical(&member)), "{members:?}");
         assert!(!members.contains(&canonical(&excluded)), "{members:?}");
         assert!(!members.contains(&canonical(&nested)), "{members:?}");
@@ -1665,16 +1794,20 @@ members = ["crates/*"]
         let temp = tempdir().unwrap();
         let outside = temp.path().join("outside");
         let tree = temp.path().join("tree");
+
         fs::create_dir_all(&outside).unwrap();
         fs::create_dir_all(&tree).unwrap();
+
         let real = outside.join("real.toml");
         let link = tree.join("link.toml");
         let kept = tree.join("kept.toml");
+
         fs::write(&real, "a = 1\n").unwrap();
         fs::write(&kept, "b = 2\n").unwrap();
         std::os::unix::fs::symlink(&real, &link).unwrap();
 
         let files = collect_toml_files(&tree).unwrap();
+
         assert_eq!(files, vec![kept]);
         assert!(!files.contains(&link));
     }

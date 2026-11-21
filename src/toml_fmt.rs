@@ -22,7 +22,7 @@ use crate::{
 
 /// What a manifest cannot say about itself: the workspace value behind
 /// `rust-version.workspace = true`.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct ManifestContext {
     pub workspace_rust_version: Option<PartialVersion>,
 }
@@ -60,11 +60,13 @@ pub fn owned_dep_requests(
         Regions::none()
     };
     let parsed = Document::parse(input)?;
+
     let freeze = (!regions.is_empty())
         .then(|| Freeze::build(parsed.as_table(), parsed.trailing(), &regions));
     let guard = Guard::of(freeze.as_ref());
 
     let mut requests = Vec::new();
+
     collect_dep_requests(parsed.as_table(), Scope::ROOT, guard, &mut requests);
     Ok(requests
         .into_iter()
@@ -83,6 +85,7 @@ fn format_toml_inner(
     } else {
         Regions::none()
     };
+
     if regions.is_empty() {
         return format_regions(input, style, lookup, context, &regions);
     }
@@ -91,9 +94,11 @@ fn format_toml_inner(
     // lines and can carry one marker past another. Reading the regions off the
     // text it will actually produce is what keeps a second pass a no-op.
     let regrouped = Document::parse(input)?.into_mut().to_string();
+
     if regrouped == input {
         return format_regions(input, style, lookup, context, &regions);
     }
+
     let regions = Regions::scan(&regrouped);
     format_regions(&regrouped, style, lookup, context, &regions)
 }
@@ -164,6 +169,7 @@ fn format_regions(
 
     let versions = formatter.records.into_inner();
     let rendered = render(&doc, input);
+
     if !style.aligns() {
         return Ok(TomlFormatOutput {
             text: rendered,
@@ -178,6 +184,7 @@ fn format_regions(
 
 fn render(doc: &DocumentMut, input: &str) -> String {
     let mut out = String::with_capacity(input.len() + input.len() / 8 + 1);
+
     let _ = write!(out, "{doc}");
 
     if out.is_empty() {
@@ -297,6 +304,7 @@ impl<'a> Formatter<'a> {
         };
 
         let mut requests = Vec::new();
+
         collect_dep_requests(doc.as_table(), Scope::ROOT, guard, &mut requests);
         if !requests.is_empty() {
             lookup.prewarm(&requests);
@@ -315,6 +323,7 @@ impl<'a> Formatter<'a> {
             .spans
             .get(&span_key(scope.path, crate_key))
             .and_then(|offset| crate::error::line_column(self.source, *offset));
+
         self.records.borrow_mut().push(VersionRecord {
             crate_name: name.to_owned(),
             section: scope.path.to_owned(),
@@ -353,6 +362,7 @@ impl<'a> Formatter<'a> {
         let header = match kind {
             TableKind::Header { array_of_tables } => {
                 let index = self.header_index.get();
+
                 self.header_index.set(index + 1);
                 Some((index, array_of_tables))
             }
@@ -372,6 +382,7 @@ impl<'a> Formatter<'a> {
                 (level.inherited, Level { inherited, body })
             }
         };
+
         let key_start = match kind {
             TableKind::Dotted { key_start } => key_start,
             TableKind::Root | TableKind::Header { .. } => style.indent.width(level.body),
@@ -383,6 +394,7 @@ impl<'a> Formatter<'a> {
             match item {
                 Item::Value(value) => {
                     let entry = guard.child(key.get(), 0);
+
                     if frozen_key {
                         if scope.kind.holds_deps() {
                             self.record_frozen(scope, key.get(), value);
@@ -396,6 +408,7 @@ impl<'a> Formatter<'a> {
                                 body_block,
                                 Some(cover),
                             );
+
                             set_prefix(key.leaf_decor_mut(), self.source, &prefix);
                         }
                         continue;
@@ -406,9 +419,11 @@ impl<'a> Formatter<'a> {
                     if scope.kind == ScopeKind::Deps {
                         self.apply_cargo_conventions(value);
                     }
+
                     let column = self.key_end(key_start, &key) + 3;
                     let reserved =
                         self.comment_width(&raw_to_str(value.decor().suffix(), self.source));
+
                     self.value(
                         value,
                         Ctx {
@@ -429,6 +444,7 @@ impl<'a> Formatter<'a> {
                         }
                         _ => false,
                     };
+
                     self.key_decor(&mut key, if moved { "" } else { &prefix });
                     self.leaf_decor(value);
                 }
@@ -449,10 +465,13 @@ impl<'a> Formatter<'a> {
                             array_of_tables: false,
                         }
                     };
+
                     if scope.kind.holds_deps() {
                         self.pin_dep_table(key.get(), child, scope, child_guard);
                     }
+
                     let child_path = self.child_path(scope, key.get());
+
                     self.table(
                         child,
                         scope.child(&child_path, key.get()),
@@ -465,6 +484,7 @@ impl<'a> Formatter<'a> {
                     if !frozen_key {
                         Self::header_key_decor(&mut key);
                     }
+
                     let child_path = self.child_path(scope, key.get());
                     let child_scope = scope.child(&child_path, key.get());
                     for (index, child) in children.iter_mut().enumerate() {
@@ -485,6 +505,7 @@ impl<'a> Formatter<'a> {
 
         let source = self.source;
         let cover = guard.prefix();
+
         if !guard.own() || cover.is_some() {
             let prefix = self.comment_block(
                 table.decor().prefix(),
@@ -498,10 +519,12 @@ impl<'a> Formatter<'a> {
             } else {
                 self.header_prefix(table, header, prefix)
             };
+
             set_prefix(table.decor_mut(), source, &prefix);
         }
         if !guard.own() {
             let suffix = same_line_comment_suffix(&raw_to_str(table.decor().suffix(), source));
+
             set_suffix(table.decor_mut(), source, &suffix);
         }
     }
@@ -527,6 +550,7 @@ impl<'a> Formatter<'a> {
         // a run leaves a frozen one alone, so they still fit; keeping the run
         // whole rather than panicking is the safe way to be wrong about that.
         debug_assert!(cover.to <= current.len(), "cover outside its run");
+
         if cover.to > current.len()
             || !current.is_char_boundary(cover.from)
             || !current.is_char_boundary(cover.to)
@@ -549,6 +573,7 @@ impl<'a> Formatter<'a> {
 
         let middle = &current[cover.from..cover.to];
         let mut out = String::with_capacity(head.len() + middle.len() + tail.len());
+
         out.push_str(head);
         out.push_str(middle);
         out.push_str(tail);
@@ -564,9 +589,11 @@ impl<'a> Formatter<'a> {
         if !self.style.blank_line_before_tables {
             return prefix;
         }
+
         let Some((index, array_of_tables)) = header else {
             return prefix;
         };
+
         if !renders_header(table, array_of_tables) {
             return prefix;
         }
@@ -576,6 +603,7 @@ impl<'a> Formatter<'a> {
             // single strip leaves a blank line that the next pass strips again,
             // so the document is not a fixed point.
             let flush = prefix.trim_start_matches('\n');
+
             return if flush.len() == prefix.len() {
                 prefix
             } else {
@@ -620,6 +648,7 @@ impl<'a> Formatter<'a> {
         if dotted {
             for (key, value) in table.iter_mut() {
                 let column = self.key_end(ctx.column + 1, &key);
+
                 self.value(value, Ctx { column, ..ctx });
             }
             self.collapse_to_dotted(table);
@@ -634,6 +663,7 @@ impl<'a> Formatter<'a> {
                 dotted_ok: false,
                 force_inline: true,
             };
+
             for (_, value) in table.iter_mut() {
                 self.value(value, child);
             }
@@ -652,12 +682,15 @@ impl<'a> Formatter<'a> {
             && self.style.toml_version != TomlVersion::V1_0;
         let mut decors = self.inline_decors(table);
         let trailing = raw_to_str(Some(table.trailing()), self.source).into_owned();
+
         let rest = split_container_trailing(&mut decors, &trailing, comma);
         let comments = self.same_line_comment_widths(&decors, &rest);
         let last = keys.saturating_sub(1);
+
         for (index, (key, value)) in table.iter_mut().enumerate() {
             let column = self.key_end(base, &key) + 3;
             let reserved = usize::from(index < last || comma) + comments[index];
+
             self.value(
                 value,
                 Ctx {
@@ -680,9 +713,11 @@ impl<'a> Formatter<'a> {
         if !self.style.cargo_conventions {
             return;
         }
+
         let Some(table) = value.as_inline_table() else {
             return;
         };
+
         if self.collapse_drops_comment(table) {
             return;
         }
@@ -694,6 +729,7 @@ impl<'a> Formatter<'a> {
         let [key] = path.as_slice() else {
             return;
         };
+
         if key.get() != "version" || !inner.is_str() {
             return;
         }
@@ -703,6 +739,7 @@ impl<'a> Formatter<'a> {
             &raw_to_str(table.decor().suffix(), self.source),
         );
         let mut replacement = (*inner).clone();
+
         replacement.decor_mut().clear();
         set_suffix(replacement.decor_mut(), self.source, &suffix);
         *value = replacement;
@@ -721,6 +758,7 @@ impl<'a> Formatter<'a> {
         // it renders a header, so rounds repeat until one promotes nothing.
         loop {
             let mut promoted = Vec::new();
+
             self.promote_round(
                 doc.as_table_mut(),
                 Level::ROOT,
@@ -765,9 +803,12 @@ impl<'a> Formatter<'a> {
                 .iter()
                 .map(|name| promotion_anchor(table, path, name, &wanted))
                 .collect();
+
             for (name, anchor) in wanted.iter().zip(anchors) {
                 self.promote_entry(table, name);
+
                 let mut promoted = path.clone();
+
                 promoted.push(Step::Key(name.clone()));
                 out.push((anchor, promoted));
             }
@@ -783,9 +824,11 @@ impl<'a> Formatter<'a> {
             let Item::Table(child) = item else {
                 continue;
             };
+
             if child.is_dotted() {
                 continue;
             }
+
             let name = key.get().to_owned();
             let child_renders = renders_header(child, false);
             let child_level = Level {
@@ -794,6 +837,7 @@ impl<'a> Formatter<'a> {
             };
             let positioned = child.position().is_some();
             let child_guard = guard.child(&name, 0);
+
             path.push(Step::Key(name));
             self.promote_round(child, child_level, positioned, path, out, child_guard);
             path.pop();
@@ -816,6 +860,7 @@ impl<'a> Formatter<'a> {
         if inline.iter().count() < 2 {
             return false;
         }
+
         let Some((key, _)) = table.get_key_value(name) else {
             return false;
         };
@@ -850,10 +895,12 @@ impl<'a> Formatter<'a> {
 
         let names: Vec<String> = inline.iter().map(|(name, _)| name.to_owned()).collect();
         let mut promoted = Table::new();
+
         for name in names {
             let (key, value) = inline
                 .remove_entry(&name)
                 .expect("key came from this table");
+
             promoted.insert_formatted(&key, Item::Value(value));
         }
         promoted.set_implicit(false);
@@ -910,6 +957,7 @@ impl<'a> Formatter<'a> {
             return String::new();
         };
         let mut below = raw_to_str(value.decor().suffix(), self.source).into_owned();
+
         below.push_str(&raw_to_str(Some(table.trailing()), self.source));
         below
     }
@@ -1023,6 +1071,7 @@ impl<'a> Formatter<'a> {
                 )
             })
             .collect();
+
         shift_comments_past_commas(&mut decors);
         decors
     }
@@ -1036,6 +1085,7 @@ impl<'a> Formatter<'a> {
         rest: &str,
     ) {
         let source = self.source;
+
         table.set_dotted(false);
         table.set_trailing_comma(comma);
 
@@ -1054,6 +1104,7 @@ impl<'a> Formatter<'a> {
         }
 
         let trailing = self.closing_block(rest, indent);
+
         set_inline_trailing(table, source, &trailing);
     }
 
@@ -1065,6 +1116,7 @@ impl<'a> Formatter<'a> {
         suffix: &str,
     ) {
         let source = self.source;
+
         set_prefix(key.leaf_decor_mut(), source, prefix);
         set_suffix(key.leaf_decor_mut(), source, " ");
         set_prefix(value.decor_mut(), source, " ");
@@ -1093,11 +1145,14 @@ impl<'a> Formatter<'a> {
             let comma = self.style.trailing_comma == TrailingComma::Multiline && !array.is_empty();
             let mut decors = self.array_decors(array);
             let trailing = raw_to_str(Some(array.trailing()), self.source).into_owned();
+
             let rest = split_container_trailing(&mut decors, &trailing, comma);
             let comments = self.same_line_comment_widths(&decors, &rest);
             let last = array.len().saturating_sub(1);
+
             for (index, value) in array.iter_mut().enumerate() {
                 let reserved = usize::from(index < last || comma) + comments[index];
+
                 self.value(
                     value,
                     Ctx {
@@ -1118,6 +1173,7 @@ impl<'a> Formatter<'a> {
                 dotted_ok: false,
                 force_inline: true,
             };
+
             for value in array.iter_mut() {
                 self.value(value, child);
             }
@@ -1180,6 +1236,7 @@ impl<'a> Formatter<'a> {
                 )
             })
             .collect();
+
         shift_comments_past_commas(&mut decors);
         decors
     }
@@ -1193,15 +1250,18 @@ impl<'a> Formatter<'a> {
         rest: &str,
     ) {
         let source = self.source;
+
         array.set_trailing_comma(comma);
 
         for (value, (prefix, suffix)) in array.iter_mut().zip(decors) {
             let prefix = self.wrap_prefix(prefix, indent + 1);
+
             set_prefix(value.decor_mut(), source, &prefix);
             set_suffix(value.decor_mut(), source, &same_line_comment_suffix(suffix));
         }
 
         let trailing = self.closing_block(rest, indent);
+
         set_array_trailing(array, source, &trailing);
     }
 
@@ -1211,11 +1271,13 @@ impl<'a> Formatter<'a> {
         } else {
             ""
         };
+
         array.set_trailing_comma(false);
         array.set_trailing(pad);
 
         for (index, value) in array.iter_mut().enumerate() {
             let suffix = same_line_comment_suffix(&raw_to_str(value.decor().suffix(), self.source));
+
             value
                 .decor_mut()
                 .set_prefix(if index == 0 { pad } else { " " });
@@ -1225,6 +1287,7 @@ impl<'a> Formatter<'a> {
 
     fn key_decor(&self, key: &mut KeyMut<'_>, prefix: &str) {
         let source = self.source;
+
         set_prefix(key.leaf_decor_mut(), source, prefix);
         set_suffix(key.leaf_decor_mut(), source, " ");
         key.dotted_decor_mut().clear();
@@ -1260,6 +1323,7 @@ impl<'a> Formatter<'a> {
     fn leaf_decor(&self, value: &mut Value) {
         let source = self.source;
         let suffix = same_line_comment_suffix(&raw_to_str(value.decor().suffix(), source));
+
         set_prefix(value.decor_mut(), source, " ");
         set_suffix(value.decor_mut(), source, &suffix);
     }
@@ -1271,11 +1335,13 @@ impl<'a> Formatter<'a> {
         let split = rest.find(['\n', '\r']).unwrap_or(rest.len());
         let head = same_line_comment_suffix(&rest[..split]);
         let tail = self.trailing_block(&rest[split..], indent);
+
         if head.is_empty() {
             return tail;
         }
 
         let mut out = head;
+
         out.push_str(&tail);
         Cow::Owned(out)
     }
@@ -1286,17 +1352,21 @@ impl<'a> Formatter<'a> {
 
     fn wrap_prefix(&self, old: &str, indent: usize) -> Cow<'a, str> {
         let block = CommentBlock::wrapped(indent);
+
         if old.starts_with(['\n', '\r']) || !old.contains('#') {
             return self.rebuild_comments(old, block);
         }
+
         let first_line_end = old.find(['\n', '\r']).unwrap_or(old.len());
         let first_line = &old[..first_line_end];
+
         if !first_line.contains('#') {
             return self.rebuild_comments(old, block);
         }
 
         let rest = self.rebuild_comments(&old[first_line_end..], block);
         let mut out = same_line_comment_suffix(first_line);
+
         out.push_str(&rest);
         Cow::Owned(out)
     }
@@ -1305,19 +1375,24 @@ impl<'a> Formatter<'a> {
     /// but keeping up to `max_blank_lines` blank lines between them.
     fn rebuild_comments(&self, old: &str, block: CommentBlock) -> Cow<'a, str> {
         let style = self.style;
+
         if !old.contains('#') {
             if block.open_newline {
                 return style.indent.newline(block.close);
             }
+
             let blanks = normalize_newlines(old)
                 .matches('\n')
                 .count()
                 .min(style.max_blank_lines);
+
             if blanks == 0 {
                 return style.indent.text(block.close);
             }
+
             let closing = style.indent.text(block.close);
             let mut out = String::with_capacity(blanks + closing.len());
+
             out.extend(std::iter::repeat_n('\n', blanks));
             out.push_str(&closing);
             return Cow::Owned(out);
@@ -1330,10 +1405,13 @@ impl<'a> Formatter<'a> {
         // leading whitespace of whatever follows — unless it is a comment with no
         // newline after it, which is a file's last line.
         let mut segments = text.split('\n');
+
         if block.open_newline {
             segments.next();
         }
+
         let mut lines: Vec<&str> = segments.collect();
+
         if lines
             .last()
             .is_some_and(|line| !line.trim_start().starts_with('#'))
@@ -1343,6 +1421,7 @@ impl<'a> Formatter<'a> {
 
         let indent = style.indent.text(block.indent);
         let mut out = String::with_capacity(text.len() + indent.len() + 1);
+
         if block.open_newline {
             out.push('\n');
         }
@@ -1351,6 +1430,7 @@ impl<'a> Formatter<'a> {
         // the first comment when the block starts flush against a table body.
         let mut wrote = !block.open_newline;
         let mut blanks = 0;
+
         for line in lines {
             let trimmed = line.trim();
             if let Some(rest) = trimmed.strip_prefix('#') {
@@ -1421,6 +1501,7 @@ impl<'a> Formatter<'a> {
     fn array_end(&self, array: &Array, start: usize) -> Option<usize> {
         let pad = usize::from(self.style.array_spacing == Spacing::Spaced && !array.is_empty());
         let mut column = start + 1 + pad;
+
         for (index, value) in array.iter().enumerate() {
             if index > 0 {
                 column += 2;
@@ -1432,12 +1513,14 @@ impl<'a> Formatter<'a> {
 
     fn inline_end(&self, table: &InlineTable, start: usize) -> Option<usize> {
         let values = table.get_values();
+
         if values.is_empty() {
             return Some(start + 2);
         }
 
         let pad = usize::from(self.style.inline_table_spacing == Spacing::Spaced);
         let mut column = start + 1 + pad;
+
         for (index, (path, value)) in values.iter().enumerate() {
             if index > 0 {
                 column += 2;
@@ -1455,6 +1538,7 @@ impl<'a> Formatter<'a> {
 
     fn scalar_end(&self, value: &Value, start: usize) -> Option<usize> {
         let mut width = InlineWidth::new(start, self.style.tab_width());
+
         let _ = write!(width, "{value}");
         width.get()
     }
@@ -1463,6 +1547,7 @@ impl<'a> Formatter<'a> {
         if self.lookup.is_none() {
             return;
         }
+
         let facts = value_dep_facts(crate_key, value);
         if facts.is_reportable() {
             self.record(
@@ -1482,10 +1567,13 @@ impl<'a> Formatter<'a> {
 
         let outcome = {
             let facts = value_dep_facts(crate_key, value);
+
             if !facts.is_reportable() {
                 return;
             }
+
             let outcome = self.decide(lookup, scope, &facts);
+
             self.record(
                 scope,
                 crate_key,
@@ -1499,6 +1587,7 @@ impl<'a> Formatter<'a> {
         let Resolution::Pinned(full) = outcome else {
             return;
         };
+
         if value.as_str().is_some() {
             self.replace_version(value, full);
             return;
@@ -1524,14 +1613,17 @@ impl<'a> Formatter<'a> {
 
         let outcome = {
             let facts = dep_facts(crate_key, table);
+
             if !facts.is_reportable() {
                 return;
             }
+
             let outcome = if guard.key_frozen("version") {
                 Resolution::Skipped(SkipReason::Frozen)
             } else {
                 self.decide(lookup, scope, &facts)
             };
+
             self.record(
                 scope,
                 crate_key,
@@ -1561,6 +1653,7 @@ impl<'a> Formatter<'a> {
         if let Some(reason) = scope.kind.skip().or_else(|| facts.skip.clone()) {
             return Resolution::Skipped(reason);
         }
+
         let Some(req) = facts.req else {
             return Resolution::Unchanged;
         };
@@ -1578,6 +1671,7 @@ impl<'a> Formatter<'a> {
 
     fn replace_version(&self, value: &mut Value, full: String) {
         let suffix = raw_to_str(value.decor().suffix(), self.source).into_owned();
+
         *value = Value::from(full);
         if !suffix.is_empty() {
             value.decor_mut().set_suffix(suffix);
@@ -1596,6 +1690,7 @@ fn leading_header(root: &Table) -> Option<usize> {
 
     let mut walk = HeaderWalk::default();
     let mut headers = Vec::new();
+
     scan_headers(root, true, false, &mut walk, &mut headers);
     headers.into_iter().min().map(|(_, index)| index)
 }
@@ -1674,6 +1769,7 @@ fn promotion_anchor(table: &Table, path: &[Step], name: &str, promoting: &[Strin
         };
         if heads_a_block {
             let mut sibling_path = path.to_vec();
+
             sibling_path.push(Step::Key(sibling.to_owned()));
             anchor = Anchor {
                 path: sibling_path,
@@ -1687,6 +1783,7 @@ fn promotion_anchor(table: &Table, path: &[Step], name: &str, promoting: &[Strin
 
 fn restore_order(table: &mut Table, order: &[String]) {
     let mut taken = Vec::with_capacity(order.len());
+
     for name in order {
         if let Some(entry) = table.remove_entry(name) {
             taken.push(entry);
@@ -1705,10 +1802,12 @@ fn restore_order(table: &mut Table, order: &[String]) {
 /// positions the parser handed out.
 fn renumber_positions(root: &mut Table, promoted: &[(Anchor, Vec<Step>)]) {
     let mut positioned = Vec::new();
+
     collect_positioned(root, &mut Vec::new(), &mut positioned);
     positioned.sort_by_key(|(position, _)| *position);
 
     let mut order: Vec<Vec<Step>> = positioned.into_iter().map(|(_, path)| path).collect();
+
     for (anchor, child) in promoted {
         let at = if anchor.whole_subtree {
             order
@@ -1718,6 +1817,7 @@ fn renumber_positions(root: &mut Table, promoted: &[(Anchor, Vec<Step>)]) {
             order.iter().position(|path| *path == anchor.path)
         };
         let at = at.map_or(order.len(), |index| index + 1);
+
         order.insert(at, child.clone());
     }
 
@@ -1761,6 +1861,7 @@ fn collect_positioned(table: &Table, path: &mut Vec<Step>, out: &mut Vec<(isize,
 fn table_at_mut<'t>(root: &'t mut Table, path: &[Step]) -> Option<&'t mut Table> {
     let mut table = root;
     let mut steps = path.iter();
+
     while let Some(step) = steps.next() {
         let Step::Key(name) = step else {
             return None;
@@ -1771,6 +1872,7 @@ fn table_at_mut<'t>(root: &'t mut Table, path: &[Step]) -> Option<&'t mut Table>
                 let Some(Step::Index(index)) = steps.next() else {
                     return None;
                 };
+
                 table = children.get_mut(*index)?;
             }
             _ => return None,
@@ -1788,6 +1890,7 @@ fn renders_header(table: &Table, array_of_tables: bool) -> bool {
 fn normalize_table_keys(table: &mut Table, source: &str, guard: Guard<'_>) {
     for (mut key, item) in table.iter_mut() {
         let frozen_key = guard.key_frozen(key.get());
+
         if !frozen_key {
             normalize_key(&mut key, source);
         }
@@ -1832,6 +1935,7 @@ fn normalize_value_keys(value: &mut Value, source: &str) {
 /// and put back; an unset decor stays unset, which is not the same as empty.
 fn normalize_key(key: &mut KeyMut<'_>, source: &str) {
     let bare = key.get().to_owned();
+
     if key.display_repr() == bare {
         return;
     }
@@ -1841,6 +1945,7 @@ fn normalize_key(key: &mut KeyMut<'_>, source: &str) {
 
     let leaf = capture_decor(key.leaf_decor(), source);
     let dotted = capture_decor(key.dotted_decor(), source);
+
     key.fmt();
     restore_decor(key.leaf_decor_mut(), leaf);
     restore_decor(key.dotted_decor_mut(), dotted);
@@ -1996,6 +2101,7 @@ fn collect_dep_requests<'a>(
         if guard.key_frozen(key) {
             continue;
         }
+
         let child_guard = guard.child(key, 0);
         match item {
             Item::Value(value) if scope.kind == ScopeKind::Deps => {
@@ -2038,6 +2144,7 @@ fn span_key(section: &str, crate_key: &str) -> String {
 /// spans so a check-mode finding can name a line.
 fn dep_spans(table: &Table) -> AHashMap<String, usize> {
     let mut out = AHashMap::default();
+
     collect_dep_spans(table, Scope::ROOT, &mut out);
     out
 }
@@ -2052,6 +2159,7 @@ fn collect_dep_spans(table: &Table, scope: Scope<'_>, out: &mut AHashMap<String,
         match item {
             Item::Table(child) => {
                 let path = child_path(scope.path, key);
+
                 collect_dep_spans(child, scope.child(&path, key), out);
             }
             Item::ArrayOfTables(children) => {
@@ -2093,6 +2201,7 @@ fn manifest_rust_version(table: &Table, context: &ManifestContext) -> Option<Par
     let Some(declared) = package.get("rust-version") else {
         return workspace;
     };
+
     if let Some(literal) = declared.as_str() {
         return PartialVersion::parse(literal);
     }
@@ -2222,6 +2331,7 @@ fn trim_leading_space(table: &mut InlineTable) {
     let Some((mut key, value)) = table.iter_mut().next() else {
         return;
     };
+
     key.leaf_decor_mut().set_prefix("");
     key.dotted_decor_mut().set_prefix("");
     if let Some(child) = value.as_inline_table_mut()
@@ -2251,7 +2361,9 @@ fn shift_comments_past_commas(decors: &mut [(String, String)]) {
         if !decors[index - 1].1.contains('#') {
             continue;
         }
+
         let carried = std::mem::take(&mut decors[index - 1].1);
+
         decors[index].0.insert_str(0, &carried);
     }
 }
@@ -2271,11 +2383,13 @@ fn split_container_trailing(
 
     if trailing_comma {
         let mut rest = std::mem::take(suffix);
+
         rest.push_str(trailing);
         return rest;
     }
 
     suffix.push_str(trailing);
+
     let split = suffix.find(['\n', '\r']).unwrap_or(suffix.len());
     suffix.split_off(split)
 }
@@ -2295,6 +2409,7 @@ pub(crate) fn raw_to_str<'a>(raw: Option<&'a RawString>, source: &'a str) -> Cow
     let Some(raw) = raw else {
         return Cow::Borrowed("");
     };
+
     if let Some(text) = raw.as_str() {
         return Cow::Borrowed(text);
     }
@@ -2339,6 +2454,7 @@ fn set_suffix(decor: &mut Decor, source: &str, new: &str) {
 fn push_hash_comment(out: &mut String, comment: &str) {
     let extra_hashes = comment.bytes().take_while(|&b| b == b'#').count();
     let body = comment.trim_start_matches('#').trim();
+
     out.push('#');
     for _ in 0..extra_hashes {
         out.push('#');
@@ -2356,6 +2472,7 @@ fn same_line_comment_suffix(text: &str) -> String {
     };
 
     let mut out = String::with_capacity(first.len() - hash + 2);
+
     out.push(' ');
     push_hash_comment(&mut out, &first[hash + 1..]);
     out
@@ -2364,13 +2481,16 @@ fn same_line_comment_suffix(text: &str) -> String {
 fn merged_comment_suffix(inner: &str, outer: &str) -> String {
     let from_inner = same_line_comment_suffix(inner);
     let from_outer = same_line_comment_suffix(outer);
+
     if from_inner.is_empty() {
         return from_outer;
     }
     if from_outer.is_empty() {
         return from_inner;
     }
+
     let mut out = from_inner;
+
     out.push('\n');
     out.push_str(from_outer.trim_start());
     out
@@ -2383,6 +2503,7 @@ fn normalize_newlines(text: &str) -> Cow<'_, str> {
 
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
+
     while let Some(cr) = rest.find('\r') {
         out.push_str(&rest[..cr]);
         out.push('\n');
@@ -2408,6 +2529,7 @@ mod tests {
 
     fn with(apply: impl FnOnce(&mut TomlStyle)) -> TomlStyle {
         let mut style = TomlStyle::default();
+
         apply(&mut style);
         style
     }
@@ -2516,6 +2638,7 @@ mod tests {
     #[test]
     fn collapsed_table_indents_children_from_its_own_level() {
         let out = fmt("a = { b = [ { c = 1, d = [1,2] } ] }\n");
+
         assert_eq!(out, "a.b = [{ c = 1, d = [1, 2] }]\n");
         assert_eq!(fmt(&out), out);
     }
@@ -2525,6 +2648,7 @@ mod tests {
     #[test]
     fn compact_inline_table_spacing_drops_both_inner_spaces() {
         let style = with(|style| style.inline_table_spacing = Spacing::Compact);
+
         assert_eq!(
             fmt_with("a = {x = 1, y = 2}\n", &style),
             "a = {x = 1, y = 2}\n"
@@ -2539,6 +2663,7 @@ mod tests {
     #[test]
     fn compact_inline_table_spacing_reaches_a_nested_table() {
         let style = with(|style| style.inline_table_spacing = Spacing::Compact);
+
         assert_eq!(
             fmt_with("a = { p = { q = 1, r = 2 } }\n", &style),
             "a.p = {q = 1, r = 2}\n"
@@ -2558,10 +2683,12 @@ mod tests {
             fmt_with("a = {x = 1, y = 2}\n", &style),
             "a = {\n    x = 1,\n    y = 2\n}\n"
         );
+
         let style = with(|style| {
             style.inline_table_spacing = Spacing::Compact;
             style.max_width = 18;
         });
+
         assert_eq!(
             fmt_with("a = {x = 1, y = 2}\n", &style),
             "a = {x = 1, y = 2}\n"
@@ -2579,6 +2706,7 @@ mod tests {
     #[test]
     fn a_table_past_the_width_expands() {
         let style = with(|style| style.max_width = 30);
+
         assert_eq!(
             fmt_with(
                 "clap = { version = \"4.6.6\", features = [\"derive\"] }\n",
@@ -2592,12 +2720,14 @@ mod tests {
     fn compact_never_expands_however_wide() {
         let style = with(|style| style.inline_tables = InlineTableStyle::Compact);
         let long = "clap = { version = \"4.6.6\", features = [\"derive\", \"cargo\", \"env\", \"unicode\", \"wrap_help\"] }\n";
+
         assert_eq!(fmt_with(long, &style), long);
     }
 
     #[test]
     fn compact_holds_a_nested_array_inline_too() {
         let style = with(|style| style.inline_tables = InlineTableStyle::Compact);
+
         assert_eq!(
             fmt_with(
                 "x = { a = 1, f = [\n    \"one\",\n    \"two\"\n] }\n",
@@ -2610,6 +2740,7 @@ mod tests {
     #[test]
     fn compact_breaks_only_for_a_comment_it_cannot_carry() {
         let style = with(|style| style.inline_tables = InlineTableStyle::Compact);
+
         assert_eq!(
             fmt_with("x = {\n    a = 1, # why\n    b = 2\n}\n", &style),
             "x = {\n    a = 1, # why\n    b = 2\n}\n"
@@ -2679,6 +2810,7 @@ mod tests {
     #[test]
     fn expand_keeps_the_two_key_rule() {
         let style = with(|style| style.inline_tables = InlineTableStyle::Expand);
+
         assert_eq!(
             fmt_with("clap = { version = \"4.6.6\" }\n", &style),
             "clap.version = \"4.6.6\"\n"
@@ -2695,6 +2827,7 @@ mod tests {
     #[test]
     fn expand_reaches_a_nested_table_through_its_parent() {
         let style = with(|style| style.inline_tables = InlineTableStyle::Expand);
+
         assert_eq!(
             fmt_with("items = [{ a = { b = 1, c = 2 } }]\n", &style),
             "items = [\n    {\n        a = {\n            b = 1,\n            c = 2\n        }\n    }\n]\n"
@@ -2708,6 +2841,7 @@ mod tests {
             "clap = { version = \"4.6.6\", features = [\"derive\"] }\n",
             &style,
         );
+
         assert_eq!(fmt_with(&once, &style), once);
     }
 
@@ -2715,6 +2849,7 @@ mod tests {
     fn targeting_toml_1_0_pins_every_inline_table_to_one_line() {
         let style = with(|style| style.toml_version = TomlVersion::V1_0);
         let long = "clap = { version = \"4.6.6\", features = [\"derive\", \"cargo\", \"env\", \"unicode\", \"wrap_help\"] }\n";
+
         assert_eq!(fmt_with(long, &style), long);
         assert_eq!(
             fmt_with(
@@ -2728,6 +2863,7 @@ mod tests {
     #[test]
     fn targeting_toml_1_0_keeps_a_comment_that_forces_a_break() {
         let style = with(|style| style.toml_version = TomlVersion::V1_0);
+
         assert_eq!(
             fmt_with("x = {\n    a = 1, # why\n    b = 2\n}\n", &style),
             "x = {\n    a = 1, # why\n    b = 2\n}\n"
@@ -2741,6 +2877,7 @@ mod tests {
             trailing_comma: TrailingComma::Multiline,
             ..TomlStyle::default()
         };
+
         assert_eq!(
             fmt_with("x = {\n    a = 1, # why\n    b = 2\n}\n", &style),
             "x = {\n    a = 1, # why\n    b = 2\n}\n"
@@ -2758,6 +2895,7 @@ mod tests {
             "[dependencies]\nshort = \"1\"\nextremely_long_crate_name_goes_here = { version = \"4.5.6\", path = \"extremely_long_path_name_goes_right_here\" }\n",
             &style,
         );
+
         assert_eq!(
             out,
             "[dependencies]\nshort = \"1\"\n[dependencies.extremely_long_crate_name_goes_here]\nversion = \"4.5.6\"\npath = \"extremely_long_path_name_goes_right_here\"\n"
@@ -2769,6 +2907,7 @@ mod tests {
     fn section_leaves_a_table_that_fits_inline() {
         let style = with(|style| style.inline_tables = InlineTableStyle::Section);
         let source = "[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\n";
+
         assert_eq!(fmt_with(source, &style), source);
     }
 
@@ -2779,6 +2918,7 @@ mod tests {
             "[dependencies]\n# about it\nextremely_long_crate_name_goes_here = { version = \"4.5.6\", path = \"extremely_long_path_name_goes_right_here\" }\n",
             &style,
         );
+
         assert_eq!(
             out,
             "[dependencies]\n# about it\n[dependencies.extremely_long_crate_name_goes_here]\nversion = \"4.5.6\"\npath = \"extremely_long_path_name_goes_right_here\"\n"
@@ -2793,6 +2933,7 @@ mod tests {
             "[dependencies]\nextremely_long_crate_name_goes_here = { version = \"4.5.6\", # why\n path = \"extremely_long_path_name_here\" }\n",
             &style,
         );
+
         assert_eq!(
             out,
             "[dependencies]\nextremely_long_crate_name_goes_here = {\n    version = \"4.5.6\", # why\n    path = \"extremely_long_path_name_here\"\n}\n"
@@ -2807,6 +2948,7 @@ mod tests {
             "a = [{ version = \"4.5.6\", path = \"extremely_long_path_name_goes_right_here_and_here_and_here_and_more\" }]\n",
             &style,
         );
+
         assert_eq!(
             out,
             "a = [\n    {\n        version = \"4.5.6\",\n        path = \"extremely_long_path_name_goes_right_here_and_here_and_here_and_more\"\n    }\n]\n"
@@ -2817,6 +2959,7 @@ mod tests {
             "extremely_long_crate_name_goes_here = { version = \"4.5.6\", path = \"extremely_long_path_name_goes_right_here\" }\n",
             &style,
         );
+
         assert_eq!(
             out,
             "extremely_long_crate_name_goes_here = {\n    version = \"4.5.6\",\n    path = \"extremely_long_path_name_goes_right_here\"\n}\n"
@@ -2831,6 +2974,7 @@ mod tests {
             "[t]\nouter = { inner = { version = \"4.5.6\", path = \"extremely_long_path_name_goes_right_here_yes\" }, b = 1 }\n",
             &style,
         );
+
         assert_eq!(
             out,
             "[t]\n[t.outer]\ninner = { version = \"4.5.6\", path = \"extremely_long_path_name_goes_right_here_yes\" }\nb = 1\n"
@@ -2880,6 +3024,7 @@ mod tests {
     #[test]
     fn expand_arrays_break_at_two_elements() {
         let style = with(|style| style.arrays = ArrayStyle::Expand);
+
         assert_eq!(fmt_with("a = []\n", &style), "a = []\n");
         assert_eq!(fmt_with("a = [1]\n", &style), "a = [1]\n");
         assert_eq!(
@@ -2891,6 +3036,7 @@ mod tests {
     #[test]
     fn expand_arrays_reach_a_nested_array_through_its_parent() {
         let style = with(|style| style.arrays = ArrayStyle::Expand);
+
         assert_eq!(
             fmt_with("a = { k = [1, 2] }\n", &style),
             "a.k = [\n    1,\n    2\n]\n"
@@ -2900,6 +3046,7 @@ mod tests {
     #[test]
     fn spaced_array_spacing_pads_the_brackets() {
         let style = with(|style| style.array_spacing = Spacing::Spaced);
+
         assert_eq!(fmt_with("a = [1, 2]\n", &style), "a = [ 1, 2 ]\n");
         assert_eq!(fmt_with("a = []\n", &style), "a = []\n");
     }
@@ -2911,14 +3058,17 @@ mod tests {
             max_width: 11,
             ..TomlStyle::default()
         };
+
         assert_eq!(
             fmt_with("a = [1, 2]\n", &style),
             "a = [\n    1,\n    2\n]\n"
         );
+
         let style = with(|style| {
             style.array_spacing = Spacing::Spaced;
             style.max_width = 12;
         });
+
         assert_eq!(fmt_with("a = [1, 2]\n", &style), "a = [ 1, 2 ]\n");
     }
 
@@ -2937,6 +3087,7 @@ mod tests {
     #[test]
     fn auto_arrays_reflow_a_multiline_array_that_fits() {
         let style = with(|style| style.arrays = ArrayStyle::Auto);
+
         assert_eq!(
             fmt_with("features = [\n    \"bmp\",\n    \"webp\"\n]\n", &style),
             "features = [\"bmp\", \"webp\"]\n"
@@ -2948,6 +3099,7 @@ mod tests {
         let out = fmt(
             "features = [\"one-very-long-feature-name-that-should-wrap-because-it-is-quite-long\", \"two-very-long-feature-name-that-also-is-quite-long\"]\n",
         );
+
         assert_eq!(
             out,
             "features = [\n    \"one-very-long-feature-name-that-should-wrap-because-it-is-quite-long\",\n    \"two-very-long-feature-name-that-also-is-quite-long\"\n]\n"
@@ -2971,6 +3123,7 @@ mod tests {
     #[test]
     fn the_width_budget_counts_the_key() {
         let style = with(|style| style.max_width = 20);
+
         assert_eq!(fmt_with("k = [1, 2, 3]\n", &style), "k = [1, 2, 3]\n");
         assert_eq!(
             fmt_with("longer_key = [1, 2, 3]\n", &style),
@@ -2981,9 +3134,11 @@ mod tests {
     #[test]
     fn the_width_budget_counts_an_authors_dotted_key_path() {
         let style = with(|style| style.max_width = 22);
+
         assert_eq!(fmt_with("a.b = [1, 2, 3]\n", &style), "a.b = [1, 2, 3]\n");
 
         let style = with(|style| style.max_width = 14);
+
         assert_eq!(
             fmt_with("a.b = [1, 2, 3]\n", &style),
             "a.b = [\n    1,\n    2,\n    3\n]\n"
@@ -2995,6 +3150,7 @@ mod tests {
     fn a_padded_dotted_key_path_measures_as_it_renders() {
         for width in [13, 14, 15, 19, 22] {
             let style = with(|style| style.max_width = width);
+
             assert_eq!(
                 fmt_with("a  .  b = [1, 2, 3]\n", &style),
                 fmt_with("a.b = [1, 2, 3]\n", &style),
@@ -3006,12 +3162,14 @@ mod tests {
     #[test]
     fn the_width_budget_counts_the_indent_of_a_nested_value() {
         let style = with(|style| style.max_width = 20);
+
         assert_eq!(
             fmt_with("x = { a = 1, k = [1, 2, 3, 4] }\n", &style),
             "x = {\n    a = 1,\n    k = [1, 2, 3, 4]\n}\n"
         );
 
         let style = with(|style| style.max_width = 19);
+
         assert_eq!(
             fmt_with("x = { a = 1, k = [1, 2, 3, 4] }\n", &style),
             "x = {\n    a = 1,\n    k = [\n        1,\n        2,\n        3,\n        4\n    ]\n}\n"
@@ -3026,6 +3184,7 @@ mod tests {
             style.trailing_comma = TrailingComma::Multiline;
             style.max_width = 12;
         });
+
         assert_eq!(
             fmt_with("a = [1, 2, 3]\nb = [1]\n", &style),
             "a = [\n    1,\n    2,\n    3,\n]\nb = [1]\n"
@@ -3036,6 +3195,7 @@ mod tests {
     fn trailing_comma_keeps_a_comment_on_the_last_element() {
         let style = with(|style| style.trailing_comma = TrailingComma::Multiline);
         let out = fmt_with("a = [\n    1,\n    2 # two\n]\n", &style);
+
         assert_eq!(out, "a = [\n    1,\n    2, # two\n]\n");
         assert!(out.parse::<DocumentMut>().is_ok());
         assert_eq!(fmt_with(&out, &style), out);
@@ -3045,6 +3205,7 @@ mod tests {
     fn trailing_comma_keeps_a_comment_before_the_closing_bracket() {
         let style = with(|style| style.trailing_comma = TrailingComma::Multiline);
         let out = fmt_with("a = [\n    1,\n    2\n    # tail\n]\n", &style);
+
         assert_eq!(out, "a = [\n    1,\n    2,\n    # tail\n]\n");
         assert!(out.parse::<DocumentMut>().is_ok());
     }
@@ -3056,6 +3217,7 @@ mod tests {
             style.inline_tables = InlineTableStyle::Expand;
         });
         let out = fmt_with("x = { a = 1, b = 2 }\n", &style);
+
         assert_eq!(out, "x = {\n    a = 1,\n    b = 2,\n}\n");
         assert!(out.parse::<DocumentMut>().is_ok());
         assert_eq!(fmt_with(&out, &style), out);
@@ -3069,6 +3231,7 @@ mod tests {
             style.indent = TomlIndent::tab();
             style.max_width = 5;
         });
+
         assert_eq!(
             fmt_with("k = [\n  1,\n  # why\n]\n", &style),
             "k = [\n\t1\n\t# why\n]\n"
@@ -3086,10 +3249,12 @@ mod tests {
             fmt_with("k = [[1, 2, 3, 4]]\n", &style),
             "k = [\n\t[\n\t\t1,\n\t\t2,\n\t\t3,\n\t\t4\n\t]\n]\n"
         );
+
         let style = with(|style| {
             style.indent = TomlIndent::with_tab_width("\t", 1);
             style.max_width = 15;
         });
+
         assert_eq!(
             fmt_with("k = [[1, 2, 3, 4]]\n", &style),
             "k = [\n\t[1, 2, 3, 4]\n]\n"
@@ -3099,6 +3264,7 @@ mod tests {
     #[test]
     fn indent_entries_indents_a_table_body() {
         let style = with(|style| style.indent_entries = true);
+
         assert_eq!(
             fmt_with("a = 0\n[t]\nk = 1\n[t.u]\nm = 2\n", &style),
             "a = 0\n[t]\n    k = 1\n[t.u]\n    m = 2\n"
@@ -3108,6 +3274,7 @@ mod tests {
     #[test]
     fn indent_tables_indents_a_header_by_the_headers_above_it() {
         let style = with(|style| style.indent_tables = true);
+
         assert_eq!(
             fmt_with("[t]\nk = 1\n[t.u]\nm = 2\n[[v]]\nn = 3\n", &style),
             "[t]\nk = 1\n    [t.u]\n    m = 2\n[[v]]\nn = 3\n"
@@ -3120,6 +3287,7 @@ mod tests {
             style.indent_tables = true;
             style.indent_entries = true;
         });
+
         assert_eq!(fmt_with("[a.b.c]\nk = 1\n", &style), "[a.b.c]\n    k = 1\n");
     }
 
@@ -3143,6 +3311,7 @@ mod tests {
     #[test]
     fn an_indented_body_indents_its_comments() {
         let style = with(|style| style.indent_entries = true);
+
         assert_eq!(
             fmt_with("[t]\n# note\nk = 1\n", &style),
             "[t]\n    # note\n    k = 1\n"
@@ -3155,6 +3324,7 @@ mod tests {
             style.indent = TomlIndent::spaces(2);
             style.max_width = 12;
         });
+
         assert_eq!(
             fmt_with("a = [1, 2, 3]\n", &style),
             "a = [\n  1,\n  2,\n  3\n]\n"
@@ -3164,6 +3334,7 @@ mod tests {
             style.indent = TomlIndent::tab();
             style.max_width = 12;
         });
+
         assert_eq!(
             fmt_with("a = [1, 2, 3]\n", &style),
             "a = [\n\t1,\n\t2,\n\t3\n]\n"
@@ -3173,6 +3344,7 @@ mod tests {
     #[test]
     fn indent_reaches_a_comment_inside_a_container() {
         let style = with(|style| style.indent = TomlIndent::spaces(2));
+
         assert_eq!(
             fmt_with("a = [\n    # why\n    1,\n    2\n]\n", &style),
             "a = [\n  # why\n  1,\n  2\n]\n"
@@ -3191,6 +3363,7 @@ mod tests {
     #[test]
     fn the_blank_line_maximum_is_configurable() {
         let source = "a = 1\n\n\n\nb = 2\n";
+
         assert_eq!(fmt(source), "a = 1\n\nb = 2\n");
         assert_eq!(
             fmt_with(source, &with(|style| style.max_blank_lines = 2)),
@@ -3205,6 +3378,7 @@ mod tests {
     #[test]
     fn the_blank_line_maximum_reaches_comment_blocks() {
         let source = "# one\n\n\n# two\n\n\na = 1\n";
+
         assert_eq!(fmt(source), "# one\n\n# two\n\na = 1\n");
         assert_eq!(
             fmt_with(source, &with(|style| style.max_blank_lines = 2)),
@@ -3271,6 +3445,7 @@ mod tests {
     #[test]
     fn blank_line_before_tables_is_inserted_on_request() {
         let style = with(|style| style.blank_line_before_tables = true);
+
         assert_eq!(
             fmt_with("[a]\nx = 1\n[b]\ny = 2\n", &style),
             "[a]\nx = 1\n\n[b]\ny = 2\n"
@@ -3284,6 +3459,7 @@ mod tests {
     #[test]
     fn blank_line_before_tables_leaves_the_opening_header_flush() {
         let style = with(|style| style.blank_line_before_tables = true);
+
         assert_eq!(fmt_with("\n\n[a]\nx = 1\n", &style), "[a]\nx = 1\n");
         assert_eq!(
             fmt_with("[a.b]\nx = 1\n[a.c]\ny = 2\n", &style),
@@ -3294,6 +3470,7 @@ mod tests {
     #[test]
     fn blank_line_before_tables_follows_a_root_body() {
         let style = with(|style| style.blank_line_before_tables = true);
+
         assert_eq!(
             fmt_with("x = 1\n[a]\ny = 2\n", &style),
             "x = 1\n\n[a]\ny = 2\n"
@@ -3303,6 +3480,7 @@ mod tests {
     #[test]
     fn blank_line_before_tables_goes_above_the_comment_block() {
         let style = with(|style| style.blank_line_before_tables = true);
+
         assert_eq!(
             fmt_with("[a]\nx = 1\n# note\n[b]\n", &style),
             "[a]\nx = 1\n\n# note\n[b]\n"
@@ -3324,6 +3502,7 @@ mod tests {
     #[test]
     fn normalize_keys_unquotes_only_what_the_spec_allows() {
         let style = with(|style| style.normalize_keys = true);
+
         assert_eq!(fmt_with("\"quoted\" = 1\n", &style), "quoted = 1\n");
         assert_eq!(fmt_with("'literal' = 1\n", &style), "literal = 1\n");
         assert_eq!(fmt_with("\"1234\" = 1\n", &style), "1234 = 1\n");
@@ -3335,6 +3514,7 @@ mod tests {
     #[test]
     fn normalize_keys_reaches_headers_and_inline_entries() {
         let style = with(|style| style.normalize_keys = true);
+
         assert_eq!(
             fmt_with("[\"pkg\"]\n\"name\" = \"x\"\n", &style),
             "[pkg]\nname = \"x\"\n"
@@ -3352,6 +3532,7 @@ mod tests {
     #[test]
     fn normalize_keys_keeps_the_comment_above_a_key() {
         let style = with(|style| style.normalize_keys = true);
+
         assert_eq!(
             fmt_with("# note\n\"quoted\" = 1 # tail\n", &style),
             "# note\nquoted = 1 # tail\n"
@@ -3361,6 +3542,7 @@ mod tests {
     #[test]
     fn a_dotted_path_loses_the_padding_around_its_dots() {
         let out = fmt("a  .  b  .  c = 1\n");
+
         assert_eq!(out, "a.b.c = 1\n");
         assert_eq!(fmt(&out), out);
     }
@@ -3383,7 +3565,9 @@ mod tests {
     fn padding_goes_but_the_quoting_of_each_segment_stays() {
         assert_eq!(fmt("\"a\" . 'b' = 1\n"), "\"a\".'b' = 1\n");
         assert_eq!(fmt("[ \"a\" . 'b' ]\nx = 1\n"), "[\"a\".'b']\nx = 1\n");
+
         let style = with(|style| style.normalize_keys = true);
+
         assert_eq!(fmt_with("\"a\" . 'b' = 1\n", &style), "a.b = 1\n");
         assert_eq!(
             fmt_with("[ \"a\" . 'b' ]\nx = 1\n", &style),
@@ -3426,6 +3610,7 @@ mod tests {
         ] {
             let input = format!("[{section}]\nzzz = \"1\"\naaa = \"2\"\n");
             let expected = format!("[{section}]\naaa = \"2\"\nzzz = \"1\"\n");
+
             assert_eq!(fmt_with(&input, &style), expected, "{section}");
         }
     }
@@ -3433,6 +3618,7 @@ mod tests {
     #[test]
     fn sort_deps_leaves_other_tables_alone() {
         let style = with(|style| style.sort_deps = true);
+
         assert_eq!(
             fmt_with("[features]\nzzz = []\naaa = []\n", &style),
             "[features]\nzzz = []\naaa = []\n"
@@ -3449,6 +3635,7 @@ mod tests {
     #[test]
     fn sort_deps_carries_a_comment_block_with_its_entry() {
         let style = with(|style| style.sort_deps = true);
+
         assert_eq!(
             fmt_with(
                 "[dependencies]\nzzz = \"1\"\n# about aaa\naaa = \"2\"\n",
@@ -3461,6 +3648,7 @@ mod tests {
     #[test]
     fn sort_deps_keeps_the_blank_line_under_the_header() {
         let style = with(|style| style.sort_deps = true);
+
         assert_eq!(
             fmt_with("[dependencies]\n\nzzz = \"1\"\naaa = \"2\"\n", &style),
             "[dependencies]\n\naaa = \"2\"\nzzz = \"1\"\n"
@@ -3474,6 +3662,7 @@ mod tests {
             "[dependencies.zzz]\nversion = \"1\"\n\n[dependencies.aaa]\nversion = \"2\"\n",
             &style,
         );
+
         assert_eq!(
             out,
             "[dependencies.aaa]\nversion = \"2\"\n\n[dependencies.zzz]\nversion = \"1\"\n"
@@ -3488,6 +3677,7 @@ mod tests {
             "[dependencies]\nzzz = \"1\"\nbbb = \"2\"\n\n[dependencies.aaa]\nversion = \"3\"\n",
             &style,
         );
+
         assert_eq!(
             out,
             "[dependencies]\nbbb = \"2\"\nzzz = \"1\"\n\n[dependencies.aaa]\nversion = \"3\"\n"
@@ -3498,6 +3688,7 @@ mod tests {
     #[test]
     fn sort_package_uses_the_canonical_order() {
         let style = with(|style| style.sort_package = true);
+
         assert_eq!(
             fmt_with(
                 "[package]\ndescription = \"d\"\ncustom = 1\nname = \"n\"\nedition = \"2024\"\nother = 2\n",
@@ -3517,6 +3708,7 @@ mod tests {
     #[test]
     fn sort_package_leaves_a_lock_file_package_array_alone() {
         let style = with(|style| style.sort_package = true);
+
         assert_eq!(
             fmt_with("[[package]]\nversion = \"1\"\nname = \"n\"\n", &style),
             "[[package]]\nversion = \"1\"\nname = \"n\"\n"
@@ -3530,6 +3722,7 @@ mod tests {
     #[test]
     fn keys_sort_by_the_style_guide_version_order() {
         let style = with(|style| style.sort_deps = true);
+
         assert_eq!(
             fmt_with(
                 "[dependencies]\nZed = \"1\"\naaa = \"2\"\nBee = \"3\"\n_x = \"4\"\n",
@@ -3549,6 +3742,7 @@ mod tests {
     #[test]
     fn sort_deps_reaches_patch_and_replace() {
         let style = with(|style| style.sort_deps = true);
+
         assert_eq!(
             fmt_with("[patch.crates-io]\nzzz = \"1\"\naaa = \"2\"\n", &style),
             "[patch.crates-io]\naaa = \"2\"\nzzz = \"1\"\n"
@@ -3563,8 +3757,11 @@ mod tests {
     fn dep_fields_are_only_ordered_on_request() {
         let source =
             "[dependencies.serde]\nfeatures = [\"derive\"]\noptional = true\nversion = \"1\"\n";
+
         assert_eq!(fmt(source), source);
+
         let style = with(|style| style.sort_dep_fields = true);
+
         assert_eq!(
             fmt_with(source, &style),
             "[dependencies.serde]\nversion = \"1\"\nfeatures = [\"derive\"]\noptional = true\n"
@@ -3574,6 +3771,7 @@ mod tests {
     #[test]
     fn dep_fields_are_ordered_in_every_spelling() {
         let style = with(|style| style.sort_dep_fields = true);
+
         assert_eq!(
             fmt_with(
                 "[dependencies]\nserde = { optional = true, version = \"1\", git = \"g\" }\n",
@@ -3594,20 +3792,25 @@ mod tests {
     fn dep_fields_leave_other_tables_alone() {
         let style = with(|style| style.sort_dep_fields = true);
         let source = "[profile.release]\noptional = true\nversion = \"1\"\n";
+
         assert_eq!(fmt_with(source, &style), source);
     }
 
     #[test]
     fn features_are_only_ordered_on_request() {
         let source = "[features]\nzzz = []\naaa = []\n";
+
         assert_eq!(fmt(source), source);
+
         let style = with(|style| style.sort_features = true);
+
         assert_eq!(fmt_with(source, &style), "[features]\naaa = []\nzzz = []\n");
     }
 
     #[test]
     fn sortable_arrays_are_the_ones_cargo_reads_as_a_set() {
         let style = with(|style| style.sort_arrays = true);
+
         assert_eq!(
             fmt_with(
                 "[package]\nkeywords = [\"z\", \"a\"]\ncategories = [\"z\", \"a\"]\nauthors = [\"z\", \"a\"]\n",
@@ -3638,6 +3841,7 @@ mod tests {
     #[test]
     fn a_commented_or_non_string_array_is_left_alone() {
         let style = with(|style| style.sort_arrays = true);
+
         assert_eq!(
             fmt_with(
                 "[features]\na = [\n    \"z\",\n    # keep\n    \"a\"\n]\n",
@@ -3654,9 +3858,12 @@ mod tests {
     #[test]
     fn target_arrays_are_only_ordered_on_request() {
         let source = "[[bin]]\nname = \"zzz\"\n\n[[bin]]\nname = \"aaa\"\n";
+
         assert_eq!(fmt(source), source);
+
         let style = with(|style| style.sort_targets = true);
         let out = fmt_with(source, &style);
+
         assert_eq!(out, "[[bin]]\nname = \"aaa\"\n\n[[bin]]\nname = \"zzz\"\n");
         assert_eq!(fmt_with(&out, &style), out);
     }
@@ -3665,15 +3872,19 @@ mod tests {
     fn target_arrays_leave_a_lock_file_package_array_alone() {
         let style = with(|style| style.sort_targets = true);
         let source = "[[package]]\nname = \"zzz\"\n\n[[package]]\nname = \"aaa\"\n";
+
         assert_eq!(fmt_with(source, &style), source);
     }
 
     #[test]
     fn the_document_sequence_is_only_ordered_on_request() {
         let source = "[dependencies]\na = \"1\"\n\n[features]\nx = []\n\n[package]\nname = \"n\"\n";
+
         assert_eq!(fmt(source), source);
+
         let style = with(|style| style.sort_tables = true);
         let out = fmt_with(source, &style);
+
         assert_eq!(
             out,
             "[package]\nname = \"n\"\n\n[features]\nx = []\n\n[dependencies]\na = \"1\"\n"
@@ -3688,6 +3899,7 @@ mod tests {
             "[profile.release]\nzzz = 1\naaa = 2\n\n[package]\nversion = \"1\"\nname = \"n\"\n",
             &style,
         );
+
         assert_eq!(
             out,
             "[profile.release]\naaa = 2\nzzz = 1\n\n[package]\nversion = \"1\"\nname = \"n\"\n"
@@ -3702,7 +3914,9 @@ mod tests {
             style.sort_grouped = true;
         });
         let source = "[dependencies]\nzzz = \"1\"\nmmm = \"2\"\n\nbbb = \"3\"\naaa = \"4\"\n";
+
         let out = fmt_with(source, &style);
+
         assert_eq!(
             out,
             "[dependencies]\nmmm = \"2\"\nzzz = \"1\"\n\naaa = \"4\"\nbbb = \"3\"\n"
@@ -3710,6 +3924,7 @@ mod tests {
         assert_eq!(fmt_with(&out, &style), out);
 
         let ungrouped = with(|style| style.sort_deps = true);
+
         assert_eq!(
             fmt_with(source, &ungrouped),
             "[dependencies]\naaa = \"4\"\nbbb = \"3\"\n\nmmm = \"2\"\nzzz = \"1\"\n"
@@ -3726,6 +3941,7 @@ mod tests {
             "[dependencies.zzz]\nv = 1\n\n[dependencies.bbb]\nv = 2\n[dependencies.aaa]\nv = 3\n",
             &style,
         );
+
         assert_eq!(
             out,
             "[dependencies.zzz]\nv = 1\n\n[dependencies.aaa]\nv = 3\n[dependencies.bbb]\nv = 2\n"
@@ -3743,6 +3959,7 @@ mod tests {
             "[package]\ndescription = \"d\"\nzed = 1\nversion = \"1\"\nname = \"n\"\nedition = \"2024\"\n",
             &style,
         );
+
         assert_eq!(
             out,
             "[package]\nname = \"n\"\nversion = \"1\"\nedition = \"2024\"\nzed = 1\ndescription = \"d\"\n"
@@ -3766,7 +3983,9 @@ mod tests {
             style.blank_line_before_tables = true;
         });
         let input = "[dependencies]\nzzz = \"1\"\n# note\naaa = { features = [\"z\", \"a\"], version = \"2\" }\n\nmmm = \"3\"\n[features]\nzed = [\"b\", \"a\"]\n[package]\nversion = \"0.1.0\"\n\"name\" = \"demo\"\nkeywords = [\"z\", \"a\"]\n[[bin]]\nname = \"zzz\"\n[[bin]]\nname = \"aaa\"\n[dependencies.qqq]\nversion = \"3\"\n";
+
         let once = fmt_with(input, &style);
+
         assert_eq!(fmt_with(&once, &style), once);
     }
 
@@ -3775,8 +3994,11 @@ mod tests {
     #[test]
     fn a_version_only_table_is_only_collapsed_on_request() {
         let source = "[dependencies]\nserde = { version = \"1.0\" }\n";
+
         assert_eq!(fmt(source), "[dependencies]\nserde.version = \"1.0\"\n");
+
         let style = with(|style| style.cargo_conventions = true);
+
         assert_eq!(
             fmt_with(source, &style),
             "[dependencies]\nserde = \"1.0\"\n"
@@ -3786,6 +4008,7 @@ mod tests {
     #[test]
     fn collapsing_a_version_keeps_the_comments_around_it() {
         let style = with(|style| style.cargo_conventions = true);
+
         assert_eq!(
             fmt_with(
                 "[dependencies]\n# about it\nserde = { version = \"1.0\" } # tail\n",
@@ -3816,6 +4039,7 @@ mod tests {
     #[test]
     fn collapsing_a_version_leaves_everything_else_alone() {
         let style = with(|style| style.cargo_conventions = true);
+
         assert_eq!(
             fmt_with(
                 "[dependencies]\nserde = { version = \"1\", optional = true }\n",
@@ -3844,6 +4068,7 @@ mod tests {
     #[test]
     fn aligned_entries_pad_to_the_widest_key() {
         let style = with(|style| style.align_entries = true);
+
         assert_eq!(
             fmt_with("a = 1\nbbb = 2\n\ncc = 3\ndddd = 4\n", &style),
             "a   = 1\nbbb = 2\n\ncc   = 3\ndddd = 4\n"
@@ -3853,6 +4078,7 @@ mod tests {
     #[test]
     fn aligned_entries_reach_a_collapsed_dotted_key() {
         let style = with(|style| style.align_entries = true);
+
         assert_eq!(
             fmt_with("a = { workspace = true }\nb = 1\n", &style),
             "a.workspace = true\nb           = 1\n"
@@ -3862,6 +4088,7 @@ mod tests {
     #[test]
     fn aligned_comments_pad_to_the_widest_line() {
         let style = with(|style| style.align_comments = true);
+
         assert_eq!(
             fmt_with("a = 1 # one\nbbb = 22 # two\n", &style),
             "a = 1    # one\nbbb = 22 # two\n"
@@ -3892,6 +4119,7 @@ mod tests {
             style.align_comments = true;
         });
         let once = fmt_with("a = 1 # one\nbbb = 22 # two\ncc = 3\n", &style);
+
         assert_eq!(fmt_with(&once, &style), once);
     }
 
@@ -3903,6 +4131,7 @@ mod tests {
         });
         let plain = with(|style| style.max_width = 12);
         let source = "k = [1, 2, 3, 4]\nmm = 1\n";
+
         assert_eq!(fmt_with(source, &style), fmt_with(source, &plain));
     }
 
@@ -3915,6 +4144,7 @@ mod tests {
             style.align_entries = true;
             style.max_width = 14;
         });
+
         assert_eq!(
             fmt_with("k = [1, 2]\nlonger = [3, 4]\n", &style),
             "k      = [1, 2]\nlonger = [\n    3,\n    4\n]\n"
@@ -3929,6 +4159,7 @@ mod tests {
     #[test]
     fn comments_survive_dotted() {
         let out = fmt("project = { path = \"x\" } # keep\n");
+
         assert_eq!(out, "project.path = \"x\" # keep\n");
     }
 
@@ -3981,7 +4212,9 @@ mod tests {
             fmt("arr = [1, # one\n2]\n"),
             "arr = [\n    1, # one\n    2\n]\n"
         );
+
         let once = fmt("arr = [\n    1, # one\n    2\n]\n");
+
         assert_eq!(fmt(&once), once);
     }
 
@@ -4041,12 +4274,14 @@ mod tests {
     #[test]
     fn header_tables_stay() {
         let out = fmt("[package]\nname = \"foo\"\nversion = \"0.1.0\"\n");
+
         assert_eq!(out, "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n");
     }
 
     #[test]
     fn array_of_tables() {
         let out = fmt("[[bin]]\nname = \"x\"\n\n[[bin]]\nname = \"y\"\n");
+
         assert!(out.contains("[[bin]]"));
         assert!(out.contains("name = \"x\""));
         assert!(out.contains("name = \"y\""));
@@ -4067,7 +4302,9 @@ mod tests {
             fmt_with("x = { aaa = [1, 2, 3, 4], b = 2 }\n", &style),
             "x = {\n    aaa = [\n        1,\n        2,\n        3,\n        4\n    ],\n    b = 2\n}\n"
         );
+
         let style = with(|style| style.max_width = 23);
+
         assert_eq!(
             fmt_with("x = { aaa = [1, 2, 3, 4], b = 2 }\n", &style),
             "x = {\n    aaa = [1, 2, 3, 4],\n    b = 2\n}\n"
@@ -4081,11 +4318,14 @@ mod tests {
             trailing_comma: TrailingComma::Multiline,
             ..TomlStyle::default()
         };
+
         assert_eq!(
             fmt_with("x = { b = 2, aaa = [1, 2, 3, 4] }\n", &style),
             "x = {\n    b = 2,\n    aaa = [\n        1,\n        2,\n        3,\n        4,\n    ],\n}\n"
         );
+
         let style = with(|style| style.max_width = 22);
+
         assert_eq!(
             fmt_with("x = { b = 2, aaa = [1, 2, 3, 4] }\n", &style),
             "x = {\n    b = 2,\n    aaa = [1, 2, 3, 4]\n}\n"
@@ -4095,6 +4335,7 @@ mod tests {
     #[test]
     fn the_width_budget_counts_a_same_line_comment() {
         let style = with(|style| style.max_width = 20);
+
         assert_eq!(fmt_with("k = [1, 2, 3]\n", &style), "k = [1, 2, 3]\n");
         assert_eq!(
             fmt_with("k = [1, 2, 3] # a long trailing comment\n", &style),
@@ -4110,7 +4351,9 @@ mod tests {
     fn a_container_trailing_comment_reaches_the_last_entry() {
         let style = with(|style| style.max_width = 30);
         let source = "k = [\n    { a = 1 }, # a comment that does not fit\n]\n";
+
         let once = fmt_with(source, &style);
+
         assert_eq!(
             once,
             "k = [\n    {\n        a = 1\n    } # a comment that does not fit\n]\n"
@@ -4127,6 +4370,7 @@ mod tests {
         let style = with(|style| style.max_width = 25);
         // 20 characters wide, 32 columns wide.
         let source = "k = [\"日本語日本語日本語日本語\"]\n";
+
         assert_eq!(
             fmt_with(source, &style),
             "k = [\n    \"日本語日本語日本語日本語\"\n]\n"
@@ -4137,6 +4381,7 @@ mod tests {
     fn a_combining_mark_costs_nothing() {
         let style = with(|style| style.max_width = 12);
         let source = "k = [\"é́́\"]\n";
+
         assert_eq!(fmt_with(source, &style), source);
     }
 
@@ -4202,6 +4447,7 @@ mod tests {
                 .trim_end_matches('\n')
                 .strip_prefix("k = ")
                 .expect(case);
+
             assert_eq!(
                 measure(&source, &style).value_end(value, 0),
                 Some(crate::toml_width::width(rendered, 4)),
@@ -4216,6 +4462,7 @@ mod tests {
         let source = "k = [1, 2]\n";
         let doc = source.parse::<DocumentMut>().unwrap();
         let value = doc["k"].as_value().unwrap();
+
         assert_eq!(measure(source, &style).value_end(value, 0), Some(6));
         assert_eq!(measure(source, &style).value_end(value, 7), Some(13));
     }
@@ -4239,6 +4486,7 @@ mod tests {
         let source = "k = \"\"\"a\nb\"\"\"\n";
         let doc = source.parse::<DocumentMut>().unwrap();
         let value = doc["k"].as_value().unwrap();
+
         assert_eq!(measure(source, &style).value_end(value, 0), None);
     }
 
@@ -4248,6 +4496,7 @@ mod tests {
         let source = "k = [\n    1,\n    2\n]\n";
         let doc = source.parse::<DocumentMut>().unwrap();
         let array = doc["k"].as_array().unwrap();
+
         assert_eq!(measure(source, &style).array_end(array, 0), Some(6));
     }
 
@@ -4262,6 +4511,7 @@ mod tests {
     #[test]
     fn does_not_pin_versions_by_default() {
         let out = fmt("[dependencies]\nignore = \"0.4\"\n");
+
         assert!(out.contains("ignore = \"0.4\""));
     }
 
@@ -4272,6 +4522,7 @@ mod tests {
             "[dependencies]\nignore = \"0.4\"\nclap = { version = \"4.6\", features = [\"derive\"] }\n",
             &lookup,
         );
+
         assert!(out.contains("ignore = \"0.4.33\""));
         assert!(out.contains("version = \"4.6.6\""));
         assert!(out.contains("features = [\"derive\"]"));
@@ -4284,6 +4535,7 @@ mod tests {
             "[dependencies]\nclap = { version = \"^4.6\", features = [\"derive\"] }\n",
             &lookup,
         );
+
         assert!(out.contains("version = \"^4.6.6\""));
     }
 
@@ -4298,6 +4550,7 @@ mod tests {
             "[dependencies.serde]\nversion = \"1.0\"\n\n[workspace.dependencies.tokio]\nversion = \"1\"\n\n[target.'cfg(unix)'.dependencies.nix]\npackage = \"nix-real\"\nversion = \"0.2\"\n",
             &lookup,
         );
+
         assert!(out.contains("[dependencies.serde]"));
         assert!(out.contains("version = \"1.0.230\""));
         assert!(out.contains("[workspace.dependencies.tokio]"));
@@ -4311,6 +4564,7 @@ mod tests {
     fn table_form_path_dep_without_version_is_unchanged() {
         let lookup = MapLookup(&[("foo", "1.0", "1.0.0")]);
         let out = pin("[dependencies.foo]\npath = \"../foo\"\n", &lookup);
+
         assert_eq!(out, "[dependencies.foo]\npath = \"../foo\"\n");
     }
 
@@ -4321,6 +4575,7 @@ mod tests {
             "[dependencies]\nlocal = { path = \"../local\", version = \"0.1\" }\n",
             &lookup,
         );
+
         assert_eq!(
             out,
             "[dependencies]\nlocal = { path = \"../local\", version = \"0.1\" }\n"
@@ -4334,6 +4589,7 @@ mod tests {
             "[dependencies]\nbar = { git = \"https://github.com/foo/bar\", version = \"1.0\" }\n",
             &lookup,
         );
+
         assert_eq!(
             out,
             "[dependencies]\nbar = { git = \"https://github.com/foo/bar\", version = \"1.0\" }\n"
@@ -4347,6 +4603,7 @@ mod tests {
             "[dependencies]\nserde = { version = \"1.0\", registry = \"private\" }\n",
             &lookup,
         );
+
         assert_eq!(
             out,
             "[dependencies]\nserde = { version = \"1.0\", registry = \"private\" }\n"
@@ -4360,6 +4617,7 @@ mod tests {
             "[dependencies.foo]\npath = \"../foo\"\nversion = \"0.1\"\n",
             &lookup,
         );
+
         assert_eq!(
             out,
             "[dependencies.foo]\npath = \"../foo\"\nversion = \"0.1\"\n"
@@ -4370,6 +4628,7 @@ mod tests {
     fn pinning_keeps_trailing_comment() {
         let lookup = MapLookup(&[("ignore", "0.4", "0.4.33")]);
         let out = pin("[dependencies]\nignore = \"0.4\" # keep\n", &lookup);
+
         assert_eq!(out, "[dependencies]\nignore = \"0.4.33\" # keep\n");
     }
 
@@ -4380,6 +4639,7 @@ mod tests {
             .unwrap();
 
         let mut requests = Vec::new();
+
         collect_dep_requests(doc.as_table(), Scope::ROOT, Guard::of(None), &mut requests);
 
         assert_eq!(
@@ -4405,6 +4665,7 @@ mod tests {
             .unwrap();
 
         let mut requests = Vec::new();
+
         collect_dep_requests(doc.as_table(), Scope::ROOT, Guard::of(None), &mut requests);
 
         assert_eq!(
@@ -4453,8 +4714,10 @@ mod tests {
         let mut found = Vec::new();
         let mut open = None;
         let mut offset = 0;
+
         for line in text.split_inclusive('\n') {
             let end = offset + line.len();
+
             match line.trim() {
                 "# fmt: off" if open.is_none() => open = Some(offset),
                 "# fmt: on" => {
@@ -4474,6 +4737,7 @@ mod tests {
 
     fn survives(input: &str, style: &TomlStyle) -> String {
         let once = fmt_with(input, style);
+
         assert_eq!(regions(input), regions(&once), "region text changed");
         assert_eq!(once, fmt_with(&once, style), "not a fixed point");
         once
@@ -4482,6 +4746,7 @@ mod tests {
     #[test]
     fn a_frozen_entry_keeps_its_spelling() {
         let input = "a=1\n# fmt: off\nb   =   2\n# fmt: on\nc=3\n";
+
         assert_eq!(
             survives(input, &TomlStyle::default()),
             "a = 1\n# fmt: off\nb   =   2\n# fmt: on\nc = 3\n"
@@ -4503,6 +4768,7 @@ mod tests {
             "version = \"1\"\n",
         );
         let out = survives(input, &loud());
+
         assert!(out.contains("  40,  50,  60,\n"), "{out}");
         assert!(out.contains("#   a   hand   aligned   note\n"), "{out}");
     }
@@ -4511,18 +4777,21 @@ mod tests {
     fn a_frozen_header_keeps_its_brackets_and_its_body() {
         let input = "[a]\nx = 1\n\n# fmt: off\n[  b  ]\ny   =   2\nz=3\n# fmt: on\n\n[c]\nw = 4\n";
         let out = survives(input, &loud());
+
         assert!(out.contains("[  b  ]\ny   =   2\nz=3\n"), "{out}");
     }
 
     #[test]
     fn a_whole_document_can_be_frozen() {
         let input = "# fmt: off\n[a]\nx   =   1\n\n\n[b]\ny=2\n";
+
         assert_eq!(survives(input, &loud()), input);
     }
 
     #[test]
     fn a_region_in_the_document_trailer_survives() {
         let input = "a=1\n# fmt: off\n#   a   trailing   note\n# fmt: on\n";
+
         assert_eq!(
             survives(input, &loud()),
             "a = 1\n# fmt: off\n#   a   trailing   note\n# fmt: on\n"
@@ -4532,6 +4801,7 @@ mod tests {
     #[test]
     fn a_marker_inside_an_array_freezes_the_whole_entry() {
         let input = "a = [\n  1,\n  # fmt: off\n  2,   3,\n  # fmt: on\n  4,\n]\n";
+
         assert_eq!(survives(input, &loud()), input);
     }
 
@@ -4539,6 +4809,7 @@ mod tests {
     fn a_frozen_dotted_line_keeps_its_padding() {
         let input = "x = 1\n# fmt: off\na . b   =   2\n# fmt: on\ny = 3\n";
         let out = survives(input, &loud());
+
         assert!(out.contains("a . b   =   2\n"), "{out}");
     }
 
@@ -4546,7 +4817,9 @@ mod tests {
     fn a_frozen_dependency_is_not_pinned() {
         let lookup = MapLookup(&[("serde", "1.0", "1.0.230"), ("tokio", "1.0", "1.0.3")]);
         let input = "[dependencies]\n# fmt: off\nserde = \"1.0\"\n# fmt: on\ntokio = \"1.0\"\n";
+
         let out = pin(input, &lookup);
+
         assert!(out.contains("serde = \"1.0\"\n"), "{out}");
         assert!(out.contains("tokio = \"1.0.3\"\n"), "{out}");
     }
@@ -4555,7 +4828,9 @@ mod tests {
     fn a_frozen_dependency_section_is_not_pinned() {
         let lookup = MapLookup(&[("serde", "1.0", "1.0.230")]);
         let input = "[dependencies.serde]\n# fmt: off\nversion = \"1.0\"\n# fmt: on\n";
+
         let out = pin(input, &lookup);
+
         assert_eq!(out, input);
     }
 
@@ -4585,6 +4860,7 @@ mod tests {
         let lookup = MapLookup(&[("serde", "1.0", "1.0.230")]);
         let input = "[patch.crates-io]\nserde = { git = \"https://example.com/s\", version = \"1.0\" }\n\n\
                      [replace]\n\"old:1.0.0\" = { path = \"../old\", version = \"1.0\" }\n";
+
         let records = pin_records(input, &lookup);
 
         assert_eq!(
@@ -4605,6 +4881,7 @@ mod tests {
         let lookup = MapLookup(&[("serde", "1.0", "1.0.230")]);
         let input =
             "[dependencies]\nserde = { version = \"1.0\", registry-index = \"https://x/i\" }\n";
+
         let records = pin_records(input, &lookup);
 
         assert_eq!(
@@ -4642,6 +4919,7 @@ mod tests {
     fn a_requirement_already_at_the_newest_release_is_unchanged() {
         let lookup = MapLookup(&[("serde", "1.0.230", "1.0.230")]);
         let records = pin_records("[dependencies]\nserde = \"1.0.230\"\n", &lookup);
+
         assert_eq!(records[0].outcome, Resolution::Unchanged);
     }
 
@@ -4687,6 +4965,7 @@ mod tests {
             style.max_width = 20;
         });
         let input = "# fmt: off\nwide = { alpha = 1, beta = 2, gamma = 3 }\n# fmt: on\n";
+
         assert_eq!(survives(input, &style), input);
     }
 
@@ -4696,6 +4975,7 @@ mod tests {
             style.directives = false;
             style.align_entries = true;
         });
+
         assert_eq!(
             fmt_with("# fmt: off\na=1\nbbb=2\n# fmt: on\n", &style),
             "# fmt: off\na   = 1\nbbb = 2\n# fmt: on\n"
@@ -4705,6 +4985,7 @@ mod tests {
     #[test]
     fn an_unterminated_marker_freezes_the_rest_of_the_document() {
         let input = "a=1\n# fmt: off\nb   =   2\nc=3\n";
+
         assert_eq!(
             survives(input, &loud()),
             "a = 1\n# fmt: off\nb   =   2\nc=3\n"
@@ -4725,6 +5006,7 @@ mod tests {
             "ddd = \"1\"\n",
             "aaa = \"1\"\n",
         );
+
         assert_eq!(
             survives(input, &style),
             concat!(
@@ -4746,6 +5028,7 @@ mod tests {
         let style = with(|style| style.sort_tables = true);
         let input =
             "[dev-dependencies]\nx = \"1\"\n\n# fmt: off\n[dependencies]\ny = \"1\"\n# fmt: on\n";
+
         assert_eq!(survives(input, &style), input);
     }
 
@@ -4761,6 +5044,7 @@ mod tests {
             "name = \"a\"\n",
             "# fmt: on\n",
         );
+
         assert_eq!(survives(input, &style), input);
     }
 
@@ -4786,7 +5070,9 @@ mod tests {
             "s  =  1\n",
             "# fmt: on\n",
         );
+
         let out = survives(input, &style);
+
         assert!(out.contains("yyy = \"1\"\nzzz = \"1\"\n"), "{out}");
         assert!(
             out.ends_with("[dependencies.a]\n# fmt: off\ns  =  1\n# fmt: on\n"),
@@ -4809,7 +5095,9 @@ mod tests {
             "k  =  1\n",
             "# fmt: on\n",
         );
+
         let out = survives(input, &style);
+
         assert!(!out.contains("[a.wide]"), "{out}");
     }
 
@@ -4817,6 +5105,7 @@ mod tests {
     fn a_dotted_key_shared_with_a_frozen_line_keeps_its_padding() {
         let input = "[a]\nb .x = [\n  # fmt: off\n  1,\n]\nb .y = 2\n";
         let out = survives(input, &loud());
+
         assert!(out.contains("b .y = 2\n"), "{out}");
     }
 
@@ -4824,6 +5113,7 @@ mod tests {
     fn a_header_key_shared_with_a_frozen_header_keeps_its_padding() {
         let input = "[\"with space\" .a]\n# fmt: off\n[\"with space\" .b]\nk = 1\n";
         let out = survives(input, &loud());
+
         assert!(out.contains("[\"with space\" .b]\n"), "{out}");
     }
 
@@ -4844,6 +5134,7 @@ mod tests {
             "]\n",
         );
         let once = fmt_with(input, &loud());
+
         assert_eq!(fmt_with(&once, &loud()), once, "not a fixed point:\n{once}");
     }
 
@@ -4857,6 +5148,7 @@ mod tests {
             style.max_blank_lines = 0;
         });
         let input = "[a]\nx = 1\n\n\n# fmt: off\ny  =  2\n# fmt: on\n\n\n# a note\nz = 3\n";
+
         assert_eq!(
             survives(input, &style),
             "[a]\n    x = 1\n# fmt: off\ny  =  2\n# fmt: on\n    # a note\n    z = 3\n"
@@ -4885,6 +5177,7 @@ mod tests {
             "# fmt: on\n",
         );
         let out = survives(input, &loud());
+
         assert!(out.contains("name   =   \"a\""), "{out}");
     }
 }

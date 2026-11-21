@@ -15,6 +15,8 @@ rust-formatter --check    # print a diff and exit 1 if anything is unformatted
 - **Standard Import Organization**:
   - **StdExternalCrate grouping**: Groups imports into `std` (and `core`/`alloc`), external third-party crates, and local `crate::` modules, separated by blank lines.
   - **Crate-level Granularity Merging**: Automatically merges individual imports into `use crate::{x, y};` instead of multiple separate `use crate::x;` and `use crate::y;` lines.
+- **Statement paragraphs**: After rustfmt, a blank line goes between groups of statements of different kinds: bindings, assertions, other statements and nested items. A `let mut` subject is kept apart from the bindings that use it, and a binding that combines two or more bindings of its group starts a new group. Runs of blank lines collapse to one everywhere, macro bodies included, but not inside literals, comments or `#[rustfmt::skip]` code. It leaves code alone wherever it can't be sure. See [Statement paragraphs](#statement-paragraphs); `--no-paragraphs` turns it off.
+- **Attribute ordering**: `#[derive(..)]` lists put std derives first, by family (`Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord`), then every other derive alphabetically. Lint lists (`allow`, `warn`, `deny`, `forbid`, `expect`) are sorted. Runs of attributes whose order can't matter go shortest first. See [Attribute ordering](#attribute-ordering); `--no-sort-attributes` turns it off.
 - **Zero Config Pollution**: Configures rustfmt via dynamic CLI flags. Never creates, modifies, or leaves behind any `rustfmt.toml` / `.rustfmt.toml` files. If a project already has `rustfmt.toml` / `.rustfmt.toml`, rustfmt still loads it. Keys passed via `--config` (including the default `group_imports` / `imports_granularity`) override that file; other keys still apply.
 - **Layered Configuration**: A repository pins its style in a table cargo already ignores -- `[workspace.metadata.rust-formatter]` or `[package.metadata.rust-formatter]` -- or in a `rust-formatter.toml` it commits on purpose. Named presets, `RUST_FORMATTER_*` environment variables and a documented precedence order complete it, and `--print-settings` says where every value came from. See [Configuration](#configuration) and [docs/configuration.md](docs/configuration.md).
 - **Zero Toolchain Conversion**: Resolves a rustfmt and runs it directly. Never modifies `rust-toolchain.toml` or the project's pinned compiler channel -- it reads the pin, as the lowest configuration layer, and honours it.
@@ -563,6 +565,103 @@ where the same gitignore patterns also reach TOML:
 
 ```bash
 rust-formatter --config 'ignore=["vendor","generated/**"]'   # same as --exclude
+```
+
+#### Statement paragraphs
+
+On by default. After rustfmt has run, every block is read again and a blank line
+is inserted between adjacent statements of different kinds:
+
+- `let` bindings,
+- assertions (`assert*!`, `debug_assert*!`, `prop_assert*!`),
+- nested items (`use`, `fn`, `struct`, `macro_rules!`, ...),
+- every other statement: calls, other macros, assignments, `if`, `match`, loops, `return`.
+
+A run of bindings is split in two places as well. A `let mut` subject is set
+apart from the next binding that reads it. A binding that reads two or more
+names bound earlier in its own group starts a new group:
+
+```rust
+let x = parse(input)?;
+let y = x.normalize();
+
+assert!(x.is_valid());
+assert_eq!(y.len(), 3);
+
+let z = combine(x, y);
+```
+
+```rust
+let width = area.width;
+let height = area.height;
+
+let size = width * height;
+```
+
+Runs of blank lines collapse to one. That covers the places rustfmt leaves
+alone too: macro bodies, and a tree whose `rustfmt.toml` raises
+`blank_lines_upper_bound`. A blank line inside a string literal, a block comment
+or `#[rustfmt::skip]` code is content, not spacing, and stays. An explicit
+`--config blank_lines_upper_bound=N` sets the run length kept.
+
+Apart from that, the pass only adds blank lines and never reorders anything. It
+leaves a pair of statements untouched when:
+
+- they are already apart,
+- a comment sits between them,
+- one shares a line with the other,
+- either carries `#[rustfmt::skip]` or sits inside an item that does,
+- the second one is the block's tail expression.
+
+It never looks inside a macro body. A file it can't parse, a `--range` request
+and `--config blank_lines_upper_bound=0` all leave the output as rustfmt wrote
+it. It is part of the cache key, and the output is a fixed point: `--check`
+passes right after a write.
+
+```bash
+rust-formatter --no-paragraphs           # rustfmt's statement spacing, unchanged
+```
+
+```toml rf:fixed-point
+[workspace.metadata.rust-formatter]
+paragraphs = false
+```
+
+#### Attribute ordering
+
+On by default, and applied after rustfmt like the paragraph pass.
+
+- **Derives**: std derives come first, in family order: `Clone, Copy, Debug,
+  Default, Hash, PartialEq, Eq, PartialOrd, Ord`. Each supertrait comes before
+  its subtrait. Every other derive (`Deserialize`, `Serialize`, `Error`,
+  `Parser`, ...) follows, alphabetically by name. `core::fmt::Debug` and
+  `std::clone::Clone` count as std.
+- **Lint lists**: the names in `allow`, `warn`, `deny`, `forbid` and `expect`
+  are sorted alphabetically. A trailing `reason = "..."` stays last.
+- **Attribute lines**: a run of consecutive attribute lines is ordered shortest
+  first when every attribute in it is one whose position can't matter:
+  `inline`, `cold`, `must_use`, `track_caller`, `non_exhaustive`,
+  `deprecated`, `repr`, or a lint attribute.
+
+```rust
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[inline]
+#[must_use]
+#[allow(clippy::too_many_lines, dead_code)]
+```
+
+The ordering is deliberately narrow. On one item, a later lint attribute
+overrides an earlier one: `#[deny(warnings)]` followed by `#[allow(dead_code)]`
+is not the same as the reverse. So a run that mixes lint levels keeps its order.
+Nothing moves across a doc comment, `cfg`, `cfg_attr`, `derive`, `test`, a tool
+attribute or any attribute this tool doesn't know: proc-macro attributes run in
+written order, and a derive helper must follow its derive. A list or a run with
+a comment inside it, attributes sharing a line, `#[rustfmt::skip]` code and
+macro bodies are all left as they are. Each list is sorted in place, so
+rustfmt's layout of it is kept.
+
+```bash
+rust-formatter --no-sort-attributes
 ```
 
 #### Rust style presets

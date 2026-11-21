@@ -13,6 +13,7 @@ fn run_capture(options: &FormatterOptions) -> (i32, String) {
 fn run_streams(options: &FormatterOptions) -> (i32, String, String) {
     let mut out = Vec::new();
     let mut err = Vec::new();
+
     let code = {
         let streams = Streams::plain(&mut out, &mut err);
         run(options, &streams)
@@ -30,6 +31,7 @@ fn options(target: &Path) -> FormatterOptions {
 
 fn toml_dir(contents: &[(&str, &str)]) -> tempfile::TempDir {
     let temp = tempfile::tempdir().unwrap();
+
     for (name, body) in contents {
         fs::write(temp.path().join(name), body).unwrap();
     }
@@ -108,6 +110,7 @@ fn unparseable_toml_exits_two_even_in_check_mode() {
             check,
             ..options(temp.path())
         });
+
         assert_eq!(code, 2, "check={check}: {err}");
         assert!(err.contains("bad.toml"), "{err}");
     }
@@ -126,6 +129,7 @@ fn a_file_error_outranks_a_check_mismatch() {
         check: true,
         ..options(temp.path())
     });
+
     assert_eq!(code, 2);
 }
 
@@ -142,9 +146,11 @@ fn missing_path_exits_two() {
 fn unsupported_target_exits_two() {
     let temp = tempfile::tempdir().unwrap();
     let readme = temp.path().join("README.md");
+
     fs::write(&readme, "hi\n").unwrap();
 
     let (code, err) = run_capture(&options(&readme));
+
     assert_eq!(code, 2);
     assert!(err.contains("Unsupported target"), "{err}");
 }
@@ -180,8 +186,10 @@ fn verbose_precedes_the_summary() {
     });
 
     assert_eq!(code, 0);
+
     let target = err.find("target:").expect("verbose preamble");
     let summary = err.find("Already formatted:").expect("summary");
+
     assert!(target < summary, "preamble must come first:\n{err}");
 }
 

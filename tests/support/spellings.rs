@@ -15,6 +15,7 @@ use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Val
 /// `--toml-normalize-keys` rewrites them on purpose.
 pub fn spellings(doc: &DocumentMut) -> Vec<(String, String)> {
     let mut out = Vec::new();
+
     table_spellings(doc.as_table(), &mut String::new(), &mut out);
     out
 }
@@ -28,6 +29,7 @@ pub fn parse_spellings(src: &str) -> Result<Vec<(String, String)>, toml_edit::To
 /// changed spelling.
 pub fn multiset(pairs: &[(String, String)]) -> Vec<String> {
     let mut out: Vec<String> = pairs.iter().map(|(_, repr)| repr.clone()).collect();
+
     out.sort();
     out
 }
@@ -79,11 +81,13 @@ fn value_spellings(value: &Value, path: &mut String, out: &mut Vec<(String, Stri
         Value::Array(v) => return array_spellings(v, path, out),
         Value::InlineTable(v) => return inline_table_spellings(v, path, out),
     };
+
     out.push((path.clone(), repr));
 }
 
 fn with_segment(path: &mut String, key: &str, body: impl FnOnce(&mut String)) {
     let restore = path.len();
+
     if !path.is_empty() {
         path.push('.');
     }
@@ -95,6 +99,7 @@ fn with_segment(path: &mut String, key: &str, body: impl FnOnce(&mut String)) {
 fn with_index(path: &mut String, index: usize, body: impl FnOnce(&mut String)) {
     let restore = path.len();
     let _ = write!(path, "[{index}]");
+
     body(path);
     path.truncate(restore);
 }

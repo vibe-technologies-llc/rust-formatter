@@ -45,6 +45,7 @@ fn check(src: &str, profile: &Profile) -> Result<(), TestCaseError> {
 
     let before = profile.normalize(&parse_tree(src).expect("input parses"));
     let after = profile.normalize(&parse_tree(&once).expect("output parses"));
+
     prop_assert_eq!(
         &before,
         &after,
@@ -55,6 +56,7 @@ fn check(src: &str, profile: &Profile) -> Result<(), TestCaseError> {
 
     let before = profile.spelling_view(&parse_spellings(src).expect("input parses"));
     let after = profile.spelling_view(&parse_spellings(&once).expect("output parses"));
+
     prop_assert_eq!(
         &before,
         &after,
@@ -64,6 +66,7 @@ fn check(src: &str, profile: &Profile) -> Result<(), TestCaseError> {
     );
 
     let twice = format_toml(&once, &profile.style).expect("output parses, so it formats");
+
     prop_assert_eq!(
         &once,
         &twice,
@@ -74,6 +77,7 @@ fn check(src: &str, profile: &Profile) -> Result<(), TestCaseError> {
 
     let expected = profile.comment_view(&baseline);
     let actual = profile.comment_view(&once);
+
     prop_assert_eq!(
         &expected,
         &actual,
@@ -88,6 +92,7 @@ fn check(src: &str, profile: &Profile) -> Result<(), TestCaseError> {
     // a marker `toml_edit` moved past its partner is not our region.
     if profile.style.directives {
         let fenced = format_toml(&baseline, &profile.style).expect("baseline formats");
+
         prop_assert!(
             regions_survive(&baseline, &fenced),
             "directive region changed under {}\nexpected {:?}\n  actual {:?}\ninput was:\n{}",

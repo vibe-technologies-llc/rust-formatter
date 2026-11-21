@@ -49,6 +49,7 @@ impl Repo {
 
     fn git_in(&self, cwd: &Path, args: &[&str]) -> Option<process::Output> {
         let mut command = process::Command::new("git");
+
         self.isolate(&mut command);
         command.current_dir(cwd).args(args).output().ok()
     }
@@ -56,6 +57,7 @@ impl Repo {
     /// The environment both git and the formatter are given.
     fn isolate(&self, command: &mut process::Command) {
         let nowhere = self.path().join("no-such-config");
+
         command
             .env("HOME", self.path())
             .env("XDG_CONFIG_HOME", self.path().join("xdg"))
@@ -71,6 +73,7 @@ impl Repo {
     fn formatter_in(&self, cwd: &Path) -> Command {
         let mut cmd = Command::cargo_bin("rust-formatter").unwrap();
         let nowhere = self.path().join("no-such-config");
+
         cmd.current_dir(cwd)
             .env("HOME", self.path())
             .env("XDG_CONFIG_HOME", self.path().join("xdg"))
@@ -89,6 +92,7 @@ impl Repo {
     /// that plants a hook has to make one -- exactly as `install` does.
     fn plant(&self, body: &str) {
         let hook = self.hook();
+
         fs::create_dir_all(hook.parent().unwrap()).unwrap();
         fs::write(hook, body).unwrap();
     }
@@ -125,6 +129,7 @@ fn is_executable(_path: &Path) -> bool {
 #[test]
 fn install_writes_an_executable_hook() {
     let repo = repo!();
+
     repo.formatter()
         .args(["hook", "install"])
         .assert()
@@ -132,6 +137,7 @@ fn install_writes_an_executable_hook() {
 
     let hook = repo.hook();
     let body = fs::read_to_string(&hook).unwrap();
+
     assert!(body.contains(MARKER), "{body}");
     assert!(body.contains("mode=restage"), "{body}");
     assert!(body.contains("--staged --restage"), "{body}");
@@ -142,12 +148,14 @@ fn install_writes_an_executable_hook() {
 #[test]
 fn install_check_writes_the_other_mode() {
     let repo = repo!();
+
     repo.formatter()
         .args(["hook", "install", "--check"])
         .assert()
         .success();
 
     let body = fs::read_to_string(repo.hook()).unwrap();
+
     assert!(body.contains("mode=check"), "{body}");
     assert!(body.contains("--staged --check"), "{body}");
 }
@@ -157,10 +165,12 @@ fn install_check_writes_the_other_mode() {
 #[test]
 fn installing_twice_leaves_the_same_bytes() {
     let repo = repo!();
+
     repo.formatter()
         .args(["hook", "install"])
         .assert()
         .success();
+
     let first = fs::read(repo.hook()).unwrap();
 
     let assert = repo
@@ -169,6 +179,7 @@ fn installing_twice_leaves_the_same_bytes() {
         .assert()
         .success();
     let said = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+
     assert!(said.contains("already installed"), "{said}");
     assert_eq!(fs::read(repo.hook()).unwrap(), first);
 }
@@ -176,12 +187,15 @@ fn installing_twice_leaves_the_same_bytes() {
 #[test]
 fn an_older_hook_is_upgraded_in_place() {
     let repo = repo!();
+
     repo.formatter()
         .args(["hook", "install"])
         .assert()
         .success();
+
     let current = fs::read_to_string(repo.hook()).unwrap();
     let stale = current.replace("version=1", "version=0");
+
     fs::write(repo.hook(), &stale).unwrap();
 
     let assert = repo
@@ -190,6 +204,7 @@ fn an_older_hook_is_upgraded_in_place() {
         .assert()
         .success();
     let said = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+
     assert!(said.contains("upgraded"), "{said}");
     assert_eq!(fs::read_to_string(repo.hook()).unwrap(), current);
 }
@@ -198,6 +213,7 @@ fn an_older_hook_is_upgraded_in_place() {
 #[test]
 fn a_foreign_hook_is_not_clobbered() {
     let repo = repo!();
+
     repo.plant(FOREIGN);
 
     let assert = repo
@@ -207,6 +223,7 @@ fn a_foreign_hook_is_not_clobbered() {
         .failure()
         .code(2);
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+
     assert!(stderr.starts_with("error: "), "{stderr}");
     assert!(stderr.contains("--staged --restage"), "{stderr}");
     assert!(stderr.contains("--force"), "{stderr}");
@@ -216,19 +233,23 @@ fn a_foreign_hook_is_not_clobbered() {
 #[test]
 fn force_saves_the_foreign_hook_but_never_a_backup() {
     let repo = repo!();
+
     repo.plant(FOREIGN);
 
     repo.formatter()
         .args(["hook", "install", "--force"])
         .assert()
         .success();
+
     let backup = repo.path().join(".git/hooks").join(BACKUP);
+
     assert_eq!(fs::read_to_string(&backup).unwrap(), FOREIGN);
     assert!(fs::read_to_string(repo.hook()).unwrap().contains(MARKER));
 
     // A second forced install over another foreign hook would destroy the only
     // copy of the first one.
     repo.plant("#!/bin/sh\nexit 0\n");
+
     let assert = repo
         .formatter()
         .args(["hook", "install", "--force"])
@@ -236,6 +257,7 @@ fn force_saves_the_foreign_hook_but_never_a_backup() {
         .failure()
         .code(2);
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+
     assert!(stderr.contains(BACKUP), "{stderr}");
     assert_eq!(fs::read_to_string(&backup).unwrap(), FOREIGN);
 }
@@ -255,6 +277,7 @@ fn uninstall_removes_only_our_hook() {
         .assert()
         .failure()
         .code(2);
+
     assert_eq!(fs::read_to_string(repo.hook()).unwrap(), FOREIGN);
 
     fs::remove_file(repo.hook()).unwrap();
@@ -266,12 +289,14 @@ fn uninstall_removes_only_our_hook() {
         .args(["hook", "uninstall"])
         .assert()
         .success();
+
     assert!(!repo.hook().exists());
 }
 
 #[test]
 fn uninstall_puts_back_what_force_moved_aside() {
     let repo = repo!();
+
     repo.plant(FOREIGN);
     repo.formatter()
         .args(["hook", "install", "--force"])
@@ -299,6 +324,7 @@ fn status_reports_each_state() {
         .failure()
         .code(1);
     let said = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+
     assert!(said.contains("hooks-dir:"), "{said}");
     assert!(said.contains("absent"), "{said}");
 
@@ -306,11 +332,14 @@ fn status_reports_each_state() {
         .args(["hook", "install"])
         .assert()
         .success();
+
     let assert = repo.formatter().args(["hook", "status"]).assert().success();
     let said = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+
     assert!(said.contains("mode restage"), "{said}");
 
     repo.plant(FOREIGN);
+
     let assert = repo
         .formatter()
         .args(["hook", "status"])
@@ -318,19 +347,23 @@ fn status_reports_each_state() {
         .failure()
         .code(1);
     let said = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+
     assert!(said.contains("not installed by rust-formatter"), "{said}");
 }
 
 #[test]
 fn the_hooks_directory_honours_core_hookspath() {
     let repo = repo!();
+
     repo.git(&["config", "core.hooksPath", "myhooks"]).unwrap();
 
     repo.formatter()
         .args(["hook", "install"])
         .assert()
         .success();
+
     let hook = repo.path().join("myhooks/pre-commit");
+
     assert!(hook.is_file(), "install has to create the directory too");
     assert!(fs::read_to_string(&hook).unwrap().contains(MARKER));
     assert!(!repo.hook().exists());
@@ -343,12 +376,14 @@ fn the_hooks_directory_honours_core_hookspath() {
 fn a_subdirectory_resolves_the_same_hooks_directory() {
     let repo = repo!();
     let nested = repo.path().join("src/deep");
+
     fs::create_dir_all(&nested).unwrap();
 
     repo.formatter_in(&nested)
         .args(["hook", "install"])
         .assert()
         .success();
+
     assert!(fs::read_to_string(repo.hook()).unwrap().contains(MARKER));
 
     let assert = repo
@@ -357,6 +392,7 @@ fn a_subdirectory_resolves_the_same_hooks_directory() {
         .assert()
         .success();
     let said = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+
     assert!(!said.contains("src/deep"), "{said}");
 }
 
@@ -365,12 +401,15 @@ fn a_subdirectory_resolves_the_same_hooks_directory() {
 #[test]
 fn a_linked_worktree_shares_the_hooks_directory() {
     let repo = repo!();
+
     fs::write(repo.path().join("a.toml"), "a = 1\n").unwrap();
     if repo.git(&["add", "a.toml"]).is_none() || repo.git(&["commit", "-qm", "one"]).is_none() {
         eprintln!("SKIP: git could not make a commit");
         return;
     }
+
     let tree = repo.path().join("linked");
+
     if repo
         .git(&["worktree", "add", "--quiet", "linked"])
         .is_none()
@@ -383,6 +422,7 @@ fn a_linked_worktree_shares_the_hooks_directory() {
         .args(["hook", "install"])
         .assert()
         .success();
+
     assert!(
         fs::read_to_string(repo.hook()).unwrap().contains(MARKER),
         "a worktree's hooks are the repository's hooks"
@@ -394,6 +434,7 @@ fn a_linked_worktree_shares_the_hooks_directory() {
 fn outside_a_repository_it_says_so() {
     let repo = repo!();
     let outside = tempfile::tempdir().unwrap();
+
     let assert = repo
         .formatter_in(outside.path())
         .args(["hook", "status"])
@@ -401,6 +442,7 @@ fn outside_a_repository_it_says_so() {
         .failure()
         .code(2);
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+
     assert!(stderr.starts_with("error: "), "{stderr}");
 }
 
@@ -411,6 +453,7 @@ fn outside_a_repository_it_says_so() {
 #[test]
 fn the_installed_hook_formats_the_commit() {
     let repo = repo!();
+
     repo.formatter()
         .args(["hook", "install"])
         .assert()
@@ -421,9 +464,11 @@ fn the_installed_hook_formats_the_commit() {
         eprintln!("SKIP: git could not stage");
         return;
     }
+
     let output = repo
         .git_in(repo.path(), &["commit", "-qm", "formatted"])
         .unwrap();
+
     assert!(
         output.status.success(),
         "the commit failed:\n{}",
@@ -431,6 +476,7 @@ fn the_installed_hook_formats_the_commit() {
     );
 
     let committed = repo.git(&["show", "HEAD:a.toml"]).unwrap();
+
     assert_eq!(committed, "foo.path = \"x\"\n");
     assert_eq!(
         fs::read_to_string(repo.path().join("a.toml")).unwrap(),
@@ -441,25 +487,31 @@ fn the_installed_hook_formats_the_commit() {
 #[test]
 fn the_checking_hook_aborts_the_commit() {
     let repo = repo!();
+
     repo.formatter()
         .args(["hook", "install", "--check"])
         .assert()
         .success();
 
     let unformatted = "foo={path=\"x\"}\n";
+
     fs::write(repo.path().join("a.toml"), unformatted).unwrap();
     if repo.git(&["add", "a.toml"]).is_none() {
         eprintln!("SKIP: git could not stage");
         return;
     }
+
     let output = repo
         .git_in(repo.path(), &["commit", "-qm", "refused"])
         .unwrap();
+
     assert!(
         !output.status.success(),
         "the commit should have been refused"
     );
+
     let stderr = String::from_utf8_lossy(&output.stderr);
+
     assert!(stderr.contains("--staged --restage"), "{stderr}");
     assert_eq!(
         fs::read_to_string(repo.path().join("a.toml")).unwrap(),

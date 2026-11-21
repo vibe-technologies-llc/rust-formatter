@@ -34,7 +34,7 @@ const MARKER: &str = "# rust-formatter-hook:";
 const VERSION: u32 = 1;
 
 /// What the hook asks of the formatter.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// Format what is staged and stage the result, so the commit carries it.
     Restage,
@@ -60,7 +60,7 @@ impl Mode {
 }
 
 /// What is sitting at the hook path already.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     /// Nothing is installed.
     Absent,
@@ -79,7 +79,7 @@ pub struct Located {
 }
 
 /// What an install did, so the caller can say so precisely.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Installed {
     /// There was nothing there.
     Fresh,
@@ -92,7 +92,7 @@ pub enum Installed {
 }
 
 /// What an uninstall did.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Uninstalled {
     Removed(Mode),
     /// Removed, and the hook `--force` had moved aside was put back.
@@ -104,7 +104,7 @@ pub enum Uninstalled {
 /// Why a hook was left alone. Refusals are values rather than errors: none of
 /// them can reach the `--message-format json` envelope, and a permanent public
 /// diagnostic code is the wrong price for "that hook is somebody else's".
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refused {
     /// A hook is there that this tool did not write.
     Foreign,
@@ -155,6 +155,7 @@ fn header(text: &str) -> Option<(u32, Mode)> {
     });
     let mut version = 0;
     let mut mode = Mode::Restage;
+
     for (key, value) in fields {
         match key {
             "version" => version = value.parse().unwrap_or(0),
@@ -225,6 +226,7 @@ pub fn install(
 ) -> Result<(Located, std::result::Result<Installed, Refused>)> {
     let located = locate(cwd)?;
     let body = script(mode, fallback);
+
     let outcome = match located.state {
         State::Foreign if !force => return Ok((located, Err(Refused::Foreign))),
         State::Foreign => {
@@ -261,8 +263,10 @@ pub fn install(
 /// the rename rather than after, so it can never find one it refuses to run.
 fn write(directory: &Path, path: &Path, contents: &str) -> Result<()> {
     fs::create_dir_all(directory).map_err(|err| Error::io(directory, err))?;
+
     let mut file =
         tempfile::NamedTempFile::new_in(directory).map_err(|err| Error::io(directory, err))?;
+
     file.write_all(contents.as_bytes())
         .map_err(|err| Error::io(path, err))?;
     file.flush().map_err(|err| Error::io(path, err))?;
@@ -270,6 +274,7 @@ fn write(directory: &Path, path: &Path, contents: &str) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
+
         file.as_file()
             .set_permissions(fs::Permissions::from_mode(0o755))
             .map_err(|err| Error::io(path, err))?;
@@ -288,6 +293,7 @@ pub fn uninstall(cwd: &Path) -> Result<(Located, std::result::Result<Uninstalled
         State::Absent => Uninstalled::Absent,
         State::Ours { mode, .. } => {
             fs::remove_file(&located.path).map_err(|err| Error::io(&located.path, err))?;
+
             let backup = located.directory.join(BACKUP);
             if backup.exists() {
                 fs::rename(&backup, &located.path).map_err(|err| Error::io(&backup, err))?;
@@ -308,6 +314,7 @@ mod tests {
     fn a_hook_we_wrote_is_recognised_with_its_mode() {
         for mode in [Mode::Restage, Mode::Check] {
             let text = script(mode, Path::new("/usr/bin/rust-formatter"));
+
             assert_eq!(header(&text), Some((VERSION, mode)), "{mode:?}");
         }
     }
@@ -317,8 +324,11 @@ mod tests {
     #[test]
     fn an_unreadable_field_still_leaves_the_hook_ours() {
         let bare = format!("#!/bin/sh\n{MARKER}\nexec rust-formatter --staged --restage\n");
+
         assert_eq!(header(&bare), Some((0, Mode::Restage)));
+
         let future = format!("#!/bin/sh\n{MARKER} version=99 mode=elsewhere shape=round\n");
+
         assert_eq!(header(&future), Some((99, Mode::Restage)));
     }
 
@@ -331,6 +341,7 @@ mod tests {
     #[test]
     fn the_script_does_what_the_mode_it_names_says() {
         let restage = script(Mode::Restage, Path::new("/opt/rf"));
+
         assert!(restage.contains("mode=restage"), "{restage}");
         assert!(
             restage.contains("exec \"$formatter\" --staged --restage\n"),
@@ -339,6 +350,7 @@ mod tests {
         assert!(!restage.contains("--check"), "{restage}");
 
         let check = script(Mode::Check, Path::new("/opt/rf"));
+
         assert!(check.contains("mode=check"), "{check}");
         assert!(
             check.contains("if \"$formatter\" --staged --check; then"),
@@ -355,6 +367,7 @@ mod tests {
     fn the_script_is_indented_the_way_a_shell_script_is() {
         for mode in [Mode::Restage, Mode::Check] {
             let text = script(mode, Path::new("/opt/rf"));
+
             assert!(text.starts_with("#!/bin/sh\n"), "{text}");
             assert!(text.ends_with('\n'), "{text}");
             for line in text.lines() {
@@ -371,6 +384,7 @@ mod tests {
     #[test]
     fn a_missing_formatter_fails_the_commit() {
         let text = script(Mode::Restage, Path::new("/opt/rf"));
+
         assert!(text.contains("elif [ -x '/opt/rf' ]; then"), "{text}");
         assert!(text.contains("exit 1"), "{text}");
     }
@@ -382,7 +396,9 @@ mod tests {
     fn the_fallback_path_is_one_shell_word() {
         assert_eq!(quote(Path::new("/home/a b/rf")), "'/home/a b/rf'");
         assert_eq!(quote(Path::new("/home/it's/rf")), r"'/home/it'\''s/rf'");
+
         let text = script(Mode::Restage, Path::new("/home/it's/rf"));
+
         assert!(text.contains(r"'/home/it'\''s/rf'"), "{text}");
     }
 }

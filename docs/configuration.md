@@ -172,8 +172,9 @@ The key is the flag's own name without the dashes, so `--toml-max-width` is
 `toml-max-width`. Flags whose name is already negative keep it: `--no-all` is
 `no-all = true`, and `no-all = false` is the default.
 
-**Rust**: `toolchain`, `edition`, `style-edition`, `rust-style`, `config` (a table
-of rustfmt options), `unset-config`, `no-all`.
+**Rust**: `toolchain`, `edition`, `style-edition`, `rust-style`, `paragraphs`,
+`sort-attributes`, `config` (a table of rustfmt options), `unset-config`,
+`no-all`.
 
 `toolchain` defaults to `auto`: `$RUSTFMT` if it is set, then rustup's `nightly`
 if there is one, then rustup's active toolchain, then a `rustfmt` on `PATH`.

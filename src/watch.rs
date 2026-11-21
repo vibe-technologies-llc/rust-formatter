@@ -78,6 +78,7 @@ pub fn run(options: &FormatterOptions, streams: &Streams<'_>) -> Result<i32> {
 
     let (events, batches) = mpsc::channel();
     let mut debouncer = new_debouncer(DEBOUNCE, Some(TICK), events).map_err(|err| failed(&err))?;
+
     for scope in &scopes {
         debouncer
             .watch(&scope.root, scope.recursive)
@@ -91,6 +92,7 @@ pub fn run(options: &FormatterOptions, streams: &Streams<'_>) -> Result<i32> {
     // The first run comes after the watcher is installed, not before: a save
     // made during it would otherwise land in the gap and be lost.
     let mut session = Session::default();
+
     iterate(options, &selector, streams, &mut session, false)?;
 
     let stream = std::iter::from_fn(|| batches.recv().ok()).map(|batch| match batch {
@@ -133,10 +135,13 @@ fn drive(
 ) -> Result<i32> {
     for events in batches {
         let changed = triggers(&events, scopes);
+
         if changed.is_empty() {
             continue;
         }
+
         let self_only = changed.iter().all(|path| session.wrote(path));
+
         if self_only && session.braked {
             continue;
         }
@@ -176,6 +181,7 @@ fn iterate(
         Err(Error::NoFormattableFilesFound(_)) => return Ok(()),
         Err(err) => {
             let _ = streams.paint_note(|out| paint_error(&err, out));
+
             return Ok(());
         }
     };
@@ -193,9 +199,11 @@ fn iterate(
         Ok(result) => result,
         Err(err) => {
             let _ = streams.paint_note(|out| paint_error(&err, out));
+
             return Ok(());
         }
     };
+
     crate::report_run(&result, &warnings, explicit, options, streams, true)?;
 
     // Under `--check` nothing is written, so a changed path is one that *would*
@@ -205,6 +213,7 @@ fn iterate(
     } else {
         result.changed_paths().map(Path::to_path_buf).collect()
     };
+
     if let Some(chasing) = session.observe(self_only, &rewrote) {
         let _ = streams.note_line(&chasing);
     }
@@ -230,6 +239,7 @@ fn watching(scopes: &[Scope]) -> String {
         .iter()
         .map(|scope| scope.root.display().to_string())
         .collect();
+
     roots.sort_unstable();
     format!("watching {}; Ctrl-C to stop", roots.join(", "))
 }
@@ -276,14 +286,17 @@ impl Session {
     /// Record what a run did, and say so when the watcher is chasing itself.
     fn observe(&mut self, self_only: bool, rewrote: &[PathBuf]) -> Option<String> {
         let mut chasing = None;
+
         if self_only && !rewrote.is_empty() {
             self.rounds += 1;
             if self.rounds >= MAX_SELF_TRIGGER_ROUNDS && !self.braked {
                 self.braked = true;
+
                 let mut names: Vec<String> = rewrote
                     .iter()
                     .map(|path| path.display().to_string())
                     .collect();
+
                 names.sort_unstable();
                 chasing = Some(format!(
                     "warning: {} is rewritten on every pass and never settles; \
@@ -328,6 +341,7 @@ impl Scope {
             hidden: selector.hidden(),
             only: None,
         };
+
         scope.refresh_build_dirs();
         Ok(scope)
     }
@@ -352,6 +366,7 @@ impl Scope {
 
     fn refresh_build_dirs(&mut self) {
         let cwd = std::env::current_dir().unwrap_or_else(|_| self.root.clone());
+
         self.build_dirs = cargo_config::target_dir(&self.root, &cwd, &process_env)
             .path
             .into_iter()
@@ -376,6 +391,7 @@ fn scopes(options: &FormatterOptions, selector: &Selector) -> Result<Vec<Scope>>
     match crate::plan(options, selector) {
         Ok(plan) => {
             let mut scopes = Vec::with_capacity(plan.targets.len().max(1));
+
             for target in &plan.targets {
                 scopes.push(scope_of(target, options, selector)?);
             }
@@ -384,6 +400,7 @@ fn scopes(options: &FormatterOptions, selector: &Selector) -> Result<Vec<Scope>>
                     .targets
                     .first()
                     .map_or_else(|| PathBuf::from("."), PathBuf::clone);
+
                 scopes.push(Scope::recursive(detector::absolutize(&fallback), selector)?);
             }
             Ok(scopes)
@@ -454,6 +471,7 @@ fn dedupe(mut scopes: Vec<Scope>) -> Vec<Scope> {
         .collect();
 
     let mut kept: Vec<Scope> = Vec::with_capacity(scopes.len());
+
     for scope in scopes {
         let covered = recursive
             .iter()
@@ -488,6 +506,7 @@ fn triggers(events: &[DebouncedEvent], scopes: &[Scope]) -> Vec<PathBuf> {
         .iter()
         .filter_map(|event| triggered_by(event, scopes))
         .collect();
+
     changed.sort_unstable();
     changed.dedup();
     changed
@@ -558,15 +577,19 @@ fn reachable(path: &Path, scope: &Scope) -> bool {
     {
         return false;
     }
+
     let gate = scope.gate();
     let mut directory = path.parent();
+
     while let Some(current) = directory {
         if current == scope.root || !current.starts_with(&scope.root) {
             return true;
         }
+
         let Some(name) = current.file_name() else {
             return true;
         };
+
         if gate.prunes(current, name) {
             return false;
         }
@@ -638,6 +661,7 @@ mod tests {
     fn a_workspace_member_is_watched_from_the_workspace_root() {
         let dir = tree();
         let root = dir.path();
+
         write(&root.join("Cargo.toml"), "[workspace]\nmembers = [\"a\"]\n");
         write(
             &root.join("a/Cargo.toml"),
@@ -647,6 +671,7 @@ mod tests {
 
         let member = root.join("a");
         let scopes = scopes(&options(&member), &plain()).expect("scopes");
+
         assert_eq!(scopes.len(), 1);
         assert_eq!(scopes[0].root, detector::absolutize(root));
         assert!(covers(&scopes[0]));
@@ -656,6 +681,7 @@ mod tests {
     fn two_workspace_members_are_one_watch_scope() {
         let dir = tree();
         let root = dir.path();
+
         write(
             &root.join("Cargo.toml"),
             "[workspace]\nmembers = [\"a\", \"b\"]\n",
@@ -676,6 +702,7 @@ mod tests {
             ..FormatterOptions::default()
         };
         let scopes = scopes(&options, &plain()).expect("scopes");
+
         assert_eq!(scopes.len(), 1, "{scopes:?}");
         assert_eq!(scopes[0].root, detector::absolutize(root));
     }
@@ -684,6 +711,7 @@ mod tests {
     fn no_all_is_watched_from_the_package() {
         let dir = tree();
         let root = dir.path();
+
         write(&root.join("Cargo.toml"), "[workspace]\nmembers = [\"a\"]\n");
         write(
             &root.join("a/Cargo.toml"),
@@ -693,8 +721,11 @@ mod tests {
 
         let member = root.join("a");
         let mut options = options(&member);
+
         options.all = false;
+
         let scopes = scopes(&options, &plain()).expect("scopes");
+
         assert_eq!(scopes[0].root, detector::absolutize(&member));
     }
 
@@ -704,6 +735,7 @@ mod tests {
     fn a_named_subdirectory_is_watched_as_named() {
         let dir = tree();
         let root = dir.path();
+
         write(
             &root.join("Cargo.toml"),
             "[package]\nname = \"a\"\nversion = \"0.1.0\"\n",
@@ -712,6 +744,7 @@ mod tests {
 
         let source = root.join("src");
         let scopes = scopes(&options(&source), &plain()).expect("scopes");
+
         assert_eq!(scopes[0].root, detector::absolutize(&source));
     }
 
@@ -721,9 +754,11 @@ mod tests {
     fn a_single_file_is_watched_through_its_directory() {
         let dir = tree();
         let file = dir.path().join("x.toml");
+
         write(&file, "a = 1\n");
 
         let scopes = scopes(&options(&file), &plain()).expect("scopes");
+
         assert_eq!(scopes[0].root, detector::absolutize(dir.path()));
         assert!(!covers(&scopes[0]));
         assert_eq!(scopes[0].only, Some(detector::absolutize(&file)));
@@ -735,6 +770,7 @@ mod tests {
     fn an_empty_directory_is_watched_rather_than_refused() {
         let dir = tree();
         let scopes = scopes(&options(dir.path()), &plain()).expect("scopes");
+
         assert_eq!(scopes.len(), 1);
         assert_eq!(scopes[0].root, detector::absolutize(dir.path()));
     }
@@ -744,6 +780,7 @@ mod tests {
         let dir = tree();
         let missing = dir.path().join("nowhere");
         let err = scopes(&options(&missing), &plain()).expect_err("missing path");
+
         assert!(matches!(err, Error::PathNotFound(_)), "{err:?}");
     }
 
@@ -752,8 +789,11 @@ mod tests {
         let dir = tree();
         let root = detector::absolutize(dir.path());
         let inner = root.join("a/b");
+
         fs::create_dir_all(&inner).expect("dirs");
+
         let file = inner.join("x.toml");
+
         write(&file, "a = 1\n");
 
         let kept = dedupe(vec![
@@ -761,6 +801,7 @@ mod tests {
             Scope::recursive(inner.clone(), &plain()).expect("inner"),
             Scope::containing(&file, &plain()).expect("file"),
         ]);
+
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].root, root);
     }
@@ -773,6 +814,7 @@ mod tests {
             Scope::recursive(root.clone(), &plain()).expect("one"),
             Scope::recursive(root.clone(), &plain()).expect("two"),
         ]);
+
         assert_eq!(kept.len(), 1);
     }
 
@@ -784,7 +826,9 @@ mod tests {
         let scopes = only_scope(dir.path());
         for name in ["a.rs", "b.toml", "nested/c.rs"] {
             let path = detector::absolutize(&dir.path().join(name));
+
             write(&path, "");
+
             assert!(
                 triggered_by(&modified(&path), &scopes).is_some(),
                 "{name} should trigger"
@@ -798,7 +842,9 @@ mod tests {
         let scopes = only_scope(dir.path());
         for name in ["README.md", "a.txt", "Makefile"] {
             let path = detector::absolutize(&dir.path().join(name));
+
             write(&path, "");
+
             assert!(
                 triggered_by(&modified(&path), &scopes).is_none(),
                 "{name} should not trigger"
@@ -811,7 +857,9 @@ mod tests {
         let dir = tree();
         let scopes = only_scope(dir.path());
         let path = detector::absolutize(&dir.path().join(".git/x.toml"));
+
         write(&path, "");
+
         assert!(triggered_by(&modified(&path), &scopes).is_none());
     }
 
@@ -820,13 +868,17 @@ mod tests {
     #[test]
     fn a_build_directory_does_not_trigger() {
         let dir = tree();
+
         write(
             &dir.path().join("Cargo.toml"),
             "[package]\nname = \"a\"\nversion = \"0.1.0\"\n",
         );
+
         let scopes = only_scope(dir.path());
         let path = detector::absolutize(&dir.path().join("target/debug/build/x.rs"));
+
         write(&path, "");
+
         assert!(triggered_by(&modified(&path), &scopes).is_none());
     }
 
@@ -835,9 +887,13 @@ mod tests {
         let dir = tree();
         let scopes = only_scope(dir.path());
         let vendored = dir.path().join("vendor/foo");
+
         write(&vendored.join(".cargo-checksum.json"), "{}");
+
         let path = detector::absolutize(&vendored.join("src/lib.rs"));
+
         write(&path, "");
+
         assert!(triggered_by(&modified(&path), &scopes).is_none());
     }
 
@@ -846,12 +902,16 @@ mod tests {
         let dir = tree();
         let scopes = only_scope(dir.path());
         let built = dir.path().join("out");
+
         write(
             &built.join("CACHEDIR.TAG"),
             "Signature: 8a477f597d28d172789f06886806bc55",
         );
+
         let path = detector::absolutize(&built.join("x.rs"));
+
         write(&path, "");
+
         assert!(triggered_by(&modified(&path), &scopes).is_none());
     }
 
@@ -869,7 +929,9 @@ mod tests {
             .expect("scope"),
         ];
         let path = detector::absolutize(&dir.path().join("gen/x.rs"));
+
         write(&path, "");
+
         assert!(triggered_by(&modified(&path), &scopes).is_none());
     }
 
@@ -881,11 +943,15 @@ mod tests {
         let scopes = only_scope(dir.path());
 
         let hidden = detector::absolutize(&dir.path().join(".hidden.toml"));
+
         write(&hidden, "");
+
         assert!(triggered_by(&modified(&hidden), &scopes).is_none());
 
         let config = detector::absolutize(&dir.path().join(".cargo/config"));
+
         write(&config, "");
+
         assert!(triggered_by(&modified(&config), &scopes).is_some());
     }
 
@@ -903,7 +969,9 @@ mod tests {
             .expect("scope"),
         ];
         let rust = detector::absolutize(&dir.path().join("a.rs"));
+
         write(&rust, "");
+
         assert!(triggered_by(&modified(&rust), &scopes).is_none());
     }
 
@@ -917,6 +985,7 @@ mod tests {
             event: Event::new(EventKind::Any).set_flag(Flag::Rescan),
             time: std::time::Instant::now(),
         };
+
         assert!(triggered_by(&rescan, &scopes).is_some());
     }
 
@@ -927,8 +996,11 @@ mod tests {
         let dir = tree();
         let scopes = only_scope(dir.path());
         let created = detector::absolutize(&dir.path().join("new"));
+
         fs::create_dir_all(&created).expect("dir");
+
         let birth = event(EventKind::Create(CreateKind::Folder), &created);
+
         assert!(triggered_by(&birth, &scopes).is_some());
     }
 
@@ -938,14 +1010,19 @@ mod tests {
     #[test]
     fn a_new_build_directory_does_not_trigger() {
         let dir = tree();
+
         write(
             &dir.path().join("Cargo.toml"),
             "[package]\nname = \"a\"\nversion = \"0.1.0\"\n",
         );
+
         let scopes = only_scope(dir.path());
         let built = detector::absolutize(&dir.path().join("target"));
+
         fs::create_dir_all(&built).expect("dir");
+
         let birth = event(EventKind::Create(CreateKind::Folder), &built);
+
         assert!(triggered_by(&birth, &scopes).is_none());
     }
 
@@ -955,6 +1032,7 @@ mod tests {
         let scopes = only_scope(dir.path());
         let path = detector::absolutize(&dir.path().join("gone.rs"));
         let removal = event(EventKind::Remove(RemoveKind::File), &path);
+
         assert!(triggered_by(&removal, &scopes).is_some());
     }
 
@@ -962,12 +1040,17 @@ mod tests {
     fn a_sibling_of_a_watched_file_does_not_trigger() {
         let dir = tree();
         let watched = dir.path().join("x.toml");
+
         write(&watched, "a = 1\n");
+
         let scopes = vec![Scope::containing(&watched, &plain()).expect("scope")];
 
         assert!(triggered_by(&modified(&detector::absolutize(&watched)), &scopes).is_some());
+
         let sibling = detector::absolutize(&dir.path().join("y.toml"));
+
         write(&sibling, "");
+
         assert!(triggered_by(&modified(&sibling), &scopes).is_none());
     }
 
@@ -977,7 +1060,9 @@ mod tests {
         let other = tree();
         let scopes = only_scope(dir.path());
         let path = detector::absolutize(&other.path().join("a.rs"));
+
         write(&path, "");
+
         assert!(triggered_by(&modified(&path), &scopes).is_none());
     }
 
@@ -986,8 +1071,11 @@ mod tests {
         let dir = tree();
         let scopes = only_scope(dir.path());
         let path = detector::absolutize(&dir.path().join("a.rs"));
+
         write(&path, "");
+
         let batch = vec![modified(&path), modified(&path)];
+
         assert_eq!(triggers(&batch, &scopes), vec![path]);
     }
 
@@ -1005,7 +1093,9 @@ mod tests {
         assert!(session.wrote(Path::new("/x.rs")));
         assert!(session.observe(true, &churning).is_none());
         assert!(session.observe(true, &churning).is_none());
+
         let warning = session.observe(true, &churning).expect("a warning");
+
         assert!(warning.contains("/x.rs"), "{warning}");
         assert!(session.braked);
         // Named once, not once per batch.
@@ -1016,11 +1106,15 @@ mod tests {
     fn a_change_from_outside_resumes_the_watch() {
         let mut session = Session::default();
         let churning = vec![PathBuf::from("/x.rs")];
+
         for _ in 0..MAX_SELF_TRIGGER_ROUNDS {
             session.observe(true, &churning);
         }
+
         assert!(session.braked);
+
         session.observe(false, &churning);
+
         assert!(!session.braked);
         assert_eq!(session.rounds, 0);
     }
@@ -1030,9 +1124,11 @@ mod tests {
     #[test]
     fn a_settled_run_does_not_count_towards_the_brake() {
         let mut session = Session::default();
+
         for _ in 0..10 {
             assert!(session.observe(true, &[]).is_none());
         }
+
         assert!(!session.braked);
     }
 
@@ -1056,18 +1152,22 @@ mod tests {
     fn a_repeat_batch_formats_once_and_reports_once() {
         let dir = tree();
         let file = detector::absolutize(&dir.path().join("x.toml"));
+
         write(&file, "a={b=\"c\"}\n");
 
         let options = toml_run(dir.path());
         let selector = options.selector().expect("selector");
+
         let mut scopes = dedupe(scopes(&options, &selector).expect("scopes"));
         let batch = vec![modified(&file)];
 
         let mut out = Vec::new();
         let mut err = Vec::new();
+
         {
             let streams = Streams::plain(&mut out, &mut err);
             let mut session = Session::default();
+
             let code = drive(
                 vec![batch.clone(), batch].into_iter(),
                 &mut scopes,
@@ -1077,11 +1177,14 @@ mod tests {
                 &mut session,
             )
             .expect("drive");
+
             assert_eq!(code, 0);
         }
 
         assert_eq!(fs::read_to_string(&file).expect("read"), "a.b = \"c\"\n");
+
         let commentary = String::from_utf8(err).expect("utf8");
+
         assert_eq!(
             commentary.matches("Formatted").count(),
             1,
@@ -1095,23 +1198,29 @@ mod tests {
     fn a_failure_does_not_end_the_loop() {
         let dir = tree();
         let broken = detector::absolutize(&dir.path().join("x.toml"));
+
         write(&broken, "a = = 1\n");
+
         let later = detector::absolutize(&dir.path().join("y.toml"));
 
         let options = toml_run(dir.path());
         let selector = options.selector().expect("selector");
+
         let mut scopes = dedupe(scopes(&options, &selector).expect("scopes"));
 
         // The second batch is delivered after the file it names exists, which
         // is what a real save looks like.
         write(&later, "d={e=\"f\"}\n");
+
         let batches = vec![vec![modified(&broken)], vec![modified(&later)]];
 
         let mut out = Vec::new();
         let mut err = Vec::new();
+
         {
             let streams = Streams::plain(&mut out, &mut err);
             let mut session = Session::default();
+
             drive(
                 batches.into_iter(),
                 &mut scopes,
@@ -1124,6 +1233,7 @@ mod tests {
         }
 
         let commentary = String::from_utf8(err).expect("utf8");
+
         assert!(commentary.contains("x.toml"), "{commentary}");
         assert_eq!(
             fs::read_to_string(&later).expect("read"),
@@ -1136,19 +1246,25 @@ mod tests {
     fn a_batch_of_nothing_the_filter_wants_does_not_run() {
         let dir = tree();
         let file = detector::absolutize(&dir.path().join("x.toml"));
+
         write(&file, "a={b=\"c\"}\n");
+
         let ignored = detector::absolutize(&dir.path().join("notes.md"));
+
         write(&ignored, "");
 
         let options = toml_run(dir.path());
         let selector = options.selector().expect("selector");
+
         let mut scopes = dedupe(scopes(&options, &selector).expect("scopes"));
 
         let mut out = Vec::new();
         let mut err = Vec::new();
+
         {
             let streams = Streams::plain(&mut out, &mut err);
             let mut session = Session::default();
+
             drive(
                 vec![vec![modified(&ignored)]].into_iter(),
                 &mut scopes,
@@ -1159,6 +1275,7 @@ mod tests {
             )
             .expect("drive");
         }
+
         assert_eq!(
             fs::read_to_string(&file).expect("read"),
             "a={b=\"c\"}\n",
@@ -1172,18 +1289,23 @@ mod tests {
     fn a_check_run_records_no_writes() {
         let dir = tree();
         let file = detector::absolutize(&dir.path().join("x.toml"));
+
         write(&file, "a={b=\"c\"}\n");
 
         let mut options = toml_run(dir.path());
+
         options.check = true;
+
         let selector = options.selector().expect("selector");
         let mut scopes = dedupe(scopes(&options, &selector).expect("scopes"));
 
         let mut out = Vec::new();
         let mut err = Vec::new();
+
         {
             let streams = Streams::plain(&mut out, &mut err);
             let mut session = Session::default();
+
             drive(
                 vec![vec![modified(&file)]].into_iter(),
                 &mut scopes,
@@ -1193,11 +1315,13 @@ mod tests {
                 &mut session,
             )
             .expect("drive");
+
             assert!(
                 session.written.is_empty(),
                 "a check run wrote nothing, so it owns nothing"
             );
         }
+
         assert_eq!(fs::read_to_string(&file).expect("read"), "a={b=\"c\"}\n");
     }
 
@@ -1205,6 +1329,7 @@ mod tests {
     fn a_note_names_a_few_paths_and_counts_the_rest() {
         let paths: Vec<PathBuf> = (0..5).map(|n| PathBuf::from(format!("/{n}.rs"))).collect();
         let note = triggered(&paths);
+
         assert!(note.ends_with("and 2 more"), "{note}");
         assert_eq!(triggered(&paths[..1]), "changed: /0.rs");
     }

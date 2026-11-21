@@ -26,7 +26,7 @@ const MAX_PATHSPEC_BYTES: usize = 48 * 1024;
 /// content change like any other; `D` and `U` cannot be.
 const DIFF_FILTER: &str = "--diff-filter=ACMRT";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GitScope {
     /// Everything that differs from the merge base of `<ref>` and `HEAD`.
     Since(String),
@@ -34,7 +34,7 @@ pub enum GitScope {
     Staged,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GitSelection {
     pub scope: GitScope,
     /// `--since` only. Untracked files differ from every ref, so they are not
@@ -71,7 +71,7 @@ pub struct Changed {
 
 /// What `--restage` needs after the run: which index owns each formatted path,
 /// and which paths must be left out of it.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GitPlan {
     pub repos: Vec<PathBuf>,
     pub drifted: Vec<PathBuf>,
@@ -89,7 +89,7 @@ impl From<&Changed> for GitPlan {
 /// The base a repository is compared against. `Since` collapses to a resolved
 /// commit before recursion, because a submodule's fork point is the commit the
 /// superproject recorded, not a merge base of its own.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum RepoScope {
     Staged,
     Diff(String),
@@ -117,6 +117,7 @@ pub fn changed_files(selection: &GitSelection, cwd: &Path) -> Result<Changed> {
     };
 
     let mut visited = HashSet::new();
+
     visited.insert(root.clone());
     collect_repo(git, &scope, selection, 0, &mut visited, &mut changed)?;
 
@@ -129,12 +130,15 @@ pub fn changed_files(selection: &GitSelection, cwd: &Path) -> Result<Changed> {
 
 pub fn repository_root(cwd: &Path) -> Result<PathBuf> {
     let output = Git::inherited(cwd).run(&["rev-parse", "--show-toplevel"])?;
+
     if !output.status.success() {
         return Err(Error::NotAGitRepository(cwd.to_path_buf()));
     }
+
     let Some(root) = decode_path(trim_ascii(&output.stdout)) else {
         return Err(Error::NotAGitRepository(cwd.to_path_buf()));
     };
+
     if root.as_os_str().is_empty() {
         return Err(Error::NotAGitRepository(cwd.to_path_buf()));
     }
@@ -151,12 +155,15 @@ pub fn repository_root(cwd: &Path) -> Result<PathBuf> {
 /// onto it.
 pub fn hooks_dir(cwd: &Path) -> Result<PathBuf> {
     let output = Git::inherited(cwd).run(&["rev-parse", "--git-path", "hooks"])?;
+
     if !output.status.success() {
         return Err(Error::NotAGitRepository(cwd.to_path_buf()));
     }
+
     let Some(hooks) = decode_path(trim_ascii(&output.stdout)) else {
         return Err(Error::NotAGitRepository(cwd.to_path_buf()));
     };
+
     if hooks.as_os_str().is_empty() {
         return Err(Error::NotAGitRepository(cwd.to_path_buf()));
     }
@@ -188,17 +195,20 @@ pub fn restage<'a>(plan: &GitPlan, paths: impl Iterator<Item = &'a Path>) -> Res
             ));
             continue;
         }
+
         let Some(root) = owning_repo(plan, path) else {
             continue;
         };
         let Ok(relative) = path.strip_prefix(root) else {
             continue;
         };
+
         by_repo.entry(root).or_default().push(pathspec(relative));
     }
 
     let superproject = plan.repos.first().map(PathBuf::as_path);
     let mut roots: Vec<&Path> = by_repo.keys().copied().collect();
+
     roots.sort_unstable();
     for root in roots {
         let git = if superproject == Some(root) {
@@ -207,9 +217,11 @@ pub fn restage<'a>(plan: &GitPlan, paths: impl Iterator<Item = &'a Path>) -> Res
             Git::isolated(root)?
         };
         let mut specs = by_repo.remove(root).unwrap_or_default();
+
         specs.sort_unstable();
         for chunk in chunked(&specs) {
             let mut args: Vec<OsString> = vec![OsString::from("add"), OsString::from("--")];
+
             args.extend(chunk.iter().cloned());
             git.checked(&args)?;
         }
@@ -231,6 +243,7 @@ fn owning_repo<'p>(plan: &'p GitPlan, path: &Path) -> Option<&'p Path> {
 /// glob, whatever `GIT_GLOB_PATHSPECS` the surrounding hook set.
 fn pathspec(relative: &Path) -> OsString {
     let mut spec = OsString::from(":(literal)");
+
     spec.push(relative.as_os_str());
     spec
 }
@@ -239,8 +252,10 @@ fn chunked(specs: &[OsString]) -> Vec<&[OsString]> {
     let mut chunks = Vec::new();
     let mut start = 0;
     let mut bytes = 0;
+
     for (index, spec) in specs.iter().enumerate() {
         let len = spec.len() + 1;
+
         if index > start && (index - start >= MAX_PATHSPECS || bytes + len > MAX_PATHSPEC_BYTES) {
             chunks.push(&specs[start..index]);
             start = index;
@@ -273,6 +288,7 @@ fn base_for(git: Git<'_>, reference: &str, changed: &mut Changed) -> Result<Stri
     };
 
     let merge_base = git.run(&["merge-base", "--end-of-options", &object, "HEAD"])?;
+
     if merge_base.status.success()
         && let Some(base) = text(&merge_base.stdout)
         && !base.is_empty()
@@ -312,6 +328,7 @@ fn collect_repo(
                 ],
                 &mut changed.warnings,
             )?;
+
             if selection.untracked {
                 files.extend(paths_from(
                     git,
@@ -322,6 +339,7 @@ fn collect_repo(
             files
         }
     };
+
     files.sort_unstable();
     files.dedup();
 
@@ -342,6 +360,7 @@ fn collect_repo(
                     .into_iter()
                     .collect(),
             };
+
             changed.drifted.extend(
                 files
                     .iter()
@@ -369,21 +388,26 @@ fn recurse_submodules(
 ) -> Result<()> {
     for relative in gitlinks(git, &mut changed.warnings)? {
         let path = git.cwd.join(&relative);
+
         if !path.join(".git").exists() {
             continue;
         }
+
         let Ok(sub_root) = path.canonicalize().map(simplify_path) else {
             continue;
         };
+
         if !visited.insert(sub_root.clone()) {
             continue;
         }
+
         let submodule = Git::isolated(&sub_root)?;
 
         let sub_scope = match scope {
             RepoScope::Staged => RepoScope::Staged,
             RepoScope::Diff(base) => {
                 let mut spec = OsString::from(base);
+
                 spec.push(":");
                 spec.push(relative.as_os_str());
                 if let Some(commit) = resolve_in(git, submodule, &spec)? {
@@ -418,9 +442,11 @@ fn resolve_in(superproject: Git<'_>, submodule: Git<'_>, spec: &OsStr) -> Result
         OsStr::new("--quiet"),
         spec,
     ])?;
+
     if !recorded.status.success() {
         return Ok(None);
     }
+
     let Some(commit) = text(&recorded.stdout).filter(|commit| !commit.is_empty()) else {
         return Ok(None);
     };
@@ -436,10 +462,12 @@ fn resolve_in(superproject: Git<'_>, submodule: Git<'_>, spec: &OsStr) -> Result
 fn gitlinks(git: Git<'_>, warnings: &mut Vec<String>) -> Result<Vec<PathBuf>> {
     let stdout = git.checked(&["ls-files", "--stage", "-z"])?;
     let mut links = Vec::new();
+
     for entry in stdout.split(|byte| *byte == 0).filter(|e| !e.is_empty()) {
         if !entry.starts_with(b"160000 ") {
             continue;
         }
+
         let Some(tab) = entry.iter().position(|byte| *byte == b'\t') else {
             continue;
         };
@@ -461,6 +489,7 @@ fn staged_names(git: Git<'_>, warnings: &mut Vec<String>) -> Result<Vec<PathBuf>
     } else {
         paths_from(git, &["ls-files", "--cached", "-z"], warnings)?
     };
+
     files.sort_unstable();
     files.dedup();
     Ok(files)
@@ -481,6 +510,7 @@ fn paths_from<S: AsRef<OsStr>>(
     let root = git.cwd;
     let stdout = git.checked(args)?;
     let mut files = Vec::new();
+
     for entry in stdout.split(|byte| *byte == 0).filter(|e| !e.is_empty()) {
         let Some(relative) = decode_path(entry) else {
             warnings.push(undecodable(entry));
@@ -533,7 +563,7 @@ fn trim_ascii(bytes: &[u8]) -> &[u8] {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Git<'a> {
     cwd: &'a Path,
     removed_env: &'a [OsString],
@@ -556,6 +586,7 @@ impl<'a> Git<'a> {
 
     fn checked<S: AsRef<OsStr>>(self, args: &[S]) -> Result<Vec<u8>> {
         let output = self.run(args)?;
+
         if !output.status.success() {
             return Err(Error::GitCommandFailed {
                 command: describe(args),
@@ -567,6 +598,7 @@ impl<'a> Git<'a> {
 
     fn run<S: AsRef<OsStr>>(self, args: &[S]) -> Result<Output> {
         let mut command = Command::new("git");
+
         for name in self.removed_env {
             command.env_remove(name);
         }
@@ -609,6 +641,7 @@ fn repository_local_env(cwd: &Path) -> Result<&'static [OsString]> {
 
 fn describe<S: AsRef<OsStr>>(args: &[S]) -> String {
     let mut command = String::from("git");
+
     for arg in args {
         command.push(' ');
         command.push_str(&arg.as_ref().to_string_lossy());
@@ -646,6 +679,7 @@ mod tests {
     fn head_exists_only_after_the_first_commit() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
+
         if !seeded(dir) {
             return;
         }
@@ -653,6 +687,7 @@ mod tests {
         assert!(!head_exists(Git::inherited(dir)).unwrap());
 
         fs::write(dir.join("seed.txt"), "seed\n").unwrap();
+
         assert!(git(dir, &["add", "-A"]));
         assert!(git(dir, &["commit", "--quiet", "-m", "seed"]));
 
@@ -666,12 +701,15 @@ mod tests {
     fn a_ref_that_looks_like_an_option_is_still_a_ref() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
+
         if !seeded(dir) {
             return;
         }
         fs::write(dir.join("seed.txt"), "seed\n").unwrap();
+
         assert!(git(dir, &["add", "-A"]));
         assert!(git(dir, &["commit", "--quiet", "-m", "seed"]));
+
         let sha = text(
             &Git::inherited(dir)
                 .run(&["rev-parse", "--verify", "--quiet", "HEAD"])
@@ -679,10 +717,12 @@ mod tests {
                 .stdout,
         )
         .expect("HEAD");
+
         assert!(git(dir, &["update-ref", "refs/heads/--foo", &sha]));
         assert!(git(dir, &["update-ref", "refs/heads/-bar", &sha]));
 
         let mut changed = Changed::default();
+
         assert_eq!(
             base_for(Git::inherited(dir), "--foo", &mut changed).unwrap(),
             sha
@@ -704,6 +744,7 @@ mod tests {
     fn a_ref_that_looks_like_an_option_and_shares_no_history_is_still_diffed() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
+
         if !seeded(dir) {
             return;
         }
@@ -722,6 +763,7 @@ mod tests {
             .output()
             .unwrap();
         let orphan = text(&orphan.stdout).expect("a commit id");
+
         assert!(git(dir, &["update-ref", "refs/heads/--foo", &orphan]));
 
         fs::write(dir.join("changed.toml"), "b = 2\n").unwrap();
@@ -779,11 +821,13 @@ mod tests {
     fn a_git_failure_is_not_mistaken_for_an_unborn_head() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
+
         if !seeded(dir) {
             return;
         }
         fs::write(dir.join("seed.txt"), "seed\n").unwrap();
         fs::write(dir.join("tracked.toml"), "a = 1\n").unwrap();
+
         assert!(git(dir, &["add", "-A"]));
         assert!(git(dir, &["commit", "--quiet", "-m", "seed"]));
 
@@ -794,8 +838,10 @@ mod tests {
             .current_dir(dir)
             .output()
             .unwrap();
+
         assert!(blob.status.success());
         assert!(git(dir, &["symbolic-ref", "HEAD", "refs/heads/broken"]));
+
         fs::write(
             dir.join(".git/refs/heads/broken"),
             String::from_utf8(blob.stdout).unwrap(),
@@ -803,7 +849,9 @@ mod tests {
         .unwrap();
 
         assert!(head_exists(Git::inherited(dir)).unwrap());
+
         let err = staged_names(Git::inherited(dir), &mut Vec::new()).unwrap_err();
+
         assert!(
             matches!(err, Error::GitCommandFailed { .. }),
             "expected a git failure, got {err:?}"
@@ -814,23 +862,28 @@ mod tests {
     fn a_path_that_cannot_be_read_is_reported_rather_than_dropped() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
+
         if !seeded(dir) {
             return;
         }
         fs::write(dir.join("kept.toml"), "a = 1\n").unwrap();
         fs::write(dir.join("gone.toml"), "b = 2\n").unwrap();
+
         assert!(git(dir, &["add", "-A"]));
 
         // A staged path deleted before the walk is a race, not a failure, so it
         // is dropped without a word; everything else is named.
         fs::remove_file(dir.join("gone.toml")).unwrap();
+
         let mut warnings = Vec::new();
+
         let files = paths_from(
             Git::inherited(dir),
             &["ls-files", "--cached", "-z"],
             &mut warnings,
         )
         .unwrap();
+
         assert_eq!(files.len(), 1);
         assert!(warnings.is_empty(), "{warnings:?}");
     }
@@ -840,20 +893,24 @@ mod tests {
     fn a_tracked_symlink_is_not_resolved_to_its_target() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
+
         if !seeded(dir) {
             return;
         }
         fs::write(dir.join("real.toml"), "a = 1\n").unwrap();
         std::os::unix::fs::symlink("real.toml", dir.join("link.toml")).unwrap();
+
         assert!(git(dir, &["add", "-A"]));
 
         let mut warnings = Vec::new();
+
         let files = paths_from(
             Git::inherited(dir),
             &["ls-files", "--cached", "-z"],
             &mut warnings,
         )
         .unwrap();
+
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(files.len(), 1, "{files:?}");
         assert!(files[0].ends_with("real.toml"), "{}", files[0].display());
@@ -864,12 +921,14 @@ mod tests {
         let many: Vec<OsString> = (0..1200)
             .map(|n| pathspec(Path::new(&n.to_string())))
             .collect();
+
         assert_eq!(chunked(&many).len(), 3);
         assert_eq!(chunked(&many).concat().len(), many.len());
 
         let long: Vec<OsString> = (0..8)
             .map(|n| pathspec(Path::new(&format!("{}{n}", "x".repeat(10_000)))))
             .collect();
+
         assert_eq!(chunked(&long).len(), 2);
         assert_eq!(chunked(&long).concat().len(), long.len());
     }
@@ -897,6 +956,7 @@ mod tests {
     fn restage_re_adds_a_formatted_file() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
+
         if !seeded(dir) {
             return;
         }
@@ -904,6 +964,7 @@ mod tests {
         commit(dir, "seed");
 
         fs::write(dir.join("a.toml"), "a = 2\n").unwrap();
+
         assert!(git(dir, &["add", "-A"]));
         // The formatter rewrote the working tree after it was staged.
         fs::write(dir.join("a.toml"), "a = 3\n").unwrap();
@@ -914,15 +975,18 @@ mod tests {
             drifted: Vec::new(),
         };
         let file = root.join("a.toml");
+
         let warnings = restage(&plan, std::iter::once(file.as_path())).unwrap();
 
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(staged_names_in(dir), ["a.toml"]);
+
         let staged = StdCommand::new("git")
             .args(["show", ":a.toml"])
             .current_dir(dir)
             .output()
             .unwrap();
+
         assert_eq!(String::from_utf8_lossy(&staged.stdout), "a = 3\n");
     }
 
@@ -933,6 +997,7 @@ mod tests {
     fn restage_skips_a_drifted_path_and_says_why() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
+
         if !seeded(dir) {
             return;
         }
@@ -942,6 +1007,7 @@ mod tests {
 
         let root = repository_root(dir).unwrap();
         let file = root.join("a.toml");
+
         let plan = GitPlan {
             repos: vec![root.clone()],
             drifted: vec![file.clone()],
@@ -960,6 +1026,7 @@ mod tests {
     fn restage_ignores_a_path_outside_every_repository() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
+
         if !seeded(dir) {
             return;
         }
@@ -972,6 +1039,7 @@ mod tests {
             drifted: Vec::new(),
         };
         let outside = PathBuf::from("/definitely/not/in/the/repo.toml");
+
         let warnings = restage(&plan, std::iter::once(outside.as_path())).unwrap();
 
         assert!(warnings.is_empty(), "{warnings:?}");
@@ -985,6 +1053,7 @@ mod tests {
     fn restage_groups_a_path_under_its_innermost_repository() {
         let temp = tempfile::tempdir().unwrap();
         let outer = temp.path();
+
         if !seeded(outer) {
             return;
         }
@@ -992,6 +1061,7 @@ mod tests {
         commit(outer, "seed");
 
         let inner = outer.join("inner");
+
         fs::create_dir_all(&inner).unwrap();
         if !seeded(&inner) {
             return;
@@ -1001,6 +1071,7 @@ mod tests {
 
         let outer_root = repository_root(outer).unwrap();
         let inner_root = repository_root(&inner).unwrap();
+
         let plan = GitPlan {
             repos: vec![outer_root.clone(), inner_root.clone()],
             drifted: Vec::new(),
@@ -1008,8 +1079,10 @@ mod tests {
 
         fs::write(outer_root.join("outer.toml"), "a = 2\n").unwrap();
         fs::write(inner_root.join("inner.toml"), "b = 2\n").unwrap();
+
         let outer_file = outer_root.join("outer.toml");
         let inner_file = inner_root.join("inner.toml");
+
         let warnings = restage(
             &plan,
             [outer_file.as_path(), inner_file.as_path()].into_iter(),
@@ -1028,10 +1101,13 @@ mod tests {
     fn restage_crosses_the_pathspec_chunk_boundary() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
+
         if !seeded(dir) {
             return;
         }
+
         let count = MAX_PATHSPECS + 20;
+
         for index in 0..count {
             fs::write(dir.join(format!("f{index:04}.toml")), "a = 1\n").unwrap();
         }
@@ -1044,6 +1120,7 @@ mod tests {
         let files: Vec<PathBuf> = (0..count)
             .map(|index| root.join(format!("f{index:04}.toml")))
             .collect();
+
         let warnings = restage(&plan_for(&root), files.iter().map(PathBuf::as_path)).unwrap();
 
         assert!(warnings.is_empty(), "{warnings:?}");
@@ -1063,6 +1140,7 @@ mod tests {
             repos: vec![PathBuf::from("/a"), PathBuf::from("/a/b")],
             drifted: Vec::new(),
         };
+
         assert_eq!(
             owning_repo(&plan, Path::new("/a/b/c.rs")),
             Some(Path::new("/a/b"))
@@ -1097,6 +1175,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let sub = temp.path().join("sub-origin");
         let super_dir = temp.path().join("super");
+
         fs::create_dir_all(&sub).unwrap();
         fs::create_dir_all(&super_dir).unwrap();
         if !seeded(&sub) || !seeded(&super_dir) {
@@ -1121,10 +1200,13 @@ mod tests {
             return;
         };
         let inner = super_dir.join("vendored").join("sub.toml");
+
         fs::write(&inner, "a = 2\n").unwrap();
+
         assert!(git(&super_dir.join("vendored"), &["add", "-A"]));
 
         let without = changed_files(&GitSelection::new(GitScope::Staged), &super_dir).unwrap();
+
         assert!(
             !without.files.iter().any(|path| path.ends_with("sub.toml")),
             "{:?}",
@@ -1140,6 +1222,7 @@ mod tests {
             &super_dir,
         )
         .unwrap();
+
         assert!(
             with.files.iter().any(|path| path.ends_with("sub.toml")),
             "{:?}",
@@ -1155,6 +1238,7 @@ mod tests {
         let Some((_temp, super_dir, _sub)) = submodule_fixture() else {
             return;
         };
+
         fs::remove_dir_all(super_dir.join("vendored")).unwrap();
         fs::create_dir_all(super_dir.join("vendored")).unwrap();
 
@@ -1166,6 +1250,7 @@ mod tests {
             &super_dir,
         )
         .unwrap();
+
         assert_eq!(changed.repos.len(), 1, "{:?}", changed.repos);
     }
 
@@ -1175,7 +1260,9 @@ mod tests {
             return;
         };
         let mut warnings = Vec::new();
+
         let links = gitlinks(Git::inherited(&super_dir), &mut warnings).unwrap();
+
         assert_eq!(links, vec![PathBuf::from("vendored")]);
         assert!(warnings.is_empty(), "{warnings:?}");
     }
@@ -1184,6 +1271,7 @@ mod tests {
     fn a_repository_with_no_submodule_has_no_gitlink() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
+
         if !seeded(dir) {
             return;
         }
@@ -1191,6 +1279,7 @@ mod tests {
         commit(dir, "seed");
 
         let mut warnings = Vec::new();
+
         assert_eq!(
             gitlinks(Git::inherited(dir), &mut warnings).unwrap(),
             Vec::<PathBuf>::new()
@@ -1220,8 +1309,10 @@ mod tests {
         )
         .unwrap();
         let mut roots = changed.repos.clone();
+
         roots.sort_unstable();
         roots.dedup();
+
         assert_eq!(roots.len(), changed.repos.len(), "{:?}", changed.repos);
     }
 

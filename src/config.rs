@@ -16,7 +16,7 @@ pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
 /// grouped so a caller selects a position rather than a dozen `--config`
 /// strings. Each preset states its values outright, so a change to rustfmt's own
 /// defaults cannot move them.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RustStyle {
     /// Comments are formatted like code: wrapped to the width budget, given
@@ -68,7 +68,7 @@ impl RustStyle {
 type Key = Cow<'static, str>;
 
 /// Builder and manager for rustfmt `--config` options.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RustfmtConfig {
     options: BTreeMap<Key, Key>,
 }
@@ -147,15 +147,18 @@ impl RustfmtConfig {
     pub fn extend_from_str(&mut self, config_str: &str) -> Result<&mut Self, Usage> {
         for entry in split_entries(config_str) {
             let entry = entry.trim();
+
             if entry.is_empty() {
                 continue;
             }
+
             let Some((key, value)) = entry.split_once('=') else {
                 return Err(Usage::ConfigEntryWithoutValue {
                     entry: entry.to_owned(),
                 });
             };
             let key = key.trim();
+
             if key.is_empty() {
                 return Err(Usage::ConfigEntryWithoutKey {
                     entry: entry.to_owned(),
@@ -177,6 +180,7 @@ impl RustfmtConfig {
     /// what only a configuration file can carry.
     pub fn to_config_arg(&self) -> String {
         let mut out = String::new();
+
         for (key, value) in self.command_line_options() {
             if !out.is_empty() {
                 out.push(',');
@@ -262,6 +266,7 @@ mod tests {
     fn test_default_config() {
         let cfg = RustfmtConfig::default();
         let arg = cfg.to_config_arg();
+
         assert!(arg.contains("group_imports=StdExternalCrate"));
         assert!(arg.contains("imports_granularity=Crate"));
     }
@@ -269,8 +274,11 @@ mod tests {
     #[test]
     fn test_override_and_extend() {
         let mut cfg = RustfmtConfig::default();
+
         cfg.extend_from_str("max_width=120,edition=2024").unwrap();
+
         let arg = cfg.to_config_arg();
+
         assert!(arg.contains("group_imports=StdExternalCrate"));
         assert!(arg.contains("imports_granularity=Crate"));
         assert!(arg.contains("max_width=120"));
@@ -280,8 +288,11 @@ mod tests {
     #[test]
     fn test_config_arg_is_exactly_sized() {
         let mut cfg = RustfmtConfig::default();
+
         cfg.extend_from_str("max_width=120").unwrap();
+
         let arg = cfg.to_config_arg();
+
         assert_eq!(arg.matches(',').count(), cfg.options().len() - 1);
     }
 
@@ -291,8 +302,10 @@ mod tests {
     #[test]
     fn an_array_value_survives_the_split() {
         let mut cfg = RustfmtConfig::default();
+
         cfg.extend_from_str(r#"ignore=["a","b"],max_width=120"#)
             .unwrap();
+
         assert_eq!(cfg.get("ignore"), Some(r#"["a","b"]"#));
         assert_eq!(cfg.get("max_width"), Some("120"));
     }
@@ -300,22 +313,30 @@ mod tests {
     #[test]
     fn a_comma_inside_a_quoted_value_is_not_a_separator() {
         let mut cfg = RustfmtConfig::default();
+
         cfg.extend_from_str(r#"skip_macro_invocations=["a,b"]"#)
             .unwrap();
+
         assert_eq!(cfg.get("skip_macro_invocations"), Some(r#"["a,b"]"#));
+
         cfg.extend_from_str(r#"x="a\",b""#).unwrap();
+
         assert_eq!(cfg.get("x"), Some(r#""a\",b""#));
     }
 
     #[test]
     fn an_array_value_leaves_the_command_line() {
         let mut cfg = RustfmtConfig::default();
+
         cfg.extend_from_str(r#"ignore=["a","b"],max_width=120"#)
             .unwrap();
+
         assert!(cfg.needs_config_file());
         assert!(!cfg.to_config_arg().contains("ignore"));
         assert!(cfg.to_config_arg().contains("max_width=120"));
+
         let file: Vec<_> = cfg.config_file_options().collect();
+
         assert_eq!(file, vec![("ignore", r#"["a","b"]"#)]);
     }
 
@@ -324,14 +345,18 @@ mod tests {
     #[test]
     fn a_single_element_array_also_takes_the_file_route() {
         let mut cfg = RustfmtConfig::default();
+
         cfg.extend_from_str(r#"ignore=["vendor"]"#).unwrap();
+
         assert!(cfg.needs_config_file());
     }
 
     #[test]
     fn a_bare_key_is_rejected_rather_than_becoming_true() {
         let mut cfg = RustfmtConfig::default();
+
         let err = cfg.extend_from_str("max_width").unwrap_err();
+
         assert!(err.to_string().contains("max_width"), "{err}");
         assert_eq!(cfg.get("max_width"), None);
         assert!(cfg.extend_from_str("=120").is_err());
@@ -340,13 +365,16 @@ mod tests {
     #[test]
     fn an_empty_entry_is_still_tolerated() {
         let mut cfg = RustfmtConfig::default();
+
         cfg.extend_from_str("max_width=120,,").unwrap();
+
         assert_eq!(cfg.get("max_width"), Some("120"));
     }
 
     #[test]
     fn unset_reports_whether_it_removed_anything() {
         let mut cfg = RustfmtConfig::default();
+
         assert!(cfg.unset("group_imports"));
         assert!(!cfg.unset("group_imports"));
         assert_eq!(
@@ -358,7 +386,9 @@ mod tests {
     #[test]
     fn take_lifts_a_value_out_of_the_pass_through_map() {
         let mut cfg = RustfmtConfig::default();
+
         cfg.extend_from_str("edition=2018,max_width=120").unwrap();
+
         assert_eq!(cfg.take("edition").as_deref(), Some("2018"));
         assert_eq!(cfg.take("edition"), None);
         assert!(!cfg.to_config_arg().contains("edition"));
@@ -367,13 +397,17 @@ mod tests {
     #[test]
     fn strict_layers_over_the_two_presets_below_it() {
         let mut cfg = RustfmtConfig::default();
+
         cfg.apply_style(RustStyle::Strict);
+
         assert_eq!(cfg.get("wrap_comments"), Some("true"));
         assert_eq!(cfg.get("hex_literal_case"), Some("Upper"));
         assert_eq!(cfg.get("format_strings"), Some("true"));
 
         let mut narrow = RustfmtConfig::default();
+
         narrow.apply_style(RustStyle::Literals);
+
         assert_eq!(narrow.get("wrap_comments"), None);
         assert_eq!(narrow.get("hex_literal_case"), Some("Upper"));
     }
@@ -383,10 +417,14 @@ mod tests {
     #[test]
     fn a_config_flag_wins_over_a_preset() {
         let mut cfg = RustfmtConfig::default();
+
         cfg.apply_style(RustStyle::Comments);
         cfg.extend_from_str("wrap_comments=false").unwrap();
+
         assert_eq!(cfg.get("wrap_comments"), Some("false"));
+
         cfg.unset_all(&["normalize_comments"]);
+
         assert_eq!(cfg.get("normalize_comments"), None);
     }
 }

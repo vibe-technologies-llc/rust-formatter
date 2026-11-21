@@ -11,10 +11,12 @@ use tempfile::TempDir;
 fn tree(packages: usize, per_package: usize) -> TempDir {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
+
     fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"p0\"]\n").unwrap();
 
     for package in 0..packages {
         let dir = root.join(format!("p{package}")).join("src");
+
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.parent().unwrap().join("Cargo.toml"),
@@ -27,6 +29,7 @@ fn tree(packages: usize, per_package: usize) -> TempDir {
     }
 
     let target = root.join("target").join("debug").join("deps");
+
     fs::create_dir_all(&target).unwrap();
     fs::write(
         root.join("target").join("CACHEDIR.TAG"),
@@ -38,6 +41,7 @@ fn tree(packages: usize, per_package: usize) -> TempDir {
     }
 
     let vendored = root.join("vendor").join("some-crate");
+
     fs::create_dir_all(&vendored).unwrap();
     fs::write(vendored.join(".cargo-checksum.json"), "{}").unwrap();
     fs::write(vendored.join("lib.rs"), "pub fn f() {}\n").unwrap();
@@ -48,6 +52,7 @@ fn tree(packages: usize, per_package: usize) -> TempDir {
 fn walking(c: &mut Criterion) {
     let temp = tree(8, 60);
     let selector = Selector::new(&SelectionOptions::default()).unwrap();
+
     c.bench_function("collect/workspace", |b| {
         b.iter(|| {
             let walk = collect(
@@ -68,6 +73,7 @@ fn walking(c: &mut Criterion) {
 fn pruning(c: &mut Criterion) {
     let temp = tree(1, 10);
     let selector = Selector::new(&SelectionOptions::default()).unwrap();
+
     c.bench_function("collect/mostly-pruned", |b| {
         b.iter(|| {
             let walk = collect(
