@@ -32,12 +32,12 @@ missing_errors_doc = "allow"
 struct_excessive_bools = "allow"
 
 [dependencies]
-ahash = "0.8.12"
+ahash = "0.8.13"
 anstream = "1.0.0"
 anstyle = "1.0.14"
 clap = { version = "4.6.9", features = ["derive", "wrap_help"] }
-globset = "0.4.21"
-ignore = "0.4.34"
+globset = "0.4.22"
+ignore = "0.4.35"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 similar = "3.2.1"
